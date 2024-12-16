@@ -1,0 +1,36 @@
+---
+- name: Configure dev environment
+  hosts: sidestage
+  tasks:
+    - name: Install required packages
+      ansible.builtin.package:
+        name:
+          - tmux
+          - vim
+          - pipx
+          - git
+          - curl
+        state: present
+      become: true
+    - name: Copy .tmux.conf to remote host
+      ansible.builtin.copy:
+        src: ../files/.tmux.conf
+        dest: "{{ ansible_env.HOME }}/.tmux.conf"
+        mode: '0644'
+    - name: Copy .bash_aliases to remote host
+      ansible.builtin.copy:
+        src: ../files/.bash_aliases
+        dest: "{{ ansible_env.HOME }}/.bash_aliases"
+        mode: '0644'
+        backup: true
+    - name: Copy .bashrc to remote host
+      ansible.builtin.copy:
+        src: ../files/.bashrc
+        dest: "{{ ansible_env.HOME }}/.bashrc"
+        mode: '0644'
+        backup: true
+    - name: Copy .vimrc to remote host
+      ansible.builtin.copy:
+        src: ../files/.vimrc
+        dest: "{{ ansible_env.HOME }}/.vimrc"
+        mode: '0644'

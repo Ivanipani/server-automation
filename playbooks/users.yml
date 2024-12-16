@@ -1,0 +1,14 @@
+---
+- name: Create users and groups
+  hosts: home
+  become: true
+  tasks:
+    - name: Create promoter group
+      ansible.builtin.group:
+        name: promoter
+        state: present
+
+    - name: Create talent group
+      ansible.builtin.group:
+        name: talent
+        state: present

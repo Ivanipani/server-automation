@@ -1,0 +1,77 @@
+---
+- name: Build React app locally
+  hosts: localhost
+  vars:
+    repo_url: "https://github.com/Ivanipani/song-viewer.git"
+    local_repo_path: "/tmp/song-viewer"
+    build_path: "/tmp/song-viewer/dist"
+  tasks:
+    - name: Clone/pull repository
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ local_repo_path }}"
+        clone: true
+        update: true
+      register: git_status
+
+    - name: Install npm dependencies
+      ansible.builtin.command:
+        cmd: npm install
+        chdir: "{{ local_repo_path }}"
+      when: git_status.changed
+
+    - name: Build React app
+      ansible.builtin.command:
+        cmd: npm run build
+        chdir: "{{ local_repo_path }}"
+      when: git_status.changed
+
+- name: Deploy to web server
+  hosts: sidestage
+  vars:
+    build_path: "/tmp/song-viewer/dist"
+    app_path: "/var/www/song-viewer"
+    domain: "canciones.poochella.com"
+  tasks:
+    - name: Ensure NGINX is installed
+      ansible.builtin.package:
+        name: nginx
+        state: present
+      become: true
+
+    - name: Create web app directory
+      ansible.builtin.file:
+        path: "{{ app_path }}"
+        state: directory
+        mode: '0755'
+      become: true
+
+    - name: Copy built files to server
+      ansible.builtin.copy:
+        src: "{{ build_path }}/"
+        dest: "{{ app_path }}"
+        mode: '0644'
+      become: true
+
+    - name: Configure NGINX site
+      ansible.builtin.template:
+        src: ../templates/nginx-song-viewer.conf.j2
+        dest: /etc/nginx/sites-available/song-viewer
+        mode: '0644'
+      become: true
+      notify: Restart nginx
+
+    - name: Enable NGINX site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/song-viewer
+        dest: /etc/nginx/sites-enabled/song-viewer
+        state: link
+      become: true
+      notify: Restart nginx
+
+  handlers:
+    - name: Restart nginx
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
+      become: true
