@@ -1,6 +1,6 @@
 ---
 - name: Install and configure network tools
-  hosts: home
+  hosts: poochella
   become: true
   tasks:
     - name: Install ufw

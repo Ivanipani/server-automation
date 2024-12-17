@@ -21,6 +21,10 @@ ping: check-ansible ## Ping all servers
 run-all: check-ansible ## Run all playbooks
 	ansible-playbook playbooks/*.yml -K
 
+deploy-song-viewer: check-ansible ## Deploy song viewer	
+	ansible-playbook playbooks/song-viewer.yml -K
+
 ##@ Utilities
 check-ansible: ## Check if ansible is installed
 	@which ansible > /dev/null || (echo "$(RED)Error: ansible is required but not installed.$(RESET)" && exit 1)
+

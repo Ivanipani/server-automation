@@ -1,4 +1,24 @@
 ---
+- name: Install and configure NGINX
+  hosts: poochella
+  become: true
+  tasks:
+    - name: Update package cache
+      ansible.builtin.package:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install NGINX
+      ansible.builtin.package:
+        name: nginx
+        state: present
+      notify:
+        - Restart NGINX
+  handlers:
+    - name: Restart NGINX
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
 - name: Build React app locally
   hosts: localhost
   vars:
@@ -27,18 +47,17 @@
       when: git_status.changed
 
 - name: Deploy to web server
-  hosts: sidestage
+  hosts: poochella
   vars:
     build_path: "/tmp/song-viewer/dist"
     app_path: "/var/www/song-viewer"
     domain: "canciones.poochella.com"
-  tasks:
-    - name: Ensure NGINX is installed
-      ansible.builtin.package:
+  handlers:
+    - name: Restart NGINX
+      ansible.builtin.service:
         name: nginx
-        state: present
-      become: true
-
+        state: reloaded
+  tasks:
     - name: Create web app directory
       ansible.builtin.file:
         path: "{{ app_path }}"
@@ -55,7 +74,7 @@
 
     - name: Configure NGINX site
       ansible.builtin.template:
-        src: ../templates/nginx-song-viewer.conf.j2
+        src: ../templates/nginx-react-app.conf.j2
         dest: /etc/nginx/sites-available/song-viewer
         mode: '0644'
       become: true
@@ -69,9 +88,4 @@
       become: true
       notify: Restart nginx
 
-  handlers:
-    - name: Restart nginx
-      ansible.builtin.service:
-        name: nginx
-        state: restarted
-      become: true
+

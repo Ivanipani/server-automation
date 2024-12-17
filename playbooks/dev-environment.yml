@@ -1,6 +1,6 @@
 ---
 - name: Configure dev environment
-  hosts: sidestage
+  hosts: poochella
   tasks:
     - name: Install required packages
       ansible.builtin.package:
