@@ -2,10 +2,35 @@ server {
     listen 80;
     server_name {{ domain }};
 
-    root {{ app_path }};
+    root {{ build_path_dest }};
     index index.html;
+
+    location = /index.html {
+        expires 60s;
+        add_header Cache-Control "public, no-cache, must-revalidate";
+        try_files $uri $uri/ =404;
+    }
 
     location / {
         try_files $uri $uri/ /index.html;
+    }
+
+    # Audio files location
+    location /canciones {
+        alias /home/ivanipani/canciones;
+        autoindex on;  # Optional: enables directory listing
+        
+        # Add appropriate headers for audio files
+        add_header Access-Control-Allow-Origin *;
+        add_header Content-Type application/octet-stream;
+        
+        # Configure content types for audio files
+        types {
+            audio/mpeg mp3;
+            audio/ogg  ogg;
+            audio/wav  wav;
+            audio/aac  aac;
+            audio/flac flac;
+        }
     }
 }

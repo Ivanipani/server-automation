@@ -10,6 +10,7 @@
           - pipx
           - git
           - curl
+          - rsync
         state: present
       become: true
     - name: Copy .tmux.conf to remote host

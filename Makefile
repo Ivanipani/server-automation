@@ -22,7 +22,7 @@ run-all: check-ansible ## Run all playbooks
 	ansible-playbook playbooks/*.yml -K
 
 deploy-song-viewer: check-ansible ## Deploy song viewer	
-	ansible-playbook playbooks/song-viewer.yml -K
+	ansible-playbook playbooks/song-viewer.yml -K -v
 
 ##@ Utilities
 check-ansible: ## Check if ansible is installed

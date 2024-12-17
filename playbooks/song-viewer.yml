@@ -49,26 +49,43 @@
 - name: Deploy to web server
   hosts: poochella
   vars:
-    build_path: "/tmp/song-viewer/dist"
-    app_path: "/var/www/song-viewer"
+    build_path_src: "/tmp/song-viewer/dist"
+    build_path_dest: "/var/www/song-viewer"
     domain: "canciones.poochella.com"
-  handlers:
-    - name: Restart NGINX
-      ansible.builtin.service:
-        name: nginx
-        state: reloaded
+    audio_path_src: "/Users/ivanperdomo/canciones"
+    audio_path_dest: "/home/ivanipani/canciones"
   tasks:
+    - name: Create audio directory
+      ansible.builtin.file:
+        path: "/home/ivanipani/canciones"
+        state: directory
+        mode: '0755'
+        owner: ivanipani
+        group: ivanipani
+      become: true
+    # - name: Synchronize audio files to server
+    #   ansible.posix.synchronize:
+    #     src: "{{ audio_path_src }}"
+    #     dest: "{{ audio_path_dest }}"
+    #     # archive: yes
+    #     recursive: yes
+    #     # delete: yes
+    #     # owner: yes
+    #     # group: yes
+    #     rsync_timeout: 10
+    #   delegate_to: localhost
+    #   become: true
     - name: Create web app directory
       ansible.builtin.file:
-        path: "{{ app_path }}"
+        path: "{{ build_path_dest }}"
         state: directory
         mode: '0755'
       become: true
 
     - name: Copy built files to server
       ansible.builtin.copy:
-        src: "{{ build_path }}/"
-        dest: "{{ app_path }}"
+        src: "{{ build_path_src }}/"
+        dest: "{{ build_path_dest }}"
         mode: '0644'
       become: true
 
@@ -78,14 +95,17 @@
         dest: /etc/nginx/sites-available/song-viewer
         mode: '0644'
       become: true
-      notify: Restart nginx
-
+      notify: Restart NGINX
     - name: Enable NGINX site
       ansible.builtin.file:
         src: /etc/nginx/sites-available/song-viewer
         dest: /etc/nginx/sites-enabled/song-viewer
         state: link
       become: true
-      notify: Restart nginx
-
-
+      notify: Restart NGINX
+  handlers:
+    - name: Restart NGINX
+      become: true
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
