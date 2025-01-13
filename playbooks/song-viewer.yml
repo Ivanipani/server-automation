@@ -18,7 +18,7 @@
     - name: Restart NGINX
       ansible.builtin.service:
         name: nginx
-        state: reloaded
+        state: restarted
 - name: Build React app locally
   hosts: localhost
   vars:
@@ -53,34 +53,52 @@
     build_path_dest: "/var/www/song-viewer"
     domain: "canciones.poochella.com"
     audio_path_src: "/Users/ivanperdomo/canciones"
-    audio_path_dest: "/home/ivanipani/canciones"
+    audio_path_dest: "/public/canciones"
   tasks:
     - name: Create audio directory
       ansible.builtin.file:
-        path: "/home/ivanipani/canciones"
+        path: "{{ audio_path_dest }}"
         state: directory
-        mode: '0755'
-        owner: ivanipani
-        group: ivanipani
+        mode: '0777'
+        owner: www-data
+        group: www-data
       become: true
-    # - name: Synchronize audio files to server
-    #   ansible.posix.synchronize:
-    #     src: "{{ audio_path_src }}"
-    #     dest: "{{ audio_path_dest }}"
-    #     # archive: yes
-    #     recursive: yes
-    #     # delete: yes
-    #     # owner: yes
-    #     # group: yes
-    #     rsync_timeout: 10
-    #   delegate_to: localhost
-    #   become: true
+    - name: Synchronize audio files to server
+      ansible.posix.synchronize:
+        src: "{{ audio_path_src }}/master_mix.wav"
+        dest: "{{ audio_path_dest }}"
+      delegate_to: localhost
+    - name: "Find all files and folders in {{ audio_path_dest }}"
+      find:
+        path: "{{ audio_path_dest }}"
+        file_type: any
+        recurse: true
+      register: folder_contents
+    - name: Transfer ownwership of audio files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: www-data
+        group: www-data
+      loop: "{{ folder_contents.files }}"
+      become: true
     - name: Create web app directory
       ansible.builtin.file:
         path: "{{ build_path_dest }}"
         state: directory
         mode: '0755'
+        owner: www-data
+        group: www-data
       become: true
+
+    # - name: Synchronize built files to server
+    #   ansible.posix.synchronize:
+    #     src: "{{ build_path_src }}/"
+    #     dest: "{{ build_path_dest }}"
+    #     recursive: yes
+    #     rsync_timeout: 10
+    #     use_ssg_args: true
+    #   delegate_to: localhost
+    #   become: true
 
     - name: Copy built files to server
       ansible.builtin.copy:
@@ -108,4 +126,4 @@
       become: true
       ansible.builtin.service:
         name: nginx
-        state: reloaded
+        state: restarted

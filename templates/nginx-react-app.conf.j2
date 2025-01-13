@@ -5,23 +5,31 @@ server {
     root {{ build_path_dest }};
     index index.html;
 
+
     location = /index.html {
         expires 60s;
         add_header Cache-Control "public, no-cache, must-revalidate";
         try_files $uri $uri/ =404;
     }
 
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
     # Audio files location
     location /canciones {
-        alias /home/ivanipani/canciones;
+        alias {{ audio_path_dest }}/;
         autoindex on;  # Optional: enables directory listing
+        autoindex_format json;
+        try_files $uri $uri/ =404;
         
-        # Add appropriate headers for audio files
-        add_header Access-Control-Allow-Origin *;
+        # add_header Access-Control-Allow-Origin *;
+        # Replace the existing CORS header with this conditional one
+        set $cors_origin "";
+        if ($http_origin ~ "^(http://canciones\.poochella\.com|http://localhost(:[0-9]+)?$)") {
+            set $cors_origin $http_origin;
+        }
+        
+        add_header 'Access-Control-Allow-Origin' $cors_origin always;
+        add_header 'Vary' 'Origin' always;
+        
+        # Keep your existing content type headers
         add_header Content-Type application/octet-stream;
         
         # Configure content types for audio files
@@ -33,4 +41,19 @@ server {
             audio/flac flac;
         }
     }
+
+    location / {
+        # Add these headers to handle CORS preflight requests
+        if ($request_method = 'OPTIONS') {
+            add_header 'Access-Control-Allow-Origin' '$http_origin' always;
+            add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+            add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range' always;
+            add_header 'Access-Control-Max-Age' 1728000 always;
+            add_header 'Content-Type' 'text/plain; charset=utf-8' always;
+            add_header 'Content-Length' 0 always;
+            return 204;
+        }
+        try_files $uri $uri/ /index.html;
+    }
+
 }

@@ -28,8 +28,8 @@
     - name: Allow rsync
       community.general.ufw:
         rule: allow
-        from_ip: "{{ trusted_ip }}"
-        to_port: 873
+        # from_ip: "{{ trusted_ip }}"
+        port: 873
         proto: tcp
       # notify:
       #   - Reload UFW

@@ -1,0 +1,76 @@
+---
+- name: Install and configure PostgreSQL
+  hosts: all
+  become: true
+  vars_prompt:
+    - name: postgres_password
+      prompt: "Enter PostgreSQL root password"
+      private: yes
+      confirm: yes
+
+  vars:
+    postgresql_version: 16
+    postgresql_data_dir: /var/lib/postgresql/{{ postgresql_version }}/main
+    postgresql_config_dir: /etc/postgresql/{{ postgresql_version }}/main
+
+  tasks:
+    - name: Install gpg
+      ansible.builtin.package:
+        name: gnupg
+        state: present
+
+    - name: Add PostgreSQL repository key
+      apt_key:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        state: present
+
+    - name: Add PostgreSQL repository
+      apt_repository:
+        repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+        state: present
+
+    - name: Install PostgreSQL and dependencies
+      apt:
+        name: 
+          - postgresql-{{ postgresql_version }}
+          - postgresql-contrib
+          - python3-psycopg2  # Required for Ansible PostgreSQL modules
+        state: present
+        update_cache: yes
+
+    - name: Ensure PostgreSQL is started and enabled
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+
+    # - name: Set PostgreSQL root password
+    #   community.postgresql.postgresql_user:
+    #     name: postgres
+    #     password: "{{ postgres_password }}"
+    #   become: yes
+    #   become_user: postgres
+
+    - name: Configure PostgreSQL authentication
+      template:
+        src: ../templates/pg_hba.conf.j2
+        dest: "{{ postgresql_config_dir }}/pg_hba.conf"
+        owner: postgres
+        group: postgres
+        mode: '0600'
+      notify: restart postgresql
+
+    - name: Configure PostgreSQL settings
+      template:
+        src: ../templates/postgresql.conf.j2
+        dest: "{{ postgresql_config_dir }}/postgresql.conf"
+        owner: postgres
+        group: postgres
+        mode: '0600'
+      notify: restart postgresql
+
+  handlers:
+    - name: restart postgresql
+      service:
+        name: postgresql
+        state: restarted 
