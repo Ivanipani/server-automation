@@ -15,3 +15,8 @@
         uv python install 3.12 
       args:
         creates: /home/ivanipani/.local/bin/uv
+    - name: Install pre-commit
+      ansible.builtin.shell: |
+        uv tool install pre-commit
+      args:
+        creates: /home/ivanipani/.local/bin/pre-commit

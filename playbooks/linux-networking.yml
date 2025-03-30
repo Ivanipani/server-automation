@@ -1,0 +1,15 @@
+---
+- name: Configure Linux Networking
+  hosts: all
+  become: true
+  tasks:
+    - name: Install required packages
+      ansible.builtin.package:
+        name:
+          - iproute2
+          - iptables
+          - wireshark
+          - ufw
+          - nftables
+        state: present
+      become: true
