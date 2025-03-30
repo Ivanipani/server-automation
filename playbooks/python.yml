@@ -1,0 +1,17 @@
+- name: Install Python
+  hosts: poochella
+  become: true
+  tasks:
+    # - name: Show facts available on the system
+    #   ansible.builtin.debug:
+    #     var: ansible_facts
+    - name: Install UV
+      ansible.builtin.shell: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+      args:
+        creates: /home/ivanipani/.local/bin/uv
+    - name: Install Python
+      ansible.builtin.shell: |
+        uv python install 3.12 
+      args:
+        creates: /home/ivanipani/.local/bin/uv

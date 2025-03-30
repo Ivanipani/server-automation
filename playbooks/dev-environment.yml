@@ -7,7 +7,6 @@
         name:
           - tmux
           - vim
-          - pipx
           - git
           - curl
           - rsync

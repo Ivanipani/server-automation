@@ -1,0 +1,17 @@
+- name: Install and configure Rust
+  hosts: poochella
+  tasks:
+  - name: Install required packages
+    ansible.builtin.package:
+      name:
+        - curl
+        - build-essential
+      state: present
+    become: true
+  - name: Install Rust and Cargo
+    ansible.builtin.shell: |
+      curl -LsSf https://sh.rustup.rs | sh
+    args:
+      creates: /home/ivanipani/.cargo/bin/cargo
+    tags:
+      - rust

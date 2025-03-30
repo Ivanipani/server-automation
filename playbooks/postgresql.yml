@@ -1,12 +1,12 @@
 ---
 - name: Install and configure PostgreSQL
-  hosts: all
+  hosts: poochella
   become: true
-  vars_prompt:
-    - name: postgres_password
-      prompt: "Enter PostgreSQL root password"
-      private: yes
-      confirm: yes
+  # vars_prompt:
+  #   - name: postgres_password
+  #     prompt: "Enter PostgreSQL root password"
+  #     private: yes
+  #     confirm: yes
 
   vars:
     postgresql_version: 16
@@ -74,3 +74,20 @@
       service:
         name: postgresql
         state: restarted 
+- name: Create Dabah Database
+  hosts: poochella
+  become: true
+  tasks:
+    - name: Create remy user
+      community.postgresql.postgresql_user:
+        name: remy
+        password: remy
+        state: present
+      become: true
+      become_user: postgres
+
+    - name: Create Dabah Database
+      community.postgresql.postgresql_db:
+        name: dabah
+        owner: remy
+        state: present
