@@ -9,9 +9,7 @@
       state: present
     become: true
   - name: Install Rust and Cargo
-    ansible.builtin.shell: |
-      curl -LsSf https://sh.rustup.rs | sh
-    args:
-      creates: /home/ivanipani/.cargo/bin/cargo
-    tags:
-      - rust
+    ansible.builtin.get_url:
+      url: https://sh.rustup.rs
+      dest: /tmp/rustup-install.sh
+      mode: "0755"

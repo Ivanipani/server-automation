@@ -12,3 +12,13 @@
       ansible.builtin.group:
         name: talent
         state: present
+
+    - name: Create ivanipani user
+      ansible.builtin.user:
+        name: ivanipani
+        state: present
+        groups:
+          - promoter
+          - talent
+        shell: /bin/bash
+        home: /home/ivanipani

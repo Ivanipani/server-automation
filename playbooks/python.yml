@@ -1,22 +1,29 @@
 - name: Install Python
   hosts: poochella
+  tasks:
+    - name: Download uv installer script
+      ansible.builtin.get_url:
+        url: https://astral.sh/uv/install.sh
+        dest: /tmp/uv-install.sh
+        mode: '0755'
+    - name: Run uv installer script
+      become: true
+      ansible.builtin.shell:
+        cmd: /tmp/uv-install.sh
+        creates: /usr/bin/uv
+      environment:
+        UV_INSTALL_DIR: /usr/bin
+
+- name: Install Pantsbuild
+  hosts: poochella
   become: true
   tasks:
-    # - name: Show facts available on the system
-    #   ansible.builtin.debug:
-    #     var: ansible_facts
-    - name: Install UV
-      ansible.builtin.shell: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-      args:
-        creates: /home/ivanipani/.local/bin/uv
-    - name: Install Python
-      ansible.builtin.shell: |
-        uv python install 3.12 
-      args:
-        creates: /home/ivanipani/.local/bin/uv
-    - name: Install pre-commit
-      ansible.builtin.shell: |
-        uv tool install pre-commit
-      args:
-        creates: /home/ivanipani/.local/bin/pre-commit
+    - name: Install Pantsbuild
+      ansible.builtin.get_url:
+        url: https://static.pantsbuild.org/setup/get-pants.sh
+        dest: /tmp/pants-install.sh
+        mode: "0755"
+    - name: Run pants installer script
+      ansible.builtin.shell:
+        cmd: /tmp/pants-install.sh --bin-dir /usr/bin
+        creates: /usr/bin/pants
