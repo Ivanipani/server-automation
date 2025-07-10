@@ -10,6 +10,8 @@
           - git
           - curl
           - rsync
+          - direnv
+          - pass
         state: present
       become: true
     - name: Copy .tmux.conf to remote host
