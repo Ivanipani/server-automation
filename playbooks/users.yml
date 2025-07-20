@@ -1,6 +1,6 @@
 ---
 - name: Create users and groups
-  hosts: home
+  hosts: development
   become: true
   tasks:
     - name: Create promoter group

@@ -1,5 +1,5 @@
 - name: Install Python
-  hosts: poochella
+  hosts: development
   tasks:
     - name: Download uv installer script
       ansible.builtin.get_url:
@@ -15,7 +15,7 @@
         UV_INSTALL_DIR: /usr/bin
 
 - name: Install Pantsbuild
-  hosts: poochella
+  hosts: development
   become: true
   tasks:
     - name: Install Pantsbuild

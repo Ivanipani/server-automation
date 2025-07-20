@@ -1,15 +1,17 @@
+---
 - name: Install and configure Rust
-  hosts: poochella
+  hosts: development
+  become: true
   tasks:
-  - name: Install required packages
-    ansible.builtin.package:
-      name:
-        - curl
-        - build-essential
-      state: present
-    become: true
-  - name: Install Rust and Cargo
-    ansible.builtin.get_url:
-      url: https://sh.rustup.rs
-      dest: /tmp/rustup-install.sh
-      mode: "0755"
+    - name: Install required packages
+      ansible.builtin.package:
+        name:
+          - curl
+          - build-essential
+        state: present
+
+    - name: Install Rust and Cargo
+      ansible.builtin.get_url:
+        url: https://sh.rustup.rs
+        dest: /tmp/rustup-install.sh
+        mode: "0755"

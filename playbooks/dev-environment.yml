@@ -1,6 +1,6 @@
 ---
 - name: Configure dev environment
-  hosts: poochella
+  hosts: hypervisor
   tasks:
     - name: Install required packages
       ansible.builtin.package:
@@ -14,9 +14,10 @@
           - pass
         state: present
       become: true
+  
     - name: Copy .tmux.conf to remote host
       ansible.builtin.copy:
-        src: ../files/.tmux.conf
+        src: "{{ playbook_dir }}/../files/.tmux.conf"
         dest: "{{ ansible_env.HOME }}/.tmux.conf"
         mode: '0644'
     - name: Copy .bash_aliases to remote host
