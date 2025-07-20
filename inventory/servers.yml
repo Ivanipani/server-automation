@@ -1,8 +1,16 @@
-poochella:
+# Development environment group
+development:
   hosts:
-    sidestage:
-      ansible_host: 192.168.0.239
+    hypervisor:
+      ansible_user: root
+      ansible_host: 192.168.0.213
       ansible_python_interpreter: /usr/bin/python3
-    # mainstage:
-    #   ansible_host: 192.168.0.239
-    #   ansible_python_interpreter: /usr/bin/python3
+    alpha:
+      ansible_host: 192.168.0.200
+      ansible_python_interpreter: /usr/bin/python3
+
+# Example of nested groups using children
+all_servers:
+  children:
+    development:
+    hypervisor:

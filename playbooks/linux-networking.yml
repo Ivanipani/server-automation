@@ -1,6 +1,6 @@
 ---
 - name: Configure Linux Networking
-  hosts: all
+  hosts: development
   become: true
   tasks:
     - name: Install required packages
@@ -10,7 +10,7 @@
           - iptables
           - wireshark
           - ufw
-          - nftables
+          # - nftables
         state: present
     - name: Enable ufw
       community.general.ufw:
@@ -30,14 +30,6 @@
         rule: allow
         port: 443
         proto: tcp
-    - name: Allow rsync
-      community.general.ufw:
-        rule: allow
-        # from_ip: "{{ trusted_ip }}"
-        port: 873
-        proto: tcp
-      # notify:
-      #   - Reload UFW
     - name: Deny all incoming traffic
       community.general.ufw:
         state: enabled
@@ -48,4 +40,3 @@
       ansible.builtin.service:
         name: ufw
         state: reloaded
-

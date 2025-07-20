@@ -1,6 +1,6 @@
 ---
 - name: Install Docker on Debian
-  hosts: sidestage
+  hosts: development
   become: true
   tasks:
     - name: Install required packages
@@ -49,7 +49,7 @@
         enabled: yes
 
 - name: Install Minikube
-  hosts: poochella
+  hosts: development
   become: true
   tasks:
 
