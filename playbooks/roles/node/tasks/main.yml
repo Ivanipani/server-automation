@@ -1,0 +1,38 @@
+- name: Install required packages for NodeSource setup
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: Check if NodeSource repository is already configured
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/nodesource.list
+  register: nodesource_repo
+
+- name: Download NodeSource setup script
+  ansible.builtin.get_url:
+    url: "https://deb.nodesource.com/setup_{{ nodejs_version }}.x"
+    dest: /tmp/nodesource_setup.sh
+    mode: '0755'
+  when: not nodesource_repo.stat.exists
+
+- name: Run NodeSource setup script
+  ansible.builtin.command: /tmp/nodesource_setup.sh
+  register: nodesource_setup
+  when: not nodesource_repo.stat.exists
+  changed_when: "'already enabled' not in nodesource_setup.stdout"
+
+- name: Update apt cache after NodeSource setup
+  ansible.builtin.apt:
+    update_cache: true
+  when: not nodesource_repo.stat.exists
+
+- name: Install nodejs
+  ansible.builtin.apt:
+    name: nodejs
+    state: present
+
+
