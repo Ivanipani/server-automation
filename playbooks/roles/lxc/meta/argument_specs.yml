@@ -1,0 +1,12 @@
+---
+argument_specs:
+  main:
+    short_description: Main entry point for the lxc role
+    author:
+      - Ivan Perdomo
+    options:
+      app_port:
+        type: "int"
+        description:
+          - "The server listening port."
+          - "Must be in the range 50000-50100."

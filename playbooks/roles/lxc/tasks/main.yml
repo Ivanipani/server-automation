@@ -1,0 +1,59 @@
+---
+- name: Validate app_port is in range 50000-50100
+  ansible.builtin.assert:
+    that:
+      - app_port >= 50000
+      - app_port <= 50100
+    fail_msg: "app_port must be in the range 50000-50100, got {{ app_port }}"
+    success_msg: "app_port {{ app_port }} is valid"
+  when: app_port is defined
+
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+
+- name: Enable ufw and set default policy to deny incoming traffic
+  community.general.ufw:
+    state: enabled
+    default: deny
+    direction: incoming
+
+- name: Set default policy to allow outgoing traffic
+  community.general.ufw:
+    default: allow
+    direction: outgoing
+
+- name: Allow SSH traffic
+  community.general.ufw:
+    rule: allow
+    port: 22
+    proto: tcp
+    comment: 'Allow SSH'
+
+- name: Allow application port traffic
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_port }}"
+    proto: tcp
+    comment: "Allow application traffic on port {{ app_port }}"
+  when: app_port is defined
+
+- name: Install git
+  ansible.builtin.apt:
+    name: git
+    state: present
+
+- name: Generate SSH key for git operations
+  community.crypto.openssh_keypair:
+    path: /root/.ssh/id_ed25519
+    type: ed25519
+    comment: "github private key"
+  register: ssh_key
+
+- name: Display public key (add to GitHub)
+  debug:
+    msg: "GitHub public key: {{ ssh_key.public_key }}"
+  when: ssh_key.changed
+
