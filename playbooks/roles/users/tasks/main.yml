@@ -1,0 +1,20 @@
+---
+- name: Create promoter group
+  ansible.builtin.group:
+    name: promoter
+    state: present
+
+- name: Create talent group
+  ansible.builtin.group:
+    name: talent
+    state: present
+
+- name: Create ivanipani user
+  ansible.builtin.user:
+    name: ivanipani
+    state: present
+    groups:
+      - promoter
+      - talent
+    shell: /bin/bash
+    home: /home/ivanipani
