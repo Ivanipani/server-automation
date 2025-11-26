@@ -55,5 +55,4 @@
 - name: Display public key (add to GitHub)
   debug:
     msg: "GitHub public key: {{ ssh_key.public_key }}"
-  when: ssh_key.changed
 

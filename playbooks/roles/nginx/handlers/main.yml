@@ -1,0 +1,16 @@
+- name: Test nginx configuration
+  ansible.builtin.command: nginx -t
+  register: nginx_test_result
+  changed_when: false
+  listen: "restart nginx"
+
+- name: Print nginx test output
+  ansible.builtin.debug:
+    msg: "{{ nginx_test_result.stdout }}\n{{ nginx_test_result.stderr }}"
+  listen: "restart nginx"
+
+- name: Bounce nginx
+  ansible.builtin.service:
+    name: nginx
+    state: restarted
+  listen: "restart nginx"
