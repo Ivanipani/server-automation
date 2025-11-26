@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup_hypervisor.sh
 
-HYPERVISOR_IP=${HYPERVISOR_IP:-192.168.0.213}
+HYPERVISOR_IP=${HYPERVISOR_IP:-192.168.0.2}
 SSH_PUBLIC_KEY_PATH=${SSH_PUBLIC_KEY_PATH:-~/.ssh/ansible.pub}
 
 # Local operations

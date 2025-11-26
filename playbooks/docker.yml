@@ -74,7 +74,6 @@
   become: true
   tasks:
 
-
     - name: Create Docker GPG key directory
       ansible.builtin.file:
         path: /etc/apt/keyrings
