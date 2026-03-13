@@ -2,8 +2,8 @@
 development:
   hosts:
     hypervisor:
-      ansible_user: root
-      ansible_host: 192.168.0.213
+      ansible_user: ansible
+      ansible_host: 192.168.0.2
       ansible_python_interpreter: /usr/bin/python3
     alpha:
       ansible_host: 192.168.0.200

@@ -9,12 +9,12 @@
     name: talent
     state: present
 
-- name: Create ivanipani user
+- name: Create pani user
   ansible.builtin.user:
-    name: ivanipani
+    name: pani
     state: present
     groups:
       - promoter
       - talent
     shell: /bin/bash
-    home: /home/ivanipani
+    home: /home/pani
