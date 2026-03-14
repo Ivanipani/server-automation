@@ -38,4 +38,4 @@ test-run:
         echo "No tags selected."
         exit 0
     fi
-    ansible-playbook -i test/inventory.yml test/test.yml --tags "$tags"
+    ansible-playbook -i servers.yml test/test.yml --tags "$tags"

@@ -2,6 +2,7 @@
 - name: Install development tools
   ansible.builtin.package:
     name:
+      - acl
       - zsh
       - zplug
       # - neovim
@@ -23,3 +24,28 @@
       - sudo
     shell: /bin/zsh
     home: /home/pani
+
+- name: Clone dotfiles repo
+  ansible.builtin.git:
+    repo: git@github.com:Ivanipani/dotfiles.git
+    dest: /home/pani/dotfiles
+    version: main
+    accept_hostkey: true
+  become: true
+  become_user: pani
+  become_flags: "-E"
+
+- name: Ensure .config directory exists
+  ansible.builtin.file:
+    path: /home/pani/.config
+    state: directory
+    owner: pani
+    group: pani
+    mode: "0755"
+
+- name: Run zsh setup script
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: /home/pani/dotfiles/zsh
+  become: true
+  become_user: pani
