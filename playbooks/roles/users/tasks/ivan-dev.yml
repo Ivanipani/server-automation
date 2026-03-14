@@ -44,6 +44,16 @@
     cmd: tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin zellij && chmod +x /usr/local/bin/zellij
     creates: /usr/local/bin/zellij
 
+- name: Download neovim
+  ansible.builtin.get_url:
+    url: https://github.com/neovim/neovim/releases/download/v0.11.6/nvim-linux-x86_64.tar.gz
+    dest: /tmp/nvim.tar.gz
+
+- name: Install neovim
+  ansible.builtin.shell:
+    cmd: tar -xzf /tmp/nvim.tar.gz -C /usr/local/bin && chmod +x /usr/local/bin/zellij
+    creates: /usr/local/bin/nvim
+
 # - name: Download Go
 #   ansible.builtin.get_url:
 #     url: https://go.dev/dl/go1.26.1.linux-amd64.tar.gz
@@ -79,27 +89,14 @@
   become: true
   become_user: pani
 
+
 - name: Clone dotfiles repo
   ansible.builtin.git:
     repo: git@github.com:Ivanipani/dotfiles.git
-    dest: /tmp/dotfiles
+    dest: /home/pani/dotfiles
     version: main
-    accept_hostkey: true
   become: false
-
-- name: Copy dotfiles to pani home
-  ansible.builtin.copy:
-    src: /tmp/dotfiles/
-    dest: /home/pani/dotfiles/
-    remote_src: true
-    owner: pani
-    group: pani
-    mode: preserve
-
-- name: Clean up temp dotfiles
-  ansible.builtin.file:
-    path: /tmp/dotfiles
-    state: absent
+  become_user: pani
 
 - name: Ensure .config directory exists
   ansible.builtin.file:
