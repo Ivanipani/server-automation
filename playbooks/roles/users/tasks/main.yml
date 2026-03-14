@@ -9,12 +9,5 @@
     name: talent
     state: present
 
-- name: Create pani user
-  ansible.builtin.user:
-    name: pani
-    state: present
-    groups:
-      - promoter
-      - talent
-    shell: /bin/bash
-    home: /home/pani
+- name: Create Ivan user
+  ansible.builtin.include_tasks: ivan-dev.yml

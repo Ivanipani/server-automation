@@ -29,13 +29,13 @@ check-ansible:
     which ansible-playbook > /dev/null && echo "Ansible-playbook is installed" || (echo "Error: ansible-playbook is required but not installed. Install with: uv tool install ansible" && exit 1)
 
 
-# Run the test playbook, optionally filtered by tags (e.g. just test-run users,python)
-test-run *TAGS:
+# Run the test playbook with interactive tag selection via fzf
+test-run:
     #!/usr/bin/env bash
     set -euo pipefail
-    tags="{{TAGS}}"
-    if [ -n "$tags" ]; then
-        ansible-playbook -i test/inventory.yml test/test.yml --tags "$tags"
-    else
-        ansible-playbook -i test/inventory.yml test/test.yml
+    tags=$(grep 'tags:' test/test.yml | awk '{print $NF}' | fzf --multi | paste -sd, -)
+    if [ -z "$tags" ]; then
+        echo "No tags selected."
+        exit 0
     fi
+    ansible-playbook -i test/inventory.yml test/test.yml --tags "$tags"

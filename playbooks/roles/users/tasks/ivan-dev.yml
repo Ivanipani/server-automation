@@ -1,0 +1,25 @@
+---
+- name: Install development tools
+  ansible.builtin.package:
+    name:
+      - zsh
+      - zplug
+      # - neovim
+      - direnv
+      - fd-find
+      - fzf
+      - git
+      - wget
+    state: present
+# - name: Install and configure Ivan's dotfiles
+
+- name: Create pani user
+  ansible.builtin.user:
+    name: pani
+    state: present
+    groups:
+      - promoter
+      - talent
+      - sudo
+    shell: /bin/zsh
+    home: /home/pani

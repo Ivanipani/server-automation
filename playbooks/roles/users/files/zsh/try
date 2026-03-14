@@ -1,0 +1,11 @@
+#!/bin/zsh
+
+cmd="$*"
+start=$(date +%s)
+
+while ! eval "$cmd" > /dev/null 2>&1; do
+  echo "$(date '+%Y-%m-%d %H:%M:%S') - Failed"
+  sleep 5
+done
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Success after $(( $(date +%s) - start ))s"
