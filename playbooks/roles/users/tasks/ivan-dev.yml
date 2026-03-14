@@ -4,7 +4,6 @@
     name:
       - acl
       - zsh
-      - neovim
       - direnv
       - fd-find
       - fzf
@@ -50,9 +49,29 @@
     dest: /tmp/nvim.tar.gz
 
 - name: Install neovim
-  ansible.builtin.shell:
-    cmd: tar -xzf /tmp/nvim.tar.gz -C /usr/local/bin && chmod +x /usr/local/bin/zellij
-    creates: /usr/local/bin/nvim
+  ansible.builtin.unarchive:
+    src: /tmp/nvim.tar.gz
+    dest: /opt
+    remote_src: true
+    creates: /opt/nvim-linux-x86_64/bin/nvim
+
+- name: Symlink neovim binary
+  ansible.builtin.file:
+    src: /opt/nvim-linux-x86_64/bin/nvim
+    dest: /usr/local/bin/nvim
+    state: link
+
+- name: Download jj
+  ansible.builtin.get_url:
+    url: https://github.com/jj-vcs/jj/releases/download/v0.39.0/jj-v0.39.0-x86_64-unknown-linux-musl.tar.gz
+    dest: /tmp/jj.tar.gz
+
+- name: Install jj
+  ansible.builtin.unarchive:
+    src: /tmp/tar.tar.gz
+    dest: /opt
+    remote_src: true
+    creates: /opt/jj
 
 # - name: Download Go
 #   ansible.builtin.get_url:
@@ -112,3 +131,18 @@
     chdir: /home/pani/dotfiles/zsh
   become: true
   become_user: pani
+
+- name: Configure neovim dotfiles
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: /home/pani/dotfiles/neovim
+  become: true
+  become_user: pani
+
+- name: Run zellij setup script
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: /home/pani/dotfiles/zellij
+  become: true
+  become_user: pani
+
