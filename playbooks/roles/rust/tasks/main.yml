@@ -1,3 +1,13 @@
+- name: Validate rust_user exists on system
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ rust_user }}"
+  register: rust_user_getent
+
+- name: Set rust_user_home fact
+  ansible.builtin.set_fact:
+    rust_user_home: "{{ getent_passwd[rust_user][4] }}"
+
 - name: Install required packages
   ansible.builtin.package:
     name:
@@ -12,11 +22,10 @@
     mode: "0755"
 
 - name: Run rustup installer script
-  become: true
   ansible.builtin.shell:
     cmd: /tmp/rustup-install.sh -y
-    creates: /home/pani/.cargo
+    creates: "{{ rust_user_home }}/.cargo"
   become: true
-  become_user: pani
+  become_user: "{{ rust_user }}"
   environment:
-    HOME: /home/pani
+    HOME: "{{ rust_user_home }}"

@@ -1,0 +1,12 @@
+---
+argument_specs:
+  main:
+    short_description: Main entry point for the rust role
+    author:
+      - Ivan Perdomo
+    options:
+      rust_user:
+        type: "str"
+        required: true
+        description:
+          - "The target user to install Rust for."
