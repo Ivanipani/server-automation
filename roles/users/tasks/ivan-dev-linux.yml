@@ -10,6 +10,15 @@
     shell: /bin/zsh
     home: /home/pani
 
+- name: Look up pani user info
+  ansible.builtin.getent:
+    database: passwd
+    key: pani
+
+- name: Set pani_home fact
+  ansible.builtin.set_fact:
+    pani_home: "{{ getent_passwd['pani'][4] }}"
+
 - name: Set up SSH authorized key for pani
   ansible.posix.authorized_key:
     user: pani
@@ -18,7 +27,7 @@
 
 - name: Check if dotfiles repo exists
   ansible.builtin.stat:
-    path: /home/pani/dotfiles
+    path: "{{ pani_home }}/dotfiles"
   register: dotfiles_dir
 
 - name: Allow pani to access SSH agent socket
@@ -37,7 +46,7 @@
 - name: Clone dotfiles repo
   ansible.builtin.git:
     repo: git@github.com:Ivanipani/dotfiles.git
-    dest: /home/pani/dotfiles
+    dest: "{{ pani_home }}/dotfiles"
     version: main
     accept_newhostkey: true
   become: true
@@ -48,7 +57,7 @@
 
 - name: Ensure .config directory exists
   ansible.builtin.file:
-    path: /home/pani/.config
+    path: "{{ pani_home }}/.config"
     state: directory
     owner: pani
     group: pani
@@ -57,35 +66,43 @@
 - name: Run zsh setup script
   ansible.builtin.command:
     cmd: zsh ./setup.sh
-    chdir: /home/pani/dotfiles/zsh
+    chdir: "{{ pani_home }}/dotfiles/zsh"
   become: true
   become_user: pani
   environment:
-    HOME: /home/pani
+    HOME: "{{ pani_home }}"
 
 - name: Configure neovim dotfiles
   ansible.builtin.command:
     cmd: zsh ./setup.sh
-    chdir: /home/pani/dotfiles/nvim
+    chdir: "{{ pani_home }}/dotfiles/nvim"
   become: true
   become_user: pani
   environment:
-    HOME: /home/pani
+    HOME: "{{ pani_home }}"
 
 - name: Run zellij setup script
   ansible.builtin.command:
     cmd: zsh ./setup.sh
-    chdir: /home/pani/dotfiles/zellij
+    chdir: "{{ pani_home }}/dotfiles/zellij"
   become: true
   become_user: pani
   environment:
-    HOME: /home/pani
+    HOME: "{{ pani_home }}"
 
 - name: Run version control setup script
   ansible.builtin.command:
     cmd: zsh ./setup.sh
-    chdir: /home/pani/dotfiles/vcs
+    chdir: "{{ pani_home }}/dotfiles/vcs"
   become: true
   become_user: pani
   environment:
-    HOME: /home/pani
+    HOME: "{{ pani_home }}"
+
+- name: Install zplug
+  ansible.builtin.git:
+    repo: https://github.com/zplug/zplug.git
+    dest: "{{ pani_home }}/.zplug"
+    version: main
+  become: true
+  become_user: pani
