@@ -1,15 +1,27 @@
-- name: Download uv installer script
+- name: Download uv release
   ansible.builtin.get_url:
-    url: https://astral.sh/uv/install.sh
-    dest: /tmp/uv-install.sh
-    mode: '0755'
-- name: Run uv installer script
-  become: true
-  ansible.builtin.shell:
-    cmd: /tmp/uv-install.sh
-    creates: /usr/bin/uv
-  environment:
-    UV_INSTALL_DIR: /usr/bin
+    url: https://github.com/astral-sh/uv/releases/download/0.10.10/uv-x86_64-unknown-linux-musl.tar.gz
+    dest: /tmp/uv.tar.gz
+
+- name: Install uv
+  ansible.builtin.unarchive:
+    src: /tmp/uv.tar.gz
+    dest: /opt
+    remote_src: true
+    creates: /opt/uv-x86_64-unknown-linux-musl
+
+- name: Symlink uv binary
+  ansible.builtin.file:
+    src: /opt/uv-x86_64-unknown-linux-musl/uv
+    dest: /opt/bin/uv
+    state: link
+
+- name: Symlink uvx binary
+  ansible.builtin.file:
+    src: /opt/uv-x86_64-unknown-linux-musl/uvx
+    dest: /opt/bin/uvx
+    state: link
+
 
 # - name: Install Pantsbuild
 #   ansible.builtin.get_url:

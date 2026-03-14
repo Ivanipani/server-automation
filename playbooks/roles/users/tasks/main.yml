@@ -15,6 +15,10 @@
   ansible.builtin.include_tasks: ivan-dev-macos.yml
   when: ansible_os_family == "Darwin"
 
-- name: Set up Ivan dev environment (Linux)
-  ansible.builtin.include_tasks: ivan-dev.yml
+- name: Install Ivan's development tools (Linux)
+  ansible.builtin.include_tasks: dev-tools-linux.yml
   when: ansible_os_family != "Darwin"
+
+# - name: Set up Ivan dev environment (Linux)
+#   ansible.builtin.include_tasks: ivan-dev-linux.yml
+#   when: ansible_os_family != "Darwin"

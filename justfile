@@ -38,7 +38,7 @@ mac: check-ansible
 test-run:
     #!/usr/bin/env bash
     set -euo pipefail
-    tags=$(grep 'tags:' test/test.yml | awk '{print $NF}' | fzf --multi | paste -sd, -)
+    tags=$(grep 'tags:' test/test.yml | awk '{gsub(/[\[\]]/, "", $NF); print $NF}' | fzf --multi | paste -sd, -)
     if [ -z "$tags" ]; then
         echo "No tags selected."
         exit 0

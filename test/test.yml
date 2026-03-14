@@ -7,6 +7,8 @@
   roles:
     - role: users
       tags: [users]
+    - role: golang
+      tags: [golang]
     - role: dev-environment
       tags: [dev-environment]
     - role: python

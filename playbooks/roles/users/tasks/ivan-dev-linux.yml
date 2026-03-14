@@ -1,0 +1,92 @@
+---
+- name: Create pani user
+  ansible.builtin.user:
+    name: pani
+    state: present
+    groups:
+      - promoter
+      - talent
+      - sudo
+    shell: /bin/zsh
+    home: /home/pani
+
+- name: Set up SSH authorized key for pani
+  ansible.posix.authorized_key:
+    user: pani
+    key: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
+    state: present
+
+
+- name: Check if dotfiles repo exists
+  ansible.builtin.stat:
+    path: /home/pani/dotfiles
+  register: dotfiles_dir
+
+- name: Allow pani to access SSH agent socket
+  ansible.builtin.file:
+    path: "{{ ansible_env.SSH_AUTH_SOCK | dirname }}"
+    mode: "0755"
+    state: directory
+  when: not dotfiles_dir.stat.exists
+
+- name: Set agent socket permissions
+  ansible.builtin.file:
+    path: "{{ ansible_env.SSH_AUTH_SOCK }}"
+    mode: "0666"
+  when: not dotfiles_dir.stat.exists
+
+- name: Clone dotfiles repo
+  ansible.builtin.git:
+    repo: git@github.com:Ivanipani/dotfiles.git
+    dest: /home/pani/dotfiles
+    version: main
+    accept_newhostkey: true
+  become: true
+  become_user: pani
+  environment:
+    SSH_AUTH_SOCK: "{{ ansible_env.SSH_AUTH_SOCK }}"
+  when: not dotfiles_dir.stat.exists
+
+- name: Ensure .config directory exists
+  ansible.builtin.file:
+    path: /home/pani/.config
+    state: directory
+    owner: pani
+    group: pani
+    mode: "0755"
+
+- name: Run zsh setup script
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: /home/pani/dotfiles/zsh
+  become: true
+  become_user: pani
+  environment:
+    HOME: /home/pani
+
+- name: Configure neovim dotfiles
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: /home/pani/dotfiles/nvim
+  become: true
+  become_user: pani
+  environment:
+    HOME: /home/pani
+
+- name: Run zellij setup script
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: /home/pani/dotfiles/zellij
+  become: true
+  become_user: pani
+  environment:
+    HOME: /home/pani
+
+- name: Run version control setup script
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: /home/pani/dotfiles/vcs
+  become: true
+  become_user: pani
+  environment:
+    HOME: /home/pani

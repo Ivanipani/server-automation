@@ -1,8 +1,8 @@
 - name: Install required packages
   ansible.builtin.package:
     name:
-      - curl
       - build-essential
+      - ca-certificates
     state: present
 
 - name: Install Rust and Cargo
@@ -14,7 +14,9 @@
 - name: Run rustup installer script
   become: true
   ansible.builtin.shell:
-    cmd: /tmp/rustup-install.sh
-    creates: /usr/bin/uv
+    cmd: /tmp/rustup-install.sh -y
+    creates: /home/pani/.cargo
+  become: true
+  become_user: pani
   environment:
-    UV_INSTALL_DIR: /usr/bin
+    HOME: /home/pani
