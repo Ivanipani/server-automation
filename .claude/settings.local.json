@@ -8,7 +8,9 @@
       "Bash(ansible-playbook:*)",
       "Bash(find:*)",
       "Bash(for role:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "WebFetch(domain:caddyserver.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

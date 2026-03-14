@@ -1,0 +1,22 @@
+---
+- name: Validate Caddyfile
+  ansible.builtin.command: caddy validate --config /etc/caddy/Caddyfile
+  register: caddy_validate_result
+  changed_when: false
+  listen: "reload caddy"
+
+- name: Print Caddyfile validation output
+  ansible.builtin.debug:
+    msg: "{{ caddy_validate_result.stdout }}\n{{ caddy_validate_result.stderr }}"
+  listen: "reload caddy"
+
+- name: Reload caddy
+  ansible.builtin.shell:
+    cmd: "caddy reload --config /etc/caddy/Caddyfile"
+  listen: "reload caddy"
+
+- name: Restart caddy
+  ansible.builtin.systemd:
+    name: caddy
+    state: restarted
+  listen: "restart caddy"

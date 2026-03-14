@@ -1,0 +1,6 @@
+---
+- name: Install caddy on LXC
+  hosts: webservers
+  remote_user: root
+  roles:
+    - caddy

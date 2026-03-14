@@ -1,2 +1,5 @@
 ---
+- name: Set up base caddy service
+  ansible.builtin.include_tasks: base.yml
+  when: ansible_os_family != "Darwin"
 

@@ -1,0 +1,60 @@
+---
+- name: Download Caddy .deb package
+  ansible.builtin.get_url:
+    url: "https://github.com/caddyserver/caddy/releases/download/v{{ caddy_version }}/caddy_{{ caddy_version }}_linux_amd64.deb"
+    dest: "/tmp/caddy_{{ caddy_version }}_linux_amd64.deb"
+    mode: '0644'
+
+- name: Install Caddy .deb package
+  ansible.builtin.apt:
+    deb: "/tmp/caddy_{{ caddy_version }}_linux_amd64.deb"
+
+- name: Create caddy group
+  ansible.builtin.group:
+    name: caddy
+    system: true
+    state: present
+
+- name: Create caddy user
+  ansible.builtin.user:
+    name: caddy
+    group: caddy
+    system: true
+    home: /var/lib/caddy
+    shell: /usr/sbin/nologin
+    create_home: true
+
+- name: Create /etc/caddy directory
+  ansible.builtin.file:
+    path: /etc/caddy
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# Applied to live server, 0 downtime
+- name: Deploy Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    owner: caddy
+    group: caddy
+    mode: '0644'
+  notify: "reload caddy"
+
+# Restarts server, causes downtime
+- name: Deploy caddy systemd service
+  ansible.builtin.template:
+    src: caddy.service.j2
+    dest: /etc/systemd/system/caddy.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: "restart caddy"
+
+- name: Enable and start caddy
+  ansible.builtin.systemd_service:
+    name: caddy
+    daemon_reload: true
+    state: started
+    enabled: true
