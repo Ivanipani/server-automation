@@ -1,24 +1,31 @@
+- name: Ensure /opt/uv directory exists
+  ansible.builtin.file:
+    path: /opt/uv
+    state: directory
+    mode: "0755"
+
 - name: Download uv release
   ansible.builtin.get_url:
-    url: https://github.com/astral-sh/uv/releases/download/0.10.10/uv-x86_64-unknown-linux-musl.tar.gz
+    url: https://github.com/astral-sh/uv/releases/download/{{ uv_version }}/uv-x86_64-unknown-linux-musl.tar.gz
     dest: /tmp/uv.tar.gz
 
 - name: Install uv
   ansible.builtin.unarchive:
     src: /tmp/uv.tar.gz
-    dest: /opt
+    dest: /opt/uv
     remote_src: true
-    creates: /opt/uv-x86_64-unknown-linux-musl
+    extra_opts: ['--strip-components=1']
+    creates: /opt/uv/uv
 
 - name: Symlink uv binary
   ansible.builtin.file:
-    src: /opt/uv-x86_64-unknown-linux-musl/uv
+    src: /opt/uv/uv
     dest: /opt/bin/uv
     state: link
 
 - name: Symlink uvx binary
   ansible.builtin.file:
-    src: /opt/uv-x86_64-unknown-linux-musl/uvx
+    src: /opt/uv/uvx
     dest: /opt/bin/uvx
     state: link
 
