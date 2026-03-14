@@ -9,6 +9,13 @@
       - fzf
       - git
       - wget
+      - build-essential
+      - htop
+      - curl
+      - tree
+      - dnsutils
+      - iotop
+      - sysstat
     state: present
 
 - name: Create pani user
@@ -29,30 +36,43 @@
     state: present
 
 
-# overwrite the dotfiles - commit the changes on the VM!
+- name: Check if dotfiles repo exists
+  ansible.builtin.stat:
+    path: /home/pani/dotfiles
+  register: dotfiles_dir
+
 - name: Allow pani to access SSH agent socket
   ansible.builtin.file:
     path: "{{ ansible_env.SSH_AUTH_SOCK | dirname }}"
     mode: "0755"
     state: directory
+  when: not dotfiles_dir.stat.exists
 
 - name: Set agent socket permissions
   ansible.builtin.file:
     path: "{{ ansible_env.SSH_AUTH_SOCK }}"
     mode: "0666"
+  when: not dotfiles_dir.stat.exists
 
 - name: Clone dotfiles repo
   ansible.builtin.git:
     repo: git@github.com:Ivanipani/dotfiles.git
     dest: /home/pani/dotfiles
     version: main
-    force: true
     accept_newhostkey: true
   become: true
   become_user: pani
   environment:
     SSH_AUTH_SOCK: "{{ ansible_env.SSH_AUTH_SOCK }}"
+  when: not dotfiles_dir.stat.exists
 
+
+
+- name: Ensure /opt/bin directory exists
+  ansible.builtin.file:
+    path: /opt/bin
+    state: directory
+    mode: "0755"
 
 - name: Download starship installer
   ansible.builtin.get_url:
@@ -62,8 +82,8 @@
 
 - name: Install starship
   ansible.builtin.shell:
-    cmd: /tmp/starship-install.sh --yes
-    creates: /usr/local/bin/starship
+    cmd: /tmp/starship-install.sh --yes --bin-dir /opt/bin
+    creates: /opt/bin/starship
 
 - name: Download just installer
   ansible.builtin.get_url:
@@ -73,8 +93,8 @@
 
 - name: Install just
   ansible.builtin.shell:
-    cmd: /tmp/just-install.sh --to /usr/local/bin
-    creates: /usr/local/bin/just
+    cmd: /tmp/just-install.sh --to /opt/bin
+    creates: /opt/bin/just
 
 - name: Download zellij
   ansible.builtin.get_url:
@@ -82,15 +102,11 @@
     dest: /tmp/zellij.tar.gz
 
 - name: Install zellij
-  ansible.builtin.shell:
-    cmd: tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin zellij && chmod +x /usr/local/bin/zellij
-    creates: /usr/local/bin/zellij
-
-- name: Ensure /opt/bin directory exists
-  ansible.builtin.file:
-    path: /opt/bin
-    state: directory
-    mode: "0755"
+  ansible.builtin.unarchive:
+    src: /tmp/zellij.tar.gz
+    dest: /opt/bin
+    remote_src: true
+    creates: /opt/bin/zellij
 
 - name: Download neovim
   ansible.builtin.get_url:
@@ -129,10 +145,16 @@
 
 - name: Install ripgrep
   ansible.builtin.unarchive:
-    src: /tmp/jj.tar.gz
-    dest: /opt/bin
+    src: /tmp/ripgrep.tar.gz
+    dest: /opt
     remote_src: true
-    creates: /opt/bin/rg
+    creates: /opt/bin/ripgrep-15.1.0-x86_64-unknown-linux-musl
+
+- name: Symlink ripgrep binary
+  ansible.builtin.file:
+    src: /opt/bin/ripgrep-15.1.0-x86_64-unknown-linux-musl/rg
+    dest: /opt/bin/rg
+    state: link
 
 # - name: Download Go
 #   ansible.builtin.get_url:

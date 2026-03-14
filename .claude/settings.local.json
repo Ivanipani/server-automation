@@ -6,7 +6,8 @@
       "Bash(ansible-playbook --syntax-check playbooks/dev-environment.yml 2>&1)",
       "Bash(grep:*)",
       "Bash(ansible-playbook:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(for role:*)"
     ]
   }
 }

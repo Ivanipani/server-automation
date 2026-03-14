@@ -29,6 +29,11 @@ check-ansible:
     which ansible-playbook > /dev/null && echo "Ansible-playbook is installed" || (echo "Error: ansible-playbook is required but not installed. Install with: uv tool install ansible" && exit 1)
 
 
+# Set up macOS development environment
+mac: check-ansible
+    #!/usr/bin/env bash
+    ansible-playbook playbooks/local-mac.yml
+
 # Run the test playbook with interactive tag selection via fzf
 test-run:
     #!/usr/bin/env bash

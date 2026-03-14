@@ -1,0 +1,6 @@
+---
+- name: Set up macOS development environment
+  hosts: localhost
+  connection: local
+  roles:
+    - users

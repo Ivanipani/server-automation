@@ -1,0 +1,68 @@
+---
+- name: Check that Homebrew is installed
+  ansible.builtin.command:
+    cmd: brew --version
+  register: brew_check
+  changed_when: false
+  failed_when: brew_check.rc != 0
+
+- name: Install development tools via Homebrew
+  community.general.homebrew:
+    name:
+      - direnv
+      - fd
+      - fzf
+      - git
+      - wget
+      - starship
+      - just
+      - zellij
+      - neovim
+      - jj
+      - ripgrep
+    state: present
+
+- name: Check if dotfiles repo exists
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/dotfiles"
+  register: dotfiles_dir
+
+- name: Clone dotfiles repo
+  ansible.builtin.git:
+    repo: git@github.com:Ivanipani/dotfiles.git
+    dest: "{{ ansible_env.HOME }}/dotfiles"
+    version: main
+    accept_newhostkey: true
+  when: not dotfiles_dir.stat.exists
+
+- name: Install zplug
+  ansible.builtin.git:
+    repo: https://github.com/zplug/zplug.git
+    dest: "{{ ansible_env.HOME }}/.zplug"
+    version: main
+
+- name: Ensure .config directory exists
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.config"
+    state: directory
+    mode: "0755"
+
+- name: Run zsh setup script
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: "{{ ansible_env.HOME }}/dotfiles/zsh"
+
+- name: Configure neovim dotfiles
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: "{{ ansible_env.HOME }}/dotfiles/nvim"
+
+- name: Run zellij setup script
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: "{{ ansible_env.HOME }}/dotfiles/zellij"
+
+- name: Run version control setup script
+  ansible.builtin.command:
+    cmd: zsh ./setup.sh
+    chdir: "{{ ansible_env.HOME }}/dotfiles/vcs"
