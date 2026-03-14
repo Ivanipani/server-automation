@@ -56,6 +56,16 @@
     remote_src: true
     creates: /opt/bin/zellij
 
+- name: Ensure tool directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /opt/nvim
+    - /opt/ripgrep
+    - /opt/fd
+
 - name: Download neovim
   ansible.builtin.get_url:
     url: https://github.com/neovim/neovim/releases/download/v{{ neovim_version }}/nvim-linux-x86_64.tar.gz
@@ -64,13 +74,14 @@
 - name: Install neovim
   ansible.builtin.unarchive:
     src: /tmp/nvim.tar.gz
-    dest: /opt
+    dest: /opt/nvim
     remote_src: true
-    creates: /opt/nvim-linux-x86_64/bin/nvim
+    extra_opts: ['--strip-components=1']
+    creates: /opt/nvim/bin/nvim
 
 - name: Symlink neovim binary
   ansible.builtin.file:
-    src: /opt/nvim-linux-x86_64/bin/nvim
+    src: /opt/nvim/bin/nvim
     dest: /opt/bin/nvim
     state: link
 
@@ -94,13 +105,14 @@
 - name: Install ripgrep
   ansible.builtin.unarchive:
     src: /tmp/ripgrep.tar.gz
-    dest: /opt
+    dest: /opt/ripgrep
     remote_src: true
-    creates: /opt/ripgrep-{{ ripgrep_version }}-x86_64-unknown-linux-musl
+    extra_opts: ['--strip-components=1']
+    creates: /opt/ripgrep/rg
 
 - name: Symlink ripgrep binary
   ansible.builtin.file:
-    src: /opt/ripgrep-{{ ripgrep_version }}-x86_64-unknown-linux-musl/rg
+    src: /opt/ripgrep/rg
     dest: /opt/bin/rg
     state: link
 
@@ -112,13 +124,14 @@
 - name: Install fd-find
   ansible.builtin.unarchive:
     src: /tmp/fd-find.tar.gz
-    dest: /opt
+    dest: /opt/fd
     remote_src: true
-    creates: /opt/fd-v{{ fd_version }}-x86_64-unknown-linux-musl
+    extra_opts: ['--strip-components=1']
+    creates: /opt/fd/fd
 
 - name: Symlink fd-find binary
   ansible.builtin.file:
-    src: /opt/fd-v{{ fd_version }}-x86_64-unknown-linux-musl/fd
+    src: /opt/fd/fd
     dest: /opt/bin/fd
     state: link
 
