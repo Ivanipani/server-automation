@@ -1,0 +1,19 @@
+set unstable
+
+config_home := "$HOME/.config/nushell"
+dir := if os() == "macos" {"mac"} else {"linux"}
+pwd := absolute_path(".")
+
+# Display this help
+default:
+    @just --list
+
+# Configure nushell
+setup:
+    mkdir -p {{config_home}}
+    ln -sf {{pwd}}/{{dir}}/config.nu "$HOME/.config/nushell/config.nu"
+    ln -sf {{pwd}}/{{dir}}/env.nu "$HOME/.config/nushell/env.nu"
+
+# Install nushell
+install:
+    cargo install --locked nu

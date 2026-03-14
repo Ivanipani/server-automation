@@ -1,0 +1,24 @@
+[user]
+    name = Ivan Perdomo
+    email = iperdomo2016@gmail.com
+
+[core]
+    editor = nvim
+    autocrlf = input
+    excludesfile = ~/.gitignore_global
+
+[credential]
+    helper = osxkeychain
+
+[diff]
+    external = difft
+
+[alias]
+    st = status
+    co = checkout
+    br = branch
+    cm = commit
+    lg = log --oneline --graph --all
+
+[init]
+    defaultBranch = main

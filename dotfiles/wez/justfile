@@ -1,0 +1,25 @@
+config_home := "$HOME/.config/wezterm"
+pwd := absolute_path(".")
+
+# Display this help
+default:
+  @just --list --unsorted
+
+# Configure all tools
+setup: create-symlinks
+
+# Install wezterm and nerd fonts
+install: install-wezterm install-nerd-fonts
+
+# Create symlinks to the config files
+create-symlinks:
+    mkdir -p {{config_home}}
+    ln -sf {{pwd}}/wezterm.lua {{config_home}}/wezterm.lua
+
+[macos]
+install-wezterm:
+    brew install --cask wezterm
+
+[macos]
+install-nerd-fonts:
+    brew install font-inconsolata-nerd-font

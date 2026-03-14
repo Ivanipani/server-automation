@@ -1,0 +1,30 @@
+jj_config_home := "$HOME/.config/jj"
+pwd := absolute_path(".")
+
+# Display this help
+default:
+    @just --list
+
+# Create symlinks
+setup:
+    mkdir -p {{jj_config_home}}
+    ln -sf {{pwd}}/jj/config.toml {{jj_config_home}}/config.toml
+    ln -sf {{pwd}}/git/gitconfig $HOME/.gitconfig
+    ln -sf {{pwd}}/git/gitignore_global $HOME/.gitignore_global
+
+# Install jj, diff tools
+[linux]
+install:
+    cargo install --locked difftastic
+    cargo install --locked --bin jj jj-cli
+    cargo install lazyjj --locked
+    sudo apt install lazygit
+
+# Install jj, diff tools
+[macos]
+install:
+    brew install difftastic
+    brew install jj
+    cargo install lazyjj --locked
+    brew install lazygit
+

@@ -1,0 +1,12 @@
+# Display this help
+default:
+    @just --list
+
+# Install tools
+[macos]
+install:
+    brew install starship 
+    brew install fzf
+    brew install atuin
+    cargo install ripgrep
+    cargo install fd-find
