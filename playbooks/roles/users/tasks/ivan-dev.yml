@@ -25,15 +25,33 @@
     shell: /bin/zsh
     home: /home/pani
 
+- name: Set up SSH authorized key for pani
+  ansible.posix.authorized_key:
+    user: pani
+    key: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
+    state: present
+
 - name: Clone dotfiles repo
   ansible.builtin.git:
     repo: git@github.com:Ivanipani/dotfiles.git
-    dest: /home/pani/dotfiles
+    dest: /tmp/dotfiles
     version: main
     accept_hostkey: true
-  become: true
-  become_user: pani
-  become_flags: "-E"
+  become: false
+
+- name: Copy dotfiles to pani home
+  ansible.builtin.copy:
+    src: /tmp/dotfiles/
+    dest: /home/pani/dotfiles/
+    remote_src: true
+    owner: pani
+    group: pani
+    mode: preserve
+
+- name: Clean up temp dotfiles
+  ansible.builtin.file:
+    path: /tmp/dotfiles
+    state: absent
 
 - name: Ensure .config directory exists
   ansible.builtin.file:

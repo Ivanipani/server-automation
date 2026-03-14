@@ -5,7 +5,8 @@
       "Bash(find /Users/ivanperdomo/github/ivanipani/server-automation -type f | grep -E \"\\\\.\\(j2|template|conf|txt|md\\)$|README|requirements\")",
       "Bash(ansible-playbook --syntax-check playbooks/dev-environment.yml 2>&1)",
       "Bash(grep:*)",
-      "Bash(ansible-playbook:*)"
+      "Bash(ansible-playbook:*)",
+      "Bash(find:*)"
     ]
   }
 }
