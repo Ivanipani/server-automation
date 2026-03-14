@@ -4,15 +4,55 @@
     name:
       - acl
       - zsh
-      - zplug
-      # - neovim
+      - neovim
       - direnv
       - fd-find
       - fzf
       - git
       - wget
     state: present
-# - name: Install and configure Ivan's dotfiles
+
+- name: Download starship installer
+  ansible.builtin.get_url:
+    url: https://starship.rs/install.sh
+    dest: /tmp/starship-install.sh
+    mode: '0755'
+
+- name: Install starship
+  ansible.builtin.shell:
+    cmd: /tmp/starship-install.sh --yes
+    creates: /usr/local/bin/starship
+
+- name: Download just installer
+  ansible.builtin.get_url:
+    url: https://just.systems/install.sh
+    dest: /tmp/just-install.sh
+    mode: '0755'
+
+- name: Install just
+  ansible.builtin.shell:
+    cmd: /tmp/just-install.sh --to /usr/local/bin
+    creates: /usr/local/bin/just
+
+- name: Download zellij
+  ansible.builtin.get_url:
+    url: https://github.com/zellij-org/zellij/releases/latest/download/zellij-x86_64-unknown-linux-musl.tar.gz
+    dest: /tmp/zellij.tar.gz
+
+- name: Install zellij
+  ansible.builtin.shell:
+    cmd: tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin zellij && chmod +x /usr/local/bin/zellij
+    creates: /usr/local/bin/zellij
+
+# - name: Download Go
+#   ansible.builtin.get_url:
+#     url: https://go.dev/dl/go1.26.1.linux-amd64.tar.gz
+#     dest: /tmp/go.tar.gz
+# #
+# - name: Install Go
+#   ansible.builtin.shell:
+#     cmd: rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz
+#     creates: /usr/local/go/bin/go
 
 - name: Create pani user
   ansible.builtin.user:
@@ -30,6 +70,14 @@
     user: pani
     key: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
     state: present
+
+- name: Install zplug
+  ansible.builtin.git:
+    repo: https://github.com/zplug/zplug.git
+    dest: /home/pani/.zplug
+    version: main
+  become: true
+  become_user: pani
 
 - name: Clone dotfiles repo
   ansible.builtin.git:
