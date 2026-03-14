@@ -1,22 +1,12 @@
 # Development environment group
-development:
+baremetal:
   hosts:
-    hypervisor:
-      ansible_user: ansible
+    control01:
       ansible_host: 192.168.0.2
       ansible_python_interpreter: /usr/bin/python3
-    alpha:
-      ansible_host: 192.168.0.200
-      ansible_python_interpreter: /usr/bin/python3
-
 test:
   hosts:
     test01:
       ansible_host: 192.168.0.142
-      ansible_user: temp
-      ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
 
-# Example of nested groups using children
-all_servers:
-  children:
-    development:
+

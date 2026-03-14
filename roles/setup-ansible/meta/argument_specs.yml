@@ -1,0 +1,6 @@
+---
+argument_specs:
+  main:
+    short_description: Bootstrap ansible user and remove temp user
+    author:
+      - Ivan Perdomo

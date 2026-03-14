@@ -1,0 +1,23 @@
+---
+- name: Bootstrap ansible user
+  hosts: test
+  remote_user: temp
+  become: true
+  roles:
+    - setup-ansible
+
+- name: Remove temp user
+  hosts: test
+  become: true
+  tasks:
+    # - name: Kill temp user processes
+    #   ansible.builtin.command: loginctl kill-user temp
+    #   register: kill_result
+    #   failed_when: kill_result.rc not in [0, 1]
+    #
+    - name: Remove temp user
+      ansible.builtin.user:
+        name: temp
+        state: absent
+        remove: true
+        force: true

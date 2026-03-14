@@ -16,7 +16,6 @@
     key: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
     state: present
 
-
 - name: Check if dotfiles repo exists
   ansible.builtin.stat:
     path: /home/pani/dotfiles
