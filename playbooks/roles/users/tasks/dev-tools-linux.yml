@@ -4,9 +4,6 @@
     name:
       - acl
       - zsh
-      - direnv
-      - fd-find
-      - fzf
       - git
       - wget
       - build-essential
@@ -124,6 +121,25 @@
     src: /opt/fd-v{{ fd_version }}-x86_64-unknown-linux-musl/fd
     dest: /opt/bin/fd
     state: link
+
+- name: Download fzf
+  ansible.builtin.get_url:
+    url: https://github.com/junegunn/fzf/releases/download/v{{ fzf_version }}/fzf-{{ fzf_version }}-linux_amd64.tar.gz
+    dest: /tmp/fzf.tar.gz
+
+- name: Install fzf
+  ansible.builtin.unarchive:
+    src: /tmp/fzf.tar.gz
+    dest: /opt/bin
+    remote_src: true
+    creates: /opt/bin/fzf
+
+- name: Download direnv
+  ansible.builtin.get_url:
+    url: https://github.com/direnv/direnv/releases/download/v{{ direnv_version }}/direnv.linux-amd64
+    dest: /opt/bin/direnv
+    mode: "755"
+
 
 - name: Install zplug
   ansible.builtin.git:
