@@ -29,6 +29,8 @@
   become: true
   vars:
     build_path_src: "/tmp/song-viewer/build/client"
+    build_path_dest: "/var/www/song-viewer"
+    catalog_path_dest: "/public/song-viewer"
   roles:
     - caddy
   tasks:
@@ -45,3 +47,12 @@
         src: "{{ build_path_src }}/"
         dest: "{{ build_path_dest }}"
         mode: '0644'
+
+    - name: Deploy canciones Caddy site config
+      ansible.builtin.template:
+        src: templates/canciones.poochella.club.caddy.j2
+        dest: /etc/caddy/sites-enabled/canciones.poochella.club.caddy
+        owner: caddy
+        group: caddy
+        mode: '0644'
+      notify: "reload caddy"

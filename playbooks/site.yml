@@ -18,5 +18,3 @@
 # 4. Reverse proxy (Caddy on webservers)
 - import_playbook: install-caddy.yml
 
-# 5. Build and deploy web app (needs webservers ready)
-- import_playbook: build-and-deploy-canciones.yml

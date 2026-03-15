@@ -32,11 +32,28 @@
     group: root
     mode: '0755'
 
+- name: Create /etc/caddy/sites-enabled directory
+  ansible.builtin.file:
+    path: /etc/caddy/sites-enabled
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
 # Applied to live server, 0 downtime
 - name: Deploy Caddyfile
   ansible.builtin.template:
     src: Caddyfile.j2
     dest: /etc/caddy/Caddyfile
+    owner: caddy
+    group: caddy
+    mode: '0644'
+  notify: "reload caddy"
+
+- name: Deploy poochella.club site config
+  ansible.builtin.template:
+    src: poochella.club.caddy.j2
+    dest: /etc/caddy/sites-enabled/poochella.club.caddy
     owner: caddy
     group: caddy
     mode: '0644'
