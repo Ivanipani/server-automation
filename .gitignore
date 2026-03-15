@@ -1,6 +1,6 @@
 .vscode
 .ansible
 .DS_Store
-.ansible-pass
+*ansible-pass
 .env
 .envrc

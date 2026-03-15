@@ -1,9 +1,17 @@
 # Justfile for Ansible Playbooks
 # Run 'just --list' to see all available commands
 
+pwd := absolute_path(".")
+
 # Default target
 default:
     @just --list
+
+# symlink servers.yml into $HOME
+symlink-servers:
+  mkdir -p "$HOME/.ansible/inventory"
+  ln -sf {{pwd}}/servers.yml "$HOME/.ansible/inventory/servers.yml"
+
 
 # Ping all servers
 ping: check-ansible

@@ -29,7 +29,8 @@
   become: true
   vars:
     build_path_src: "/tmp/song-viewer/build/client"
-    build_path_dest: "/var/www/song-viewer"
+  roles:
+    - caddy
   tasks:
     - name: Create web app directory
       ansible.builtin.file:
@@ -44,6 +45,3 @@
         src: "{{ build_path_src }}/"
         dest: "{{ build_path_dest }}"
         mode: '0644'
-
-
-
