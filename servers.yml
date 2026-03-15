@@ -5,25 +5,34 @@ baremetal:
       ansible_host: 192.168.0.2
       ansible_python_interpreter: /usr/bin/python3
 
-test:
+playground:
   hosts:
     test01:
-      ansible_host: 192.168.0.142
+      ansible_host: ansible-playground
 
 dns:
   hosts:
-    pihole01:
-      ansible_host: 192.168.0.3
     pihole02:
       ansible_host: 192.168.0.7
-
-legacy-webservers:
-  hosts:
-    nginx01:
-      ansible_host: webserver
 
 webservers:
   hosts:
     caddy01:
       ansible_host: 192.168.0.4
+    nginx01:
+      ansible_host: webserver
 
+virtual-machines:
+  hosts:
+    test01:
+      ansible_host: ansible-playground
+      ansible_python_interpreter: /usr/bin/python3
+
+containers:
+  hosts:
+    caddy01:
+      ansible_host: 192.168.0.4
+    nginx01:
+      ansible_host: webserver
+    pihole02:
+      ansible_host: 192.168.0.7

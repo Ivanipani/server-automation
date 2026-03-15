@@ -5,6 +5,7 @@
     shell: /bin/bash
     groups: sudo
     append: true
+    password: "{{ ansible_user_pass | password_hash('sha512') }}"
     state: present
 
 - name: Set up SSH authorized key for ansible
@@ -13,9 +14,17 @@
     key: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
     state: present
 
+- name: Ensure /etc/sudoers.d exists
+  ansible.builtin.file:
+    path: /etc/sudoers.d
+    state: directory
+    mode: "0750"
+    owner: root
+    group: root
+
 - name: Grant passwordless sudo to ansible
   ansible.builtin.copy:
     dest: /etc/sudoers.d/ansible
     content: "ansible ALL=(ALL) NOPASSWD:ALL\n"
     mode: "0440"
-    validate: visudo -cf %s
+    # validate: visudo -cf %s

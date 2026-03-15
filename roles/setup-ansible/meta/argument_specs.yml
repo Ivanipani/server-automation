@@ -1,6 +1,6 @@
 ---
 argument_specs:
   main:
-    short_description: Bootstrap ansible user and remove temp user
+    short_description: Create 'ansible' user on all poochella machines.
     author:
       - Ivan Perdomo

@@ -12,7 +12,8 @@
       "WebFetch(domain:caddyserver.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(git log:*)",
-      "WebFetch(domain:docs.pi-hole.net)"
+      "WebFetch(domain:docs.pi-hole.net)",
+      "Bash(uv tool:*)"
     ]
   }
 }

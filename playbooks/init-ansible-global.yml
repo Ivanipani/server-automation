@@ -1,0 +1,74 @@
+---
+# Establishes a user 'ansible' with SSH + sudo access.
+# All Ansible-managed nodes require this setup
+- name: Bootstrap ansible user (non-VMs)
+  hosts: all:!virtual-machines
+  remote_user: root
+  become: true
+  roles:
+    - setup-ansible
+
+
+- name: Refresh SSH host keys for VMs
+  hosts: virtual-machines
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Remove old host key
+      ansible.builtin.command:
+        cmd: ssh-keygen -R {{ ansible_host }}
+      delegate_to: localhost
+      ignore_errors: true
+
+    - name: Scan and add new host key
+      ansible.builtin.command:
+        cmd: ssh-keyscan {{ ansible_host }}
+      delegate_to: localhost
+      register: host_key
+
+    - name: Update known_hosts
+      ansible.builtin.known_hosts:
+        name: "{{ ansible_host }}"
+        key: "{{ item }}"
+        state: present
+      delegate_to: localhost
+      loop: "{{ host_key.stdout_lines | reject('match', '^#') | list }}"
+
+- name: Detect SSH user for VMs
+  hosts: virtual-machines
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Check if ansible user can connect
+      ansible.builtin.command:
+        cmd: ssh -o BatchMode=yes -o ConnectTimeout=5 ansible@{{ ansible_host }} true
+      register: ansible_ssh
+      ignore_errors: true
+      changed_when: false
+
+    - name: Set bootstrap user
+      ansible.builtin.set_fact:
+        bootstrap_user: "{{ 'ansible' if ansible_ssh.rc == 0 else 'temp' }}"
+
+    - name: "Bootstrap user for {{ inventory_hostname }}: {{ bootstrap_user }}"
+      ansible.builtin.debug:
+        msg: "Connecting as '{{ bootstrap_user }}' (ansible user {{ 'already exists' if ansible_ssh.rc == 0 else 'not yet created' }})"
+
+- name: Bootstrap ansible user (VMs)
+  hosts: virtual-machines
+  become: true
+  remote_user: "{{ bootstrap_user }}"
+  roles:
+    - setup-ansible
+
+- name: Remove temp user (VMs)
+  hosts: virtual-machines
+  remote_user: ansible
+  become: true
+  tasks:
+    - name: Remove temp user
+      ansible.builtin.user:
+        name: temp
+        state: absent
+        remove: true
+        force: true
