@@ -1,0 +1,25 @@
+---
+- name: Deploy and configure Pi-hole on pihole2
+  hosts: pihole02
+  remote_user: root
+  roles:
+    - pihole
+
+- name: Update hypervisor DNS to use pihole2
+  hosts: control01
+  remote_user: root
+  tasks:
+    - name: Set DNS to pihole2
+      ansible.builtin.template:
+        src: ../roles/pihole/templates/resolv.conf.j2
+        dest: /etc/resolv.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart networking
+
+  handlers:
+    - name: Restart networking
+      ansible.builtin.service:
+        name: networking
+        state: restarted

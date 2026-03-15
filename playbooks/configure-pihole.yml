@@ -1,6 +1,0 @@
----
-- name: Configure pihole DNS
-  hosts: dns
-  remote_user: root
-  roles:
-    - pihole

@@ -1,0 +1,25 @@
+---
+- name: Check if Pi-hole is already installed
+  ansible.builtin.command:
+    cmd: which pihole
+  register: pihole_check
+  changed_when: false
+  failed_when: false
+
+- name: Download Pi-hole installer
+  ansible.builtin.get_url:
+    url: https://install.pi-hole.net
+    dest: /tmp/basic-install.sh
+    mode: "0755"
+  when: pihole_check.rc != 0
+
+- name: Run Pi-hole unattended install
+  ansible.builtin.command:
+    cmd: bash /tmp/basic-install.sh --unattended
+  when: pihole_check.rc != 0
+
+- name: Remove installer script
+  ansible.builtin.file:
+    path: /tmp/basic-install.sh
+    state: absent
+  when: pihole_check.rc != 0

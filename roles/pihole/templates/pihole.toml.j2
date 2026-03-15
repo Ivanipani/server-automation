@@ -1,0 +1,26 @@
+# Managed by Ansible
+
+[dns]
+  upstreams = ["{{ pihole_dns_upstream | join('", "') }}"]
+  dnssec = {{ pihole_dnssec | lower }}
+  expandHosts = true
+  listeningMode = "ALL"
+
+[dns.domain]
+  name = "{{ pihole_local_domain }}"
+  local = true
+
+[dhcp]
+  active = {{ pihole_dhcp_enabled | lower }}
+{% if pihole_dhcp_enabled %}
+  start = "{{ pihole_dhcp_start }}"
+  end = "{{ pihole_dhcp_end }}"
+  router = "{{ pihole_dhcp_router }}"
+  leaseTime = "{{ pihole_dhcp_leasetime }}"
+{% endif %}
+
+[webserver]
+  port = "{{ pihole_web_port }}"
+
+[webserver.api]
+  pwhash = "{{ pihole_web_pwhash }}"

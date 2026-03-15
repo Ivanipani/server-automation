@@ -4,6 +4,7 @@ baremetal:
     control01:
       ansible_host: 192.168.0.2
       ansible_python_interpreter: /usr/bin/python3
+
 test:
   hosts:
     test01:
@@ -12,14 +13,17 @@ test:
 dns:
   hosts:
     pihole01:
-      ansible_host: pihole.lan
+      ansible_host: 192.168.0.3
+    pihole02:
+      ansible_host: 192.168.0.7
 
 legacy-webservers:
   hosts:
     nginx01:
       ansible_host: webserver
+
 webservers:
   hosts:
     caddy01:
-      ansible_host: 192.168.0.4
+      ansible_host: heimdall
 

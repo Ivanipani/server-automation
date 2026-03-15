@@ -1,0 +1,21 @@
+---
+# Paths
+pihole_config_dir: "/etc/pihole"
+
+# DNS
+pihole_dns_upstream:
+  - "1.1.1.1"
+  - "1.0.0.1"
+pihole_local_domain: "lan"
+pihole_dnssec: false
+
+# DHCP
+pihole_dhcp_enabled: true
+pihole_dhcp_start: "192.168.0.100"
+pihole_dhcp_end: "192.168.0.200"
+pihole_dhcp_router: "192.168.0.1"
+pihole_dhcp_leasetime: "1"
+
+# Web
+pihole_web_pwhash: ""
+pihole_web_port: "80o,443os,[::]:80o,[::]:443os"

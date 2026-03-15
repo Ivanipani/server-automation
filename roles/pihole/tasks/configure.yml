@@ -1,0 +1,10 @@
+---
+- name: Deploy pihole.toml configuration
+  ansible.builtin.template:
+    src: pihole.toml.j2
+    dest: "{{ pihole_config_dir }}/pihole.toml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart pihole DNS
+
