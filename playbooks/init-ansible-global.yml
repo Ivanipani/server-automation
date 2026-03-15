@@ -1,6 +1,7 @@
 ---
 # Establishes a user 'ansible' with SSH + sudo access.
 # All Ansible-managed nodes require this setup
+
 - name: Bootstrap ansible user (non-VMs)
   hosts: all:!virtual-machines
   remote_user: root

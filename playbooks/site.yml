@@ -10,8 +10,11 @@
 # 2. DNS infrastructure (Pi-hole + hypervisor resolv.conf)
 - import_playbook: configure-dns-poochella.yml
 
-# 3. Reverse proxy (Caddy on webservers)
+# 3. Firewall and networking
+- import_playbook: firewall.yml
+
+# 4. Reverse proxy (Caddy on webservers)
 - import_playbook: install-caddy.yml
 
-# 4. Build and deploy web app (needs webservers ready)
+# 5. Build and deploy web app (needs webservers ready)
 - import_playbook: build-and-deploy-canciones.yml

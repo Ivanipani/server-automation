@@ -9,6 +9,7 @@ playground:
   hosts:
     test01:
       ansible_host: ansible-playground
+      ansible_python_interpreter: /usr/bin/python3
 
 dns:
   hosts:

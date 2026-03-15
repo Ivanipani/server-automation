@@ -1,0 +1,32 @@
+---
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+
+- name: Enable ufw and set default policy to deny incoming traffic
+  community.general.ufw:
+    state: enabled
+    default: deny
+    direction: incoming
+
+- name: Set default policy to allow outgoing traffic
+  community.general.ufw:
+    default: allow
+    direction: outgoing
+
+- name: Allow SSH traffic
+  community.general.ufw:
+    rule: allow
+    port: 22
+    proto: tcp
+    comment: 'Allow SSH'
+
+- name: Allow inbound ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+    comment: "Allow inbound {{ item.port }}/{{ item.proto }}"
+  loop: "{{ inbound_allow | default([]) }}"
