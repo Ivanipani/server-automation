@@ -68,6 +68,16 @@ check: check-ansible
         done
     fi
 
+    # Check required Ansible collections
+    for collection in community.general community.postgresql ansible.posix; do
+        if ansible-galaxy collection list "$collection" 2>/dev/null | grep -q "$collection"; then
+            echo "  ✓ Ansible collection: $collection"
+        else
+            echo "  ✗ Ansible collection: $collection is missing (install with: ansible-galaxy collection install $collection)"
+            errors=$((errors + 1))
+        fi
+    done
+
     if [ "$errors" -gt 0 ]; then
         echo ""
         echo "$errors dependency issue(s) found."

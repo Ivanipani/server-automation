@@ -3,22 +3,12 @@
 # Default-deny incoming, allow outgoing, with per-group port allowances
 
 # 1. Base firewall for ALL hosts: ufw + deny incoming + allow outgoing + SSH
-- hosts: all
+- hosts: all:!baremetal
   become: true
   roles:
     - firewall-basic
 
-# 2. Hypervisor — Proxmox Web UI and VNC consoles
-- hosts: baremetal
-  become: true
-  roles:
-    - role: firewall-basic
-      vars:
-        inbound_allow:
-          - { port: 8006, proto: tcp }
-          - { port: "5900:5999", proto: tcp }
-
-# 3. Containers — per-host open ports
+# 2. Containers — per-host open ports
 - hosts: containers
   become: true
   roles:
@@ -39,7 +29,7 @@
         - { port: 67, proto: udp }
         - { port: 80, proto: tcp }
 
-# 4. Virtual machines — application port range
+# 3. Virtual machines — application port range
 - hosts: virtual-machines
   become: true
   roles:

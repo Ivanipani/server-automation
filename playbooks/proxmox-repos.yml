@@ -1,0 +1,6 @@
+---
+- name: Configure Proxmox no-subscription repos
+  hosts: baremetal
+  become: true
+  roles:
+    - proxmox-repos

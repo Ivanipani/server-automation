@@ -7,6 +7,8 @@
 # 1. Bootstrap SSH + sudo on all nodes (prerequisite for everything)
 - import_playbook: init-ansible-global.yml
 
+- import_playbook: proxmox-repos.yml
+
 # 2. DNS infrastructure (Pi-hole + hypervisor resolv.conf)
 - import_playbook: configure-dns-poochella.yml
 

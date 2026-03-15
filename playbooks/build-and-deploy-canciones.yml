@@ -26,6 +26,7 @@
 
 - name: Deploy React build to web server
   hosts: webservers
+  become: true
   vars:
     build_path_src: "/tmp/song-viewer/build/client"
     build_path_dest: "/var/www/song-viewer"
