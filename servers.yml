@@ -9,6 +9,11 @@ test:
     test01:
       ansible_host: 192.168.0.142
 
+dns:
+  hosts:
+    pihole01:
+      ansible_host: pihole.lan
+
 legacy-webservers:
   hosts:
     nginx01:

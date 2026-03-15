@@ -1,0 +1,12 @@
+---
+- name: Configure firewall
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Deploy custom dnsmasq config for local DNS resolution
+  ansible.builtin.template:
+    src: 05-local-dns.conf.j2
+    dest: /etc/dnsmasq.d/05-local-dns.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart pihole DNS

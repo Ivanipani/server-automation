@@ -10,7 +10,8 @@
       "Bash(for role:*)",
       "Bash(ls:*)",
       "WebFetch(domain:caddyserver.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(git log:*)"
     ]
   }
 }
