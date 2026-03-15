@@ -3,3 +3,6 @@
   ansible.builtin.include_tasks: base.yml
   when: ansible_os_family != "Darwin"
 
+- name: Configure firewall ports, default-deny
+  ansible.builtin.include_tasks: network.yml
+  when: ansible_os_family != "Darwin"

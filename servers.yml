@@ -9,6 +9,10 @@ test:
     test01:
       ansible_host: 192.168.0.142
 
+legacy-webservers:
+  hosts:
+    nginx01:
+      ansible_host: webserver
 webservers:
   hosts:
     caddy01:
