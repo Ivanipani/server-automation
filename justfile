@@ -10,6 +10,11 @@ ping: check-ansible
     #!/usr/bin/env bash
     ansible all -m ping
 
+# Run the full poochella cluster setup in correct dependency order
+setup: check
+    #!/usr/bin/env bash
+    ansible-playbook playbooks/site.yml
+
 # Run all playbooks
 run-all : check-ansible
     #!/usr/bin/env bash

@@ -40,19 +40,19 @@
     comment: "Allow application traffic on port {{ app_port }}"
   when: app_port is defined
 
-- name: Install git
-  ansible.builtin.apt:
-    name: git
-    state: present
-
-- name: Generate SSH key for git operations
-  community.crypto.openssh_keypair:
-    path: /root/.ssh/id_ed25519
-    type: ed25519
-    comment: "github private key"
-  register: ssh_key
-
-- name: Display public key (add to GitHub)
-  debug:
-    msg: "GitHub public key: {{ ssh_key.public_key }}"
-
+# - name: Install git
+#   ansible.builtin.apt:
+#     name: git
+#     state: present
+#
+# - name: Generate SSH key for git operations
+#   community.crypto.openssh_keypair:
+#     path: /root/.ssh/id_ed25519
+#     type: ed25519
+#     comment: "github private key"
+#   register: ssh_key
+#
+# - name: Display public key (add to GitHub)
+#   debug:
+#     msg: "GitHub public key: {{ ssh_key.public_key }}"
+#
