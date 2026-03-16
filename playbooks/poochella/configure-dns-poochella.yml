@@ -11,7 +11,7 @@
   tasks:
     - name: Set DNS to pihole2
       ansible.builtin.template:
-        src: ../roles/pihole/templates/resolv.conf.j2
+        src: templates/resolv.conf.j2
         dest: /etc/resolv.conf
         owner: root
         group: root

@@ -1,0 +1,98 @@
+---
+- name: Build song-viewer locally
+  hosts: localhost
+  tags: [build]
+  vars:
+    repo_url: "https://github.com/Ivanipani/song-viewer.git"
+    local_repo_path: "/tmp/song-viewer"
+  tasks:
+    - name: Clone/pull repository
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ local_repo_path }}"
+        clone: true
+        update: true
+        force: true
+
+    - name: Install dependencies with bun
+      ansible.builtin.command:
+        cmd: bun install
+        chdir: "{{ local_repo_path }}"
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.bun/bin:{{ ansible_env.PATH }}"
+
+    - name: Build app with bun
+      ansible.builtin.command:
+        cmd: bun run build
+        chdir: "{{ local_repo_path }}"
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.bun/bin:{{ ansible_env.PATH }}"
+
+- name: Deploy song-viewer to webservers
+  hosts: webservers
+  become: true
+  vars:
+    build_path_src: "/tmp/song-viewer/build/client"
+    build_path_dest: "/var/www/song-viewer"
+    catalog_path_src: "~/github/ivanipani/song-viewer/catalog-manager/catalog"
+    catalog_path_dest: "/public/song-viewer"
+  roles:
+    - caddy
+  tasks:
+    - name: Install rsync
+      ansible.builtin.apt:
+        name: rsync
+        state: present
+
+    - name: Create web app directory
+      ansible.builtin.file:
+        path: "{{ build_path_dest }}"
+        state: directory
+        mode: '0755'
+        owner: www-data
+        group: www-data
+      tags: [deploy-app]
+
+    - name: Synchronize built files to server
+      ansible.posix.synchronize:
+        src: "{{ build_path_src }}/"
+        dest: "{{ build_path_dest }}"
+        delete: true
+        # rsync_opts:
+        #   - "--chmod=D755,F644"
+      tags: [deploy-app]
+
+    - name: Create media directory
+      ansible.builtin.file:
+        path: "{{ catalog_path_dest }}"
+        state: directory
+        mode: '0755'
+        owner: www-data
+        group: www-data
+      tags: [deploy-media]
+
+    - name: Synchronize media files to server
+      ansible.posix.synchronize:
+        src: "{{ catalog_path_src }}/"
+        dest: "{{ catalog_path_dest }}"
+        delete: true
+        rsync_opts:
+          - "--include=*/"
+          - "--include=*.mp3"
+          - "--include=*.ogg"
+          - "--include=*.json"
+          - "--include=*.yml"
+          - "--include=*.md"
+          - "--exclude=*"
+          # - "--chmod=D755,F644"
+      tags: [deploy-media]
+
+    - name: Deploy canciones Caddy site config
+      ansible.builtin.template:
+        src: templates/canciones.poochella.club.caddy.j2
+        dest: /etc/caddy/sites-enabled/canciones.poochella.club.caddy
+        owner: caddy
+        group: caddy
+        mode: '0644'
+      notify: "reload caddy"
+      tags: [deploy-caddy]

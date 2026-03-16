@@ -32,9 +32,9 @@ run-all : check-ansible
 run-single: check-ansible
     #!/usr/bin/env bash
     set -euo pipefail
-    selected=$(ls playbooks/*.yml | xargs -n1 basename | fzf)
+    selected=$(find playbooks -name '*.yml' -type f | sort | fzf)
     echo "Running $selected"
-    ansible-playbook "playbooks/$selected"
+    ansible-playbook "$selected"
 
 # Check if ansible is installed
 check-ansible:
@@ -100,6 +100,10 @@ check: check-ansible
 mac: check-ansible
     #!/usr/bin/env bash
     ansible-playbook playbooks/local-mac.yml
+
+# Build and deploy song-viewer (canciones.poochella.club)
+deploy-canciones: check-ansible
+    ansible-playbook playbooks/deploy-canciones.yml
 
 # Run the test playbook with interactive tag selection via fzf
 test-run:

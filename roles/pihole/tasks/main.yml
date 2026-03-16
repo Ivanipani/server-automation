@@ -1,7 +1,4 @@
 ---
-- name: Configure firewall
-  ansible.builtin.import_tasks: firewall.yml
-
 # Installer is manual for some cursed reason...
 # - name: Install Pi-hole
 #   ansible.builtin.import_tasks: install.yml
