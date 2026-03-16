@@ -4,17 +4,19 @@
 #
 # Full poochella cluster setup — run playbooks in dependency order
 
-# 1. Bootstrap SSH + sudo on all nodes (prerequisite for everything)
+# Bootstrap SSH + sudo on all nodes (prerequisite for everything)
 - import_playbook: init-ansible-global.yml
 
 - import_playbook: proxmox-repos.yml
 
-# 2. DNS infrastructure (Pi-hole + hypervisor resolv.conf)
+- import_playbook: sessions-and-shell.yml
+
+# DNS infrastructure (Pi-hole + hypervisor resolv.conf)
 - import_playbook: configure-dns-poochella.yml
 
-# 3. Firewall and networking
+# Firewall and networking
 - import_playbook: firewall.yml
 
-# 4. Reverse proxy (Caddy on webservers)
+# Reverse proxy (Caddy on webservers)
 - import_playbook: install-caddy.yml
 

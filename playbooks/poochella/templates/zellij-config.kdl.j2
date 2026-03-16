@@ -1,0 +1,191 @@
+// copied from https://github.com/Ivanipani/dotfiles/blob/main/zellij/config.kdl
+// {{ ansible_managed }}
+keybinds clear-defaults=true {
+    locked {
+        bind "Ctrl a" { SwitchToMode "normal"; }
+    }
+    shared_except "locked" "renametab" "renamepane" {
+        bind "Ctrl a" { SwitchToMode "locked"; }
+        bind "Ctrl q" { Quit; }
+    }
+
+    // Global navigation — simple MoveFocus (no navigator plugin)
+    shared {
+        bind "Ctrl h" { MoveFocusOrTab "left"; }
+        bind "Ctrl j" { MoveFocus "down"; }
+        bind "Ctrl k" { MoveFocus "up"; }
+        bind "Ctrl l" { MoveFocusOrTab "right"; }
+
+        bind "Alt h" { GoToPreviousTab; }
+        bind "Alt l" { GoToNextTab; }
+    }
+
+    pane {
+        bind "e" { TogglePaneEmbedOrFloating; SwitchToMode "locked"; }
+        bind "f" { ToggleFocusFullscreen; SwitchToMode "locked"; }
+        bind "i" { TogglePanePinned; SwitchToMode "locked"; }
+        bind "h" { NewPane "left"; SwitchToMode "locked"; }
+        bind "j" { NewPane "down"; SwitchToMode "locked"; }
+        bind "k" { NewPane "up"; SwitchToMode "locked"; }
+        bind "l" { NewPane "right"; SwitchToMode "locked"; }
+        bind "p" { SwitchToMode "normal"; }
+        bind "r" { SwitchToMode "renamepane"; PaneNameInput 0; }
+        bind "s" { NewPane "stacked"; SwitchToMode "locked"; }
+        bind "w" { ToggleFloatingPanes; SwitchToMode "locked"; }
+        bind "d" { CloseFocus; SwitchToMode "locked"; }
+    }
+    tab {
+        bind "b" { BreakPane; SwitchToMode "locked"; }
+        bind "h" { GoToPreviousTab; }
+        bind "l" { GoToNextTab; }
+        bind "n" { NewTab; SwitchToMode "locked"; }
+        bind "r" { SwitchToMode "renametab"; TabNameInput 0; }
+        bind "s" { ToggleActiveSyncTab; SwitchToMode "locked"; }
+        bind "t" { SwitchToMode "normal"; }
+        bind "d" { CloseTab; SwitchToMode "locked"; }
+    }
+    resize {
+        bind "H" { Resize "Decrease left"; }
+        bind "J" { Resize "Decrease down"; }
+        bind "K" { Resize "Decrease up"; }
+        bind "L" { Resize "Decrease right"; }
+        bind "h" { Resize "Increase left"; }
+        bind "j" { Resize "Increase down"; }
+        bind "k" { Resize "Increase up"; }
+        bind "l" { Resize "Increase right"; }
+        bind "r" { SwitchToMode "normal"; }
+    }
+    move {
+        bind "h" { MovePane "left"; }
+        bind "j" { MovePane "down"; }
+        bind "k" { MovePane "up"; }
+        bind "l" { MovePane "right"; }
+        bind "m" { SwitchToMode "normal"; }
+    }
+    scroll {
+        bind "s" { SwitchToMode "normal"; }
+        bind "e" { EditScrollback; SwitchToMode "locked"; }
+        bind "/" { SwitchToMode "entersearch"; SearchInput 0; }
+        bind "j" { ScrollDown; }
+        bind "k" { ScrollUp; }
+        bind "Ctrl u" { HalfPageScrollUp; }
+        bind "Ctrl d" { HalfPageScrollDown; }
+    }
+    search {
+        bind "c" { SearchToggleOption "CaseSensitivity"; }
+        bind "n" { Search "down"; }
+        bind "N" { Search "up"; }
+        bind "o" { SearchToggleOption "WholeWord"; }
+        bind "w" { SearchToggleOption "Wrap"; }
+    }
+    session {
+        bind "a" {
+            LaunchOrFocusPlugin "zellij:about" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "locked"
+        }
+        bind "d" { Detach; }
+        bind "o" { SwitchToMode "normal"; }
+        bind "p" {
+            LaunchOrFocusPlugin "plugin-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "locked"
+        }
+        bind "s" {
+            LaunchOrFocusPlugin "zellij:share" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "locked"
+        }
+        bind "m" {
+            LaunchOrFocusPlugin "session-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "locked"
+        }
+    }
+    shared_among "normal" "locked" {
+        bind "Alt +" { Resize "Increase"; }
+        bind "Alt -" { Resize "Decrease"; }
+        bind "Alt =" { Resize "Increase"; }
+        bind "Alt [" { PreviousSwapLayout; }
+        bind "Alt ]" { NextSwapLayout; }
+        bind "Alt f" { ToggleFloatingPanes; }
+        bind "Alt i" { MoveTab "left"; }
+        bind "Alt n" { NewPane; }
+        bind "Alt o" { MoveTab "right"; }
+        bind "Alt p" { TogglePaneInGroup; }
+        bind "Alt Shift p" { ToggleGroupMarking; }
+    }
+
+    shared_except "locked" "entersearch" {
+        bind "enter" { SwitchToMode "locked"; }
+    }
+    shared_except "locked" "entersearch" "renametab" "renamepane" {
+        bind "esc" { SwitchToMode "locked"; }
+    }
+    shared_except "locked" "entersearch" "renametab" "renamepane" "move" {
+        bind "m" { SwitchToMode "move"; }
+    }
+    shared_except "locked" "entersearch" "search" "renametab" "renamepane" "session" {
+        bind "o" { SwitchToMode "session"; }
+    }
+    shared_except "locked" "tab" "entersearch" "renametab" "renamepane" {
+        bind "t" { SwitchToMode "tab"; }
+    }
+    shared_among "normal" "resize" "tab" "scroll" "prompt" "tmux" {
+        bind "p" { SwitchToMode "pane"; }
+    }
+    shared_among "normal" "resize" "search" "move" "prompt" "tmux" {
+        bind "s" { SwitchToMode "scroll"; }
+    }
+    shared_except "locked" "resize" "pane" "tab" "entersearch" "renametab" "renamepane" {
+        bind "r" { SwitchToMode "resize"; }
+    }
+    entersearch {
+        bind "Ctrl c" { SwitchToMode "scroll"; }
+        bind "esc" { SwitchToMode "scroll"; }
+        bind "enter" { SwitchToMode "search"; }
+    }
+    renametab {
+        bind "esc" { UndoRenameTab; SwitchToMode "tab"; }
+    }
+    shared_among "renametab" "renamepane" {
+        bind "Ctrl c" { SwitchToMode "locked"; }
+    }
+    renamepane {
+        bind "esc" { UndoRenamePane; SwitchToMode "pane"; }
+    }
+}
+
+// Plugin aliases — only built-in plugins
+plugins {
+    about location="zellij:about"
+    compact-bar location="zellij:compact-bar"
+    configuration location="zellij:configuration"
+    filepicker location="zellij:strider" {
+        cwd "/"
+    }
+    plugin-manager location="zellij:plugin-manager"
+    session-manager location="zellij:session-manager"
+    status-bar location="zellij:status-bar"
+    strider location="zellij:strider"
+    tab-bar location="zellij:tab-bar"
+    welcome-screen location="zellij:session-manager" {
+        welcome_screen true
+    }
+}
+
+theme "catpuccin-frappe"
+default_mode "locked"
+
+stacked_resize true
+show_startup_tips false
+show_release_notes true
+advanced_mouse_actions true

@@ -1,0 +1,53 @@
+---
+- name: Set up zellij, basic zsh
+  hosts: all:!containers
+  become: true
+  tasks:
+    - name: Install development tools
+      ansible.builtin.package:
+        name:
+          - zsh
+          - ca-certificates
+        state: present
+
+    - name: Ensure /opt/bin directory exists
+      ansible.builtin.file:
+        path: /opt/bin
+        state: directory
+        mode: "0755"
+
+    - name: Download zellij
+      ansible.builtin.get_url:
+        url: https://github.com/zellij-org/zellij/releases/latest/download/zellij-x86_64-unknown-linux-musl.tar.gz
+        dest: /tmp/zellij.tar.gz
+
+    - name: Install zellij
+      ansible.builtin.unarchive:
+        src: /tmp/zellij.tar.gz
+        dest: /opt/bin
+        remote_src: true
+        creates: /opt/bin/zellij
+
+    - name: Ensure /etc/zellij directory exists
+      ansible.builtin.file:
+        path: /etc/zellij
+        state: directory
+        mode: "0755"
+
+    - name: Deploy zellij config
+      ansible.builtin.template:
+        src: templates/zellij-config.kdl.j2
+        dest: /etc/zellij/config.kdl
+        mode: "0644"
+
+    - name: Deploy system-wide zshrc
+      ansible.builtin.template:
+        src: templates/zshrc.j2
+        dest: /etc/zsh/zshrc
+        mode: "0644"
+
+    - name: Set zsh as shell for ansible user
+      ansible.builtin.user:
+        name: ansible
+        shell: /usr/bin/zsh
+
