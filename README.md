@@ -13,6 +13,17 @@ Contains declarative solutions for:
 
 ## Getting Started
 
+
 ```zsh
-just
+# check if all requirements are satisfied
+just check
+
+# configure poochella cluster
+just setup
+
+# Run a single playbook
+just run-single
+
+# install servers.yml into $HOME
+just symlink-servers
 ```

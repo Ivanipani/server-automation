@@ -23,11 +23,6 @@ setup: check
     #!/usr/bin/env bash
     ansible-playbook playbooks/site.yml
 
-# Run all playbooks
-run-all : check-ansible
-    #!/usr/bin/env bash
-    ansible-playbook playbooks/*.yml
-
 # Run a single playbook
 run-single: check-ansible
     #!/usr/bin/env bash
