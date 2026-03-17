@@ -5,6 +5,9 @@
   dnssec = {{ pihole_dnssec | lower }}
   expandHosts = true
   listeningMode = "ALL"
+{% if pihole_local_dns_records %}
+  hosts = [{% for record in pihole_local_dns_records %}"{{ record.ip }} {{ record.hostname }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+{% endif %}
 
 [dns.domain]
   name = "{{ pihole_local_domain }}"

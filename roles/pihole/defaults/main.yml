@@ -19,3 +19,9 @@ pihole_dhcp_leasetime: "1"
 # Web
 pihole_web_pwhash: ""
 pihole_web_port: "80o,443os,[::]:80o,[::]:443os"
+
+# Local DNS records for static-IP hosts (bypasses DHCP discovery)
+pihole_local_dns_records:
+  - { ip: "192.168.0.2", hostname: "control01" }
+  - { ip: "192.168.0.4", hostname: "caddy01" }
+  - { ip: "192.168.0.7", hostname: "pihole02" }
