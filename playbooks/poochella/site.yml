@@ -11,6 +11,8 @@
 
 - import_playbook: sessions-and-shell.yml
 
+- import_playbook: users.yml
+
 # DNS infrastructure (Pi-hole + hypervisor resolv.conf)
 - import_playbook: configure-dns-poochella.yml
 

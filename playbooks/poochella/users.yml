@@ -1,0 +1,39 @@
+---
+- name: Create user accounts and configure access
+  hosts: baremetal:virtual-machines
+  become: true
+
+  tasks:
+    - name: Create required groups
+      ansible.builtin.group:
+        name: "{{ item }}"
+        state: present
+      loop: >-
+        {{ users | default([])
+           | map(attribute='groups')
+           | flatten
+           | unique
+           | list }}
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Create user accounts
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        groups: "{{ item.groups }}"
+        shell: "{{ item.shell | default('/bin/zsh') }}"
+        create_home: true
+        state: "{{ item.state | default('present') }}"
+      loop: "{{ users | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Set up SSH authorized keys
+      ansible.posix.authorized_key:
+        user: "{{ item.name }}"
+        key: "{{ lookup('file', item.ssh_key) }}"
+        state: present
+      loop: "{{ users | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.ssh_key is defined

@@ -1,0 +1,6 @@
+---
+users:
+  - name: pani
+    groups: [sudo]
+    shell: /bin/zsh
+    ssh_key: "~/.ssh/ansible.pub"
