@@ -21,7 +21,6 @@
     state: present
     update_cache: true
 
-
 - name: Ensure /etc/sudoers.d exists
   ansible.builtin.file:
     path: /etc/sudoers.d

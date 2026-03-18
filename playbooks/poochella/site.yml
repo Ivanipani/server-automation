@@ -1,21 +1,21 @@
 ---
-# Assumes all servers defined in servers.yml have
-# been created on Proxmox at their known IPs/hostnames
-#
 # Full poochella cluster setup — order of playbooks is significant
+#
+# Phase 1: DNS bootstrap (uses IPs only, no DNS resolution needed)
+#   - Pi-hole and hypervisor DNS both connect as root to hosts with
+#     static IPs (pihole02=192.168.0.7, control01=192.168.0.2)
+#   - After this phase, all hostnames resolve via Pi-hole DHCP/DNS
+
+- import_playbook: configure-dns-poochella.yml
+
+# Phase 2: Full cluster setup (DNS now available via Pi-hole)
+
+- import_playbook: init-ansible-global.yml
 
 - import_playbook: apt-setup.yml
 
-# Bootstrap SSH + sudo on all nodes (prerequisite for everything)
-- import_playbook: init-ansible-global.yml
-
-# DNS infrastructure (Pi-hole + hypervisor resolv.conf)
-- import_playbook: configure-dns-poochella.yml
-
-# Firewall and networking
 - import_playbook: firewall.yml
 
-# Reverse proxy (Caddy on webservers)
 - import_playbook: install-caddy.yml
 
 - import_playbook: sessions-and-shell.yml

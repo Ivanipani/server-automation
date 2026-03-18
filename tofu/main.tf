@@ -64,6 +64,10 @@ resource "proxmox_virtual_environment_container" "ct" {
         gateway = each.value.ip_address != "dhcp" ? each.value.gateway : null
       }
     }
+
+    user_account {
+      keys = [var.ssh_public_key]
+    }
   }
 
   console {

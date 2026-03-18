@@ -1,4 +1,12 @@
 ---
+- name: Ensure /etc/sudoers.d exists
+  ansible.builtin.file:
+    path: "{{ pihole_config_dir }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+
 - name: Deploy pihole.toml configuration
   ansible.builtin.template:
     src: pihole.toml.j2
