@@ -1,11 +1,9 @@
 ---
 # Phase 0: Ensure all Proxmox templates exist before Tofu provisioning
-# Connects as root — runs before the ansible user is created
 # Idempotent — safe to re-run
 
 - name: Prepare Proxmox templates
   hosts: control01
-  remote_user: root
   gather_facts: false
   vars:
     lxc_templates:

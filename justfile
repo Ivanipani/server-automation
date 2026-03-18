@@ -106,8 +106,7 @@ bootstrap-host: check
 
 # Full bootstrap: prepare templates → provision infrastructure → configure cluster
 bootstrap: check
-    ansible-playbook playbooks/poochella/init-ansible-global.yml --ask-vault-pass --limit baremetal
-    ansible-playbook playbooks/poochella/site.yml
+    ansible-playbook playbooks/poochella/site.yml --ask-vault-pass
 
 tofu-validate:
     cd tofu && tofu validate

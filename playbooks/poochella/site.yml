@@ -1,7 +1,13 @@
 ---
 # Full poochella cluster setup — order of playbooks is significant
 #
-# Phase 0: Template preparation (connects as root to hypervisor)
+# Phase 0: Bootstrap ansible user on hypervisors
+#   - Tries SSH as 'ansible', falls back to root with vault password
+#   - Idempotent — skips if ansible user already exists
+
+- import_playbook: bootstrap-hypervisor.yml
+
+# Phase 0.1: Template preparation (connects to hypervisor)
 #   - Ensures LXC and VM templates exist on Proxmox before provisioning
 #   - Idempotent — skips templates that already exist
 
