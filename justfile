@@ -100,22 +100,13 @@ test: check
     fi
     ansible-playbook -i servers.yml test/test.yml --tags "$tags"
 
-# Import existing Proxmox resources into OpenTofu state
-tofu-import:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd tofu
-    echo "Importing VMs..."
-    # tofu import 'proxmox_virtual_environment_vm.vm["test01"]' poochella/105
-    tofu import 'proxmox_virtual_environment_vm.vm["devbox01"]' poochella/108
-    echo "Importing containers..."
-    tofu import 'proxmox_virtual_environment_container.ct["caddy01"]' poochella/106
-    tofu import 'proxmox_virtual_environment_container.ct["nginx01"]' poochella/103
-    tofu import 'proxmox_virtual_environment_container.ct["pihole02"]' poochella/107
-    echo "Done. Run 'just tofu-plan' to see remaining drift."
+# Bootstrap ansible user on baremetal hosts (day-0, requires vault password)
+bootstrap-host: check
+    ansible-playbook playbooks/poochella/init-ansible-global.yml --ask-vault-pass --limit baremetal
 
 # Full bootstrap: prepare templates → provision infrastructure → configure cluster
 bootstrap: check
+    ansible-playbook playbooks/poochella/init-ansible-global.yml --ask-vault-pass --limit baremetal
     ansible-playbook playbooks/poochella/prepare-templates.yml
     cd tofu && tofu init && tofu apply
     ansible-playbook playbooks/poochella/site.yml

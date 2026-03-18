@@ -1,4 +1,19 @@
 ---
+- name: Ensure SSH keypair exists on control node
+  ansible.builtin.command:
+    cmd: ssh-keygen -t ed25519 -f ~/.ssh/ansible -N ""
+    creates: ~/.ssh/ansible
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Install sudo (needed on fresh Proxmox hosts)
+  ansible.builtin.apt:
+    name: sudo
+    state: present
+    update_cache: true
+  when: ansible_facts["os_family"] == 'Debian'
+
 - name: Create ansible user
   ansible.builtin.user:
     name: ansible
@@ -13,14 +28,6 @@
     user: ansible
     key: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
     state: present
-
-# handled by VM template
-# - name: Install required packages
-#   ansible.builtin.apt:
-#     name:
-#       - sudo
-#     state: present
-#     update_cache: true
 
 - name: Ensure /etc/sudoers.d exists
   ansible.builtin.file:
