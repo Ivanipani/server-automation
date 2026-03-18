@@ -8,7 +8,7 @@ baremetal:
 playground:
   hosts:
     test01:
-      ansible_host: ansible-playground
+      ansible_host: test01
       ansible_python_interpreter: /usr/bin/python3
 
 dns:
@@ -26,7 +26,7 @@ webservers:
 virtual-machines:
   hosts:
     test01:
-      ansible_host: ansible-playground
+      ansible_host: test01
       ansible_python_interpreter: /usr/bin/python3
     devbox01:
       ansible_host: devbox01

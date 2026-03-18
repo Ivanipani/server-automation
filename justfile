@@ -99,3 +99,32 @@ test: check
         exit 0
     fi
     ansible-playbook -i servers.yml test/test.yml --tags "$tags"
+
+# Import existing Proxmox resources into OpenTofu state
+tofu-import:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd tofu
+    echo "Importing VMs..."
+    # tofu import 'proxmox_virtual_environment_vm.vm["test01"]' poochella/105
+    tofu import 'proxmox_virtual_environment_vm.vm["devbox01"]' poochella/108
+    echo "Importing containers..."
+    tofu import 'proxmox_virtual_environment_container.ct["caddy01"]' poochella/106
+    tofu import 'proxmox_virtual_environment_container.ct["nginx01"]' poochella/103
+    tofu import 'proxmox_virtual_environment_container.ct["pihole02"]' poochella/107
+    echo "Done. Run 'just tofu-plan' to see remaining drift."
+
+tofu-validate:
+    cd tofu && tofu validate
+
+# Initialize OpenTofu providers
+tofu-init: tofu-validate
+    cd tofu && tofu init
+
+# Preview infrastructure changes
+tofu-plan: tofu-validate
+    cd tofu && tofu plan
+
+# Apply infrastructure changes
+tofu-apply: tofu-validate
+    cd tofu && tofu apply
