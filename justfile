@@ -114,6 +114,12 @@ tofu-import:
     tofu import 'proxmox_virtual_environment_container.ct["pihole02"]' poochella/107
     echo "Done. Run 'just tofu-plan' to see remaining drift."
 
+# Full bootstrap: prepare templates → provision infrastructure → configure cluster
+bootstrap: check
+    ansible-playbook playbooks/poochella/prepare-templates.yml
+    cd tofu && tofu init && tofu apply
+    ansible-playbook playbooks/poochella/site.yml
+
 tofu-validate:
     cd tofu && tofu validate
 

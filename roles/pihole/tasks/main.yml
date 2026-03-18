@@ -2,6 +2,5 @@
 - name: Configure Pi-hole
   ansible.builtin.import_tasks: configure.yml
 
-# Installer is manual for some cursed reason...
 - name: Install Pi-hole
   ansible.builtin.import_tasks: install.yml

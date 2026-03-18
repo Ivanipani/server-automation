@@ -1,0 +1,59 @@
+---
+# Creates a single VM template if it doesn't already exist
+# Required vars: vm_template (dict with id, name, image_url, image_file), vm_packages
+
+- name: "Check if VM template {{ vm_template.id }} exists"
+  ansible.builtin.command: "qm status {{ vm_template.id }}"
+  register: vm_status
+  failed_when: false
+  changed_when: false
+
+- name: "Create VM template {{ vm_template.id }} ({{ vm_template.name }})"
+  when: vm_status.rc != 0
+  block:
+    - name: "Download cloud image for VM {{ vm_template.id }}"
+      ansible.builtin.get_url:
+        url: "{{ vm_template.image_url }}"
+        dest: "/tmp/{{ vm_template.image_file }}"
+        mode: "0644"
+
+    - name: "Customize cloud image for VM {{ vm_template.id }}"
+      ansible.builtin.command: >
+        virt-customize -a /tmp/{{ vm_template.image_file }}
+        --install {{ vm_packages }}
+      changed_when: true
+
+    - name: "Create VM {{ vm_template.id }}"
+      ansible.builtin.command: >
+        qm create {{ vm_template.id }}
+        --name {{ vm_template.name }}
+        --memory 2048
+        --cores 2
+        --cpu x86-64-v2-AES
+        --net0 virtio,bridge=vmbr0,firewall=1
+        --scsihw virtio-scsi-single
+      changed_when: true
+
+    - name: "Import disk for VM {{ vm_template.id }}"
+      ansible.builtin.command: >
+        qm importdisk {{ vm_template.id }}
+        /tmp/{{ vm_template.image_file }} local-lvm
+      changed_when: true
+
+    - name: "Configure VM {{ vm_template.id }}"
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - "qm set {{ vm_template.id }} --virtio0 local-lvm:vm-{{ vm_template.id }}-disk-0,cache=writeback,iothread=1"
+        - "qm set {{ vm_template.id }} --boot order=virtio0"
+        - "qm set {{ vm_template.id }} --agent enabled=1"
+      changed_when: true
+
+    - name: "Convert VM {{ vm_template.id }} to template"
+      ansible.builtin.command: "qm template {{ vm_template.id }}"
+      changed_when: true
+
+    - name: "Move cloud image to template storage"
+      ansible.builtin.command: >
+        mv /tmp/{{ vm_template.image_file }}
+        /var/lib/vz/template/iso/{{ vm_template.image_file }}.iso
+      changed_when: true

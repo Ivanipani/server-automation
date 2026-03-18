@@ -1,0 +1,68 @@
+---
+# Phase 0: Ensure all Proxmox templates exist before Tofu provisioning
+# Connects as root — runs before the ansible user is created
+# Idempotent — safe to re-run
+
+- name: Prepare Proxmox templates
+  hosts: control01
+  remote_user: root
+  gather_facts: false
+
+  vars:
+    lxc_templates:
+      - id: 9101
+        hostname: debian-12-lxc-template
+        image: debian-12-standard_12.7-1_amd64.tar.zst
+      - id: 9102
+        hostname: ubuntu-24-lxc-template
+        image: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+
+    vm_templates:
+      - id: 9001
+        name: debian-12-template
+        image_url: https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
+        image_file: debian-12-genericcloud-amd64.qcow2
+      - id: 9002
+        name: ubuntu-24-template
+        image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+        image_file: noble-server-cloudimg-amd64.img
+
+    lxc_packages: openssh-server curl wget sudo rsync htop
+    vm_packages: qemu-guest-agent,curl,wget,sudo,rsync,htop
+
+  tasks:
+    # ── LXC templates ──────────────────────────────────────────────
+
+    - name: Update PVE appliance catalog
+      ansible.builtin.command: pveam update
+      changed_when: true
+
+    - name: Check available LXC images
+      ansible.builtin.command: pveam list local
+      register: pveam_list
+      changed_when: false
+
+    - name: Download LXC base images
+      ansible.builtin.command: "pveam download local {{ item.image }}"
+      loop: "{{ lxc_templates }}"
+      when: item.image not in pveam_list.stdout
+      changed_when: true
+
+    - name: Create LXC templates
+      ansible.builtin.include_tasks: tasks/create-lxc-template.yml
+      loop: "{{ lxc_templates }}"
+      loop_control:
+        loop_var: lxc_template
+
+    # ── VM templates ───────────────────────────────────────────────
+
+    - name: Ensure libguestfs-tools is installed
+      ansible.builtin.apt:
+        name: libguestfs-tools
+        state: present
+
+    - name: Create VM templates
+      ansible.builtin.include_tasks: tasks/create-vm-template.yml
+      loop: "{{ vm_templates }}"
+      loop_control:
+        loop_var: vm_template

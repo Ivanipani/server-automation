@@ -1,6 +1,12 @@
 ---
 # Full poochella cluster setup — order of playbooks is significant
 #
+# Phase 0: Template preparation (connects as root to hypervisor)
+#   - Ensures LXC and VM templates exist on Proxmox before provisioning
+#   - Idempotent — skips templates that already exist
+
+- import_playbook: prepare-templates.yml
+
 # Phase 1: DNS bootstrap (uses IPs only, no DNS resolution needed)
 #   - Pi-hole and hypervisor DNS both connect as root to hosts with
 #     static IPs (pihole02=192.168.0.7, control01=192.168.0.2)

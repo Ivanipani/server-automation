@@ -14,12 +14,13 @@
     key: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
     state: present
 
-- name: Install required packages
-  ansible.builtin.apt:
-    name:
-      - sudo
-    state: present
-    update_cache: true
+# handled by VM template
+# - name: Install required packages
+#   ansible.builtin.apt:
+#     name:
+#       - sudo
+#     state: present
+#     update_cache: true
 
 - name: Ensure /etc/sudoers.d exists
   ansible.builtin.file:

@@ -1,0 +1,67 @@
+---
+# Creates a single LXC template container if it doesn't already exist
+# Required vars: lxc_template (dict with id, hostname, image), lxc_packages
+
+- name: "Check if LXC template {{ lxc_template.id }} exists"
+  ansible.builtin.command: "pct status {{ lxc_template.id }}"
+  register: lxc_status
+  failed_when: false
+  changed_when: false
+
+- name: "Create LXC template {{ lxc_template.id }} ({{ lxc_template.hostname }})"
+  when: lxc_status.rc != 0
+  block:
+    - name: "Create container {{ lxc_template.id }}"
+      ansible.builtin.command: >
+        pct create {{ lxc_template.id }}
+        local:vztmpl/{{ lxc_template.image }}
+        --hostname {{ lxc_template.hostname }}
+        --memory 512
+        --cores 1
+        --net0 name=eth0,bridge=vmbr0,ip=dhcp,firewall=1
+        --storage local-lvm
+        --unprivileged 1
+        --features nesting=1
+      changed_when: true
+
+    - name: "Start container {{ lxc_template.id }}"
+      ansible.builtin.command: "pct start {{ lxc_template.id }}"
+      changed_when: true
+
+    - name: "Wait for container {{ lxc_template.id }} to be running"
+      ansible.builtin.command: "pct status {{ lxc_template.id }}"
+      register: ct_running
+      until: "'running' in ct_running.stdout"
+      retries: 10
+      delay: 2
+      changed_when: false
+
+    - name: "Update apt in container {{ lxc_template.id }}"
+      ansible.builtin.command: "pct exec {{ lxc_template.id }} -- apt-get update"
+      changed_when: true
+
+    - name: "Install packages in container {{ lxc_template.id }}"
+      ansible.builtin.command: "pct exec {{ lxc_template.id }} -- apt-get install -y {{ lxc_packages }}"
+      changed_when: true
+
+    - name: "Lock root password in container {{ lxc_template.id }}"
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - "pct exec {{ lxc_template.id }} -- passwd -d root"
+        - "pct exec {{ lxc_template.id }} -- passwd -l root"
+      changed_when: true
+
+    - name: "Harden SSH in container {{ lxc_template.id }}"
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - "pct exec {{ lxc_template.id }} -- sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config"
+        - "pct exec {{ lxc_template.id }} -- sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config"
+      changed_when: true
+
+    - name: "Stop container {{ lxc_template.id }}"
+      ansible.builtin.command: "pct stop {{ lxc_template.id }}"
+      changed_when: true
+
+    - name: "Convert container {{ lxc_template.id }} to template"
+      ansible.builtin.command: "pct template {{ lxc_template.id }}"
+      changed_when: true
