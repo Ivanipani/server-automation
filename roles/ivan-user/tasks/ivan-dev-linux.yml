@@ -1,15 +1,4 @@
 ---
-- name: Create pani user
-  ansible.builtin.user:
-    name: pani
-    state: present
-    groups:
-      - promoter
-      - talent
-      - sudo
-    shell: /bin/zsh
-    home: /home/pani
-
 - name: Look up pani user info
   ansible.builtin.getent:
     database: passwd
@@ -49,6 +38,7 @@
     dest: "{{ pani_home }}/dotfiles"
     version: main
     accept_newhostkey: true
+    force: true
   become: true
   become_user: pani
   environment:
@@ -63,6 +53,14 @@
     group: pani
     mode: "0755"
 
+- name: Install zplug
+  ansible.builtin.git:
+    repo: https://github.com/zplug/zplug.git
+    dest: "{{ pani_home }}/.zplug"
+    version: main
+  become: true
+  become_user: pani
+
 - name: Run zsh setup script
   ansible.builtin.command:
     cmd: zsh ./setup.sh
@@ -76,6 +74,15 @@
   ansible.builtin.command:
     cmd: zsh ./setup.sh
     chdir: "{{ pani_home }}/dotfiles/nvim"
+  become: true
+  become_user: pani
+  environment:
+    HOME: "{{ pani_home }}"
+
+- name: Install zellij plugins
+  ansible.builtin.command:
+    cmd: zsh ./install.sh
+    chdir: "{{ pani_home }}/dotfiles/zellij"
   become: true
   become_user: pani
   environment:
@@ -99,10 +106,3 @@
   environment:
     HOME: "{{ pani_home }}"
 
-- name: Install zplug
-  ansible.builtin.git:
-    repo: https://github.com/zplug/zplug.git
-    dest: "{{ pani_home }}/.zplug"
-    version: main
-  become: true
-  become_user: pani

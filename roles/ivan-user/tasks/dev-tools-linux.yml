@@ -22,16 +22,16 @@
     state: directory
     mode: "0755"
 
-- name: Download starship installer
-  ansible.builtin.get_url:
-    url: https://starship.rs/install.sh
-    dest: /tmp/starship-install.sh
-    mode: '0755'
-
-- name: Install starship
-  ansible.builtin.shell:
-    cmd: /tmp/starship-install.sh --yes --bin-dir /opt/bin
-    creates: /opt/bin/starship
+# - name: Download starship installer
+#   ansible.builtin.get_url:
+#     url: https://starship.rs/install.sh
+#     dest: /tmp/starship-install.sh
+#     mode: '0755'
+#
+# - name: Install starship
+#   ansible.builtin.shell:
+#     cmd: /tmp/starship-install.sh --yes --bin-dir /opt/bin
+#     creates: /opt/bin/starship
 
 - name: Download just installer
   ansible.builtin.get_url:
@@ -55,6 +55,12 @@
     dest: /opt/bin
     remote_src: true
     creates: /opt/bin/zellij
+
+- name: Ensure zellij plugins directory exists
+  ansible.builtin.file:
+    path: /opt/zellij-plugins
+    state: directory
+    mode: "0755"
 
 - name: Ensure tool directories exist
   ansible.builtin.file:
