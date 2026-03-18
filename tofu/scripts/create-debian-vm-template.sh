@@ -1,8 +1,6 @@
 wget https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
 sudo apt-get install libguestfs-tools
 virt-customize -a debian-12-genericcloud-amd64.qcow2 --install qemu-guest-agent,curl,wget,sudo,rsync,htop
-# virt-customize -a debian-12-genericcloud-amd64.qcow2 --run-command "sed -i 's|send host-name = gethostname();|send dhcp-client-identifier = hardware;|' /etc/dhcp/dhclient.conf"
-# virt-customize -a debian-12-genericcloud-amd64.qcow2 --run-command "echo -n > /etc/machine-id"
   # Create a VM (ID 9001) with basic settings
 sudo qm create 9001 --name debian-12-template \
 --memory 2048 \
@@ -30,4 +28,3 @@ sudo qm template 9001
 
 # Clean up downloaded images
 mv debian-12-genericcloud-amd64.qcow2 /var/lib/vz/template/iso/debian-12-genericcloud-amd64.qcow2.iso
-# rm -f debian-12-genericcloud-amd64.qcow2

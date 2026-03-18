@@ -4,7 +4,7 @@ proxmox_node     = "poochella"
 ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
 
 template_vm_id   = 9001
-template_file_id = "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+template_ct_id   = 9101
 
 vms = {
   test01 = {

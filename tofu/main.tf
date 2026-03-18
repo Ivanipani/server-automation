@@ -95,18 +95,11 @@ resource "proxmox_virtual_environment_container" "ct" {
     bridge = "vmbr0"
   }
 
-  operating_system {
-    template_file_id = var.template_file_id
-    type             = "debian"
+  clone {
+    vm_id = var.template_ct_id
   }
 
   features {
     nesting = true
-  }
-
-  lifecycle {
-    ignore_changes = [
-      operating_system[0].template_file_id,
-    ]
   }
 }

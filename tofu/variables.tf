@@ -24,9 +24,9 @@ variable "template_vm_id" {
   type        = number
 }
 
-variable "template_file_id" {
-  description = "Container template file path (e.g. local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst)"
-  type        = string
+variable "template_ct_id" {
+  description = "LXC container template ID to clone from"
+  type        = number
 }
 
 variable "vms" {
