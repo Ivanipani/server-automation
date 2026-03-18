@@ -108,7 +108,11 @@ bootstrap-host: check
 bootstrap: check
     ansible-playbook playbooks/poochella/site.yml --ask-vault-pass
 
-tofu-validate:
+# Generate tfvars from inventory
+gen-tfvars:
+    ansible-playbook playbooks/poochella/provision-infrastructure.yml --tags gen-tfvars
+
+tofu-validate: gen-tfvars
     cd tofu && tofu validate
 
 # Initialize OpenTofu providers

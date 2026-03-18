@@ -2,6 +2,14 @@
 - name: Deploy and configure Pi-hole on pihole2
   hosts: pihole02
   remote_user: root
+  pre_tasks:
+    - name: Build DNS records from inventory
+      ansible.builtin.set_fact:
+        pihole_local_dns_records: >-
+          [{% for host in groups['all'] if hostvars[host].static_ip | default(false) %}
+           {"ip": "{{ hostvars[host].ansible_host }}", "hostname": "{{ host }}"}
+           {% if not loop.last %},{% endif %}
+          {% endfor %}]
   roles:
     - pihole
 
