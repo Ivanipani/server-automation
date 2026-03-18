@@ -5,40 +5,16 @@ pwd := absolute_path(".")
 
 # Default target
 default:
-    @just --list
-
-# symlink servers.yml into $HOME
-symlink-servers:
-  mkdir -p "$HOME/.ansible/inventory"
-  ln -sf {{pwd}}/servers.yml "$HOME/.ansible/inventory/servers.yml"
-
+    @just --list --unsorted
 
 # Ping all servers
-ping: check-ansible
+ping:
     #!/usr/bin/env bash
     ansible all -m ping
 
-# Run the full poochella cluster setup in correct dependency order
-setup: check
-    #!/usr/bin/env bash
-    ansible-playbook playbooks/site.yml
 
-# Run a single playbook
-run-single: check-ansible
-    #!/usr/bin/env bash
-    set -euo pipefail
-    selected=$(find playbooks -name '*.yml' -type f | sort | fzf)
-    echo "Running $selected"
-    ansible-playbook "$selected"
-
-# Check if ansible is installed
-check-ansible:
-    #!/usr/bin/env bash
-    which ansible > /dev/null && echo "Ansible is installed" || (echo "Error: ansible is required but not installed. Install with: uv tool install ansible" && exit 1)
-    which ansible-playbook > /dev/null && echo "Ansible-playbook is installed" || (echo "Error: ansible-playbook is required but not installed. Install with: uv tool install ansible" && exit 1)
-
-# Validate all required software and Python dependencies on the control node
-check: check-ansible
+# Check requirements are installed on control node
+check:
     #!/usr/bin/env bash
     set -euo pipefail
     errors=0
@@ -91,17 +67,30 @@ check: check-ansible
     fi
 
 
-# Set up macOS development environment
-mac: check-ansible
+# Install all dependencies needed for this project
+install:
+    echo "Installing ansible..."
+    uv tool install ansible-core --with passlib --force
+    echo "Installing required ansible collections..."
+    ansible-galaxy install -r requirements.yml
+
+
+# symlink servers.yml into $HOME. Allows other projects to use this inventory as the source of truth
+symlink-servers:
+  mkdir -p "$HOME/.ansible/inventory"
+  ln -sf {{pwd}}/servers.yml "$HOME/.ansible/inventory/servers.yml"
+
+
+# Run a playbook
+run: check
     #!/usr/bin/env bash
-    ansible-playbook playbooks/local-mac.yml
+    set -euo pipefail
+    selected=$(find playbooks -name '*.yml' -type f | sort | fzf)
+    echo "Running $selected"
+    ansible-playbook "$selected"
 
-# Build and deploy song-viewer (canciones.poochella.club)
-deploy-canciones: check-ansible
-    ansible-playbook playbooks/deploy-canciones.yml
-
-# Run the test playbook with interactive tag selection via fzf
-test-run:
+# Run the test playbook
+test: check
     #!/usr/bin/env bash
     set -euo pipefail
     tags=$(grep 'tags:' test/test.yml | awk '{gsub(/[\[\]]/, "", $NF); print $NF}' | fzf --multi | paste -sd, -)
