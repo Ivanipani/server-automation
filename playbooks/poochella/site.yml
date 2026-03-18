@@ -2,12 +2,12 @@
 # Assumes all servers defined in servers.yml have
 # been created on Proxmox at their known IPs/hostnames
 #
-# Full poochella cluster setup — run playbooks in dependency order
+# Full poochella cluster setup — order of playbooks is significant
+
+- import_playbook: apt-setup.yml
 
 # Bootstrap SSH + sudo on all nodes (prerequisite for everything)
 - import_playbook: init-ansible-global.yml
-
-- import_playbook: proxmox-repos.yml
 
 - import_playbook: sessions-and-shell.yml
 
