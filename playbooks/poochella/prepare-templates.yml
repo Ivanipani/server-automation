@@ -7,7 +7,6 @@
   hosts: control01
   remote_user: root
   gather_facts: false
-
   vars:
     lxc_templates:
       - id: 9101

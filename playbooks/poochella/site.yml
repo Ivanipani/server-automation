@@ -7,6 +7,9 @@
 
 - import_playbook: prepare-templates.yml
 
+# Phase 0.5: Provision VMs and containers via OpenTofu
+- import_playbook: provision-infrastructure.yml
+
 # Phase 1: DNS bootstrap (uses IPs only, no DNS resolution needed)
 #   - Pi-hole and hypervisor DNS both connect as root to hosts with
 #     static IPs (pihole02=192.168.0.7, control01=192.168.0.2)

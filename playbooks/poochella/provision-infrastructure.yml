@@ -1,0 +1,19 @@
+---
+- name: Provision infrastructure with OpenTofu
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run tofu init and apply
+      community.general.terraform:
+        project_path: "{{ playbook_dir }}/../../tofu"
+        binary_path: tofu
+        state: present
+        force_init: true
+      register: tofu_output
+
+    - name: Show provisioned resources
+      ansible.builtin.debug:
+        msg: |
+          VMs: {{ tofu_output.outputs.vm_ips.value | default({}) }}
+          Containers: {{ tofu_output.outputs.container_ips.value | default({}) }}
