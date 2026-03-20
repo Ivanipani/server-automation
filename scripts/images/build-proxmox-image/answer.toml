@@ -1,0 +1,22 @@
+[global]
+keyboard = "en-us"
+country = "us"
+fqdn = "control01.local"
+mailto = "root@localhost"
+timezone = "America/New_York"
+root-password = "loganlucky"
+root-ssh-keys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
+]
+reboot-on-error = false
+
+[network]
+source = "from-answer"
+cidr = "192.168.0.2/24"
+dns = "192.168.0.1"
+gateway = "192.168.0.1"
+filter.ID_NET_NAME_ONBOARD = "eno*"
+
+[disk-setup]
+filesystem = "ext4"
+disk-list = ["sda"]

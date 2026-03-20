@@ -82,12 +82,12 @@ symlink-servers:
 
 
 # Run a playbook
-run: check
+run *options: check
     #!/usr/bin/env bash
     set -euo pipefail
     selected=$(find playbooks -name '*.yml' -type f | sort | fzf)
     echo "Running $selected"
-    ansible-playbook "$selected"
+    ansible-playbook {{ options }} "$selected"
 
 # Run the test playbook
 test: check
