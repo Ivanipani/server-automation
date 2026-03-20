@@ -2,7 +2,6 @@
 # Ensures the 'ansible' user exists on baremetal hypervisors.
 # Tries SSH as 'ansible' first; falls back to root with vault password.
 # Must run before any other playbook so later plays can connect as 'ansible'.
-
 - name: Detect SSH user for baremetal
   hosts: baremetal
   gather_facts: false
@@ -23,6 +22,24 @@
     - name: "Bootstrap user for {{ inventory_hostname }}: {{ bootstrap_user }}"
       ansible.builtin.debug:
         msg: "Connecting as '{{ bootstrap_user }}' (ansible user {{ 'already exists' if ansible_ssh.rc == 0 else 'not yet created' }})"
+
+
+- name: Install sudo (needed on fresh Proxmox hosts)
+  hosts: baremetal
+  become: true
+  remote_user: "{{ bootstrap_user }}"
+  vars:
+    ansible_password: "{{ hypervisor_root_pass if use_root_password | default(false) else omit }}"
+  tasks:
+    # - name: Print all available facts
+    #   ansible.builtin.debug:
+    #     var: ansible_facts
+    - name: Install sudo
+      ansible.builtin.apt:
+        name: sudo
+        state: present
+        update_cache: true
+      when: ansible_facts["os_family"] == 'Debian'
 
 - name: Bootstrap ansible user (baremetal)
   hosts: baremetal

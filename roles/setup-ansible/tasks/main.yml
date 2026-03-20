@@ -7,20 +7,19 @@
   become: false
   run_once: true
 
-- name: Install sudo (needed on fresh Proxmox hosts)
-  ansible.builtin.apt:
-    name: sudo
+- name: Create ansible group
+  ansible.builtin.group:
+    name: ansible
     state: present
-    update_cache: true
-  when: ansible_facts["os_family"] == 'Debian'
 
 - name: Create ansible user
   ansible.builtin.user:
     name: ansible
+    group: ansible
     shell: /bin/bash
     groups: sudo
     append: true
-    password: "{{ ansible_user_pass | password_hash('sha512') }}"
+    password: '!'
     state: present
 
 - name: Set up SSH authorized key for ansible
@@ -29,17 +28,10 @@
     key: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
     state: present
 
-- name: Ensure /etc/sudoers.d exists
-  ansible.builtin.file:
-    path: /etc/sudoers.d
-    state: directory
-    mode: "0750"
-    owner: root
-    group: root
-
 - name: Grant passwordless sudo to ansible
-  ansible.builtin.copy:
-    dest: /etc/sudoers.d/ansible
-    content: "ansible ALL=(ALL) NOPASSWD:ALL\n"
-    mode: "0440"
-    # validate: visudo -cf %s
+  community.general.sudoers:
+    name: ansible
+    user: ansible
+    commands: ALL
+    nopassword: true
+    state: present
