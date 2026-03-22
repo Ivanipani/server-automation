@@ -19,7 +19,7 @@
         --memory 512
         --cores 1
         --net0 name=eth0,bridge=vmbr0,ip=dhcp,firewall=1
-        --storage local-lvm
+        --storage local-zfs
         --unprivileged 1
         --features nesting=1
       changed_when: true

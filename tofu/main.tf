@@ -22,7 +22,7 @@ resource "proxmox_virtual_environment_vm" "vm" {
   disk {
     interface    = "virtio0"
     size         = each.value.disk_size
-    datastore_id = "local-lvm"
+    datastore_id = "local-zfs"
   }
 
   initialization {
@@ -86,7 +86,7 @@ resource "proxmox_virtual_environment_container" "ct" {
   }
 
   disk {
-    datastore_id = "local-lvm"
+    datastore_id = "local-zfs"
     size         = each.value.disk_size
   }
 

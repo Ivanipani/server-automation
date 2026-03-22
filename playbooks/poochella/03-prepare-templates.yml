@@ -5,20 +5,21 @@
 - name: Prepare Proxmox templates
   hosts: control01
   gather_facts: false
+  become: true
   vars:
     lxc_templates:
       - id: 9101
-        hostname: debian-12-lxc-template
-        image: debian-12-standard_12.7-1_amd64.tar.zst
+        hostname: debian-13-lxc-template
+        image: debian-13-standard_13.1-2_amd64.tar.zst
       - id: 9102
         hostname: ubuntu-24-lxc-template
         image: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
 
     vm_templates:
       - id: 9001
-        name: debian-12-template
-        image_url: https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
-        image_file: debian-12-genericcloud-amd64.qcow2
+        name: debian-13-template
+        image_url: https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2
+        image_file: debian-13-genericcloud-amd64.qcow2
       - id: 9002
         name: ubuntu-24-template
         image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img

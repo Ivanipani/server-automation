@@ -23,7 +23,7 @@
       ansible.builtin.debug:
         msg: "Connecting as '{{ bootstrap_user }}' (ansible user {{ 'already exists' if ansible_ssh.rc == 0 else 'not yet created' }})"
 
-- name: Configure Proxmox no-subscription repos
+- name: Configure hypervisors for automated management
   hosts: baremetal
   become: true
   remote_user: "{{ bootstrap_user }}"

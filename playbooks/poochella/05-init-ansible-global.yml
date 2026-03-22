@@ -2,36 +2,6 @@
 # Establishes a user 'ansible' with SSH + sudo access.
 # All Ansible-managed nodes require this setup
 
-- name: Detect SSH user for baremetal
-  hosts: baremetal
-  gather_facts: false
-  connection: local
-  tasks:
-    - name: Check if ansible user can connect
-      ansible.builtin.command:
-        cmd: ssh -o BatchMode=yes -o ConnectTimeout=5 ansible@{{ ansible_host }} true
-      register: ansible_ssh
-      ignore_errors: true
-      changed_when: false
-
-    - name: Set bootstrap user
-      ansible.builtin.set_fact:
-        bootstrap_user: "{{ 'ansible' if ansible_ssh.rc == 0 else 'root' }}"
-        use_root_password: "{{ ansible_ssh.rc != 0 }}"
-
-    - name: "Bootstrap user for {{ inventory_hostname }}: {{ bootstrap_user }}"
-      ansible.builtin.debug:
-        msg: "Connecting as '{{ bootstrap_user }}' (ansible user {{ 'already exists' if ansible_ssh.rc == 0 else 'not yet created' }})"
-
-- name: Bootstrap ansible user (baremetal)
-  hosts: baremetal
-  become: true
-  remote_user: "{{ bootstrap_user }}"
-  vars:
-    ansible_password: "{{ hypervisor_root_pass if use_root_password | default(false) else omit }}"
-  roles:
-    - setup-ansible
-
 - name: Bootstrap ansible user (containers)
   hosts: containers
   remote_user: root

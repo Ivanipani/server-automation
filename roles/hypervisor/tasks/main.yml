@@ -10,24 +10,33 @@
 
 - name: Remove Proxmox enterprise PVE repo
   ansible.builtin.file:
-    path: /etc/apt/sources.list.d/pve-enterprise.list
+    path: "{{ item }}"
     state: absent
+  loop:
+    - /etc/apt/sources.list.d/pve-enterprise.list
+    - /etc/apt/sources.list.d/pve-enterprise.sources
 
 - name: Remove Proxmox enterprise Ceph repo
   ansible.builtin.file:
-    path: /etc/apt/sources.list.d/ceph.list
+    path: "{{ item }}"
     state: absent
+  loop:
+    - /etc/apt/sources.list.d/ceph.list
+    - /etc/apt/sources.list.d/ceph.sources
+    - /etc/apt/sources.list.d/ceph-squid.list
+    - /etc/apt/sources.list.d/ceph-squid-enterprise.list
+    - /etc/apt/sources.list.d/ceph-squid-enterprise.sources
 
 - name: Add Proxmox no-subscription PVE repo
   ansible.builtin.copy:
     dest: /etc/apt/sources.list.d/pve-no-subscription.list
-    content: "deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription\n"
+    content: "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription\n"
     mode: "0644"
 
 - name: Add Proxmox no-subscription Ceph repo
   ansible.builtin.copy:
     dest: /etc/apt/sources.list.d/ceph-no-subscription.list
-    content: "deb http://download.proxmox.com/debian/ceph-quincy bookworm no-subscription\n"
+    content: "deb http://download.proxmox.com/debian/ceph-squid trixie no-subscription\n"
     mode: "0644"
 
 # - name: Stop apt-daily services to release lock
@@ -59,7 +68,8 @@
   ansible.builtin.apt:
     name: sudo
     state: present
+    update_cache: true
 
-# - name: Bootstrap ansible user (baremetal)
-#   import_roles:
-#     - setup-ansible
+- name: Bootstrap ansible user (baremetal)
+  import_role:
+    name: setup-ansible

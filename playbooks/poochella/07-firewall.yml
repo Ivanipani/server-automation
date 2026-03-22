@@ -2,12 +2,6 @@
 # Firewall configuration for all poochella nodes
 # Default-deny incoming, allow outgoing, with per-group port allowances
 
-# 1. Base firewall for ALL hosts: ufw + deny incoming + allow outgoing + SSH
-- hosts: all:!baremetal
-  become: true
-  roles:
-    - firewall-basic
-
 # 2. Containers — per-host open ports
 - hosts: containers
   become: true

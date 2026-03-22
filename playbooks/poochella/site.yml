@@ -5,39 +5,39 @@
 #   - Tries SSH as 'ansible', falls back to root with vault password
 #   - Uses raw commands (FreeBSD-based, no Python guaranteed)
 
-- import_playbook: bootstrap-router.yml
+- import_playbook: 01-bootstrap-router.yml
 
 # Phase 0: Bootstrap ansible user on hypervisors
 #   - Tries SSH as 'ansible', falls back to root with vault password
 #   - Idempotent — skips if ansible user already exists
 
-- import_playbook: bootstrap-hypervisor.yml
+- import_playbook: 02-bootstrap-hypervisor.yml
 
 # Phase 0.1: Template preparation (connects to hypervisor)
 #   - Ensures LXC and VM templates exist on Proxmox before provisioning
 #   - Idempotent — skips templates that already exist
 
-- import_playbook: prepare-templates.yml
+- import_playbook: 03-prepare-templates.yml
 
 # Phase 0.5: Provision VMs and containers via OpenTofu
-- import_playbook: provision-infrastructure.yml
+- import_playbook: 04-provision-infrastructure.yml
 
 # Phase 1: DNS bootstrap (uses IPs only, no DNS resolution needed)
 #   - Pi-hole and hypervisor DNS both connect as root to hosts with
 #     static IPs (pihole02=192.168.0.7, control01=192.168.0.2)
 #   - After this phase, all hostnames resolve via Pi-hole DHCP/DNS
 
-- import_playbook: configure-dns-poochella.yml
+# - import_playbook: configure-dns-poochella.yml
 
 # Phase 2: Full cluster setup (DNS now available via Pi-hole)
 
-- import_playbook: init-ansible-global.yml
+- import_playbook: 05-init-ansible-global.yml
 
-- import_playbook: apt-setup.yml
+# - import_playbook: 06-apt-setup.yml
 
-- import_playbook: firewall.yml
+- import_playbook: 07-firewall.yml
 
-- import_playbook: install-caddy.yml
+- import_playbook: 08-install-caddy.yml
 
-- import_playbook: sessions-and-shell.yml
-- import_playbook: users.yml
+- import_playbook: 09-sessions-and-shell.yml
+- import_playbook: 10-users.yml

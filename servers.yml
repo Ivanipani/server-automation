@@ -13,7 +13,7 @@ router:
 baremetal:
   hosts:
     control01:
-      ansible_host: "10.1.1.2"
+      ansible_host: control01.lan
       ansible_python_interpreter: /usr/bin/python3
       static_ip: true
 
