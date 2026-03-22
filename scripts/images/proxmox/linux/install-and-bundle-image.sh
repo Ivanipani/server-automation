@@ -7,7 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ISO_URL="https://enterprise.proxmox.com/iso/proxmox-ve_9.1-1.iso"
 ISO_FILE="proxmox-ve_9.1-1.iso"
 ANSWER_FILE="${SCRIPT_DIR}/../answer.toml"
-PREPARED_ISO="proxmox-ve_9.1-1-autoinstall.iso"
+PREPARED_ISO="proxmox-ve_9.1_bundled.iso"
+FETCH_FROM="${FETCH_FROM:-iso}"
 
 # Ensure required tools are installed
 for cmd in proxmox-auto-install-assistant xorriso wget; do
@@ -18,12 +19,6 @@ for cmd in proxmox-auto-install-assistant xorriso wget; do
     fi
 done
 
-# Verify answer file exists
-if [ ! -f "$ANSWER_FILE" ]; then
-    echo "Error: answer file not found at $ANSWER_FILE"
-    exit 1
-fi
-
 # Download ISO if not already present
 if [ ! -f "$ISO_FILE" ]; then
     echo "Downloading Proxmox VE ISO..."
@@ -32,18 +27,25 @@ else
     echo "ISO already downloaded: $ISO_FILE"
 fi
 
-# Prepare ISO with answer file
-if [ ! -f "$PREPARED_ISO" ] || [ "$ANSWER_FILE" -nt "$PREPARED_ISO" ] || [ "$ISO_FILE" -nt "$PREPARED_ISO" ]; then
+if [ "$FETCH_FROM" = "iso" ]; then
+    # Verify answer file exists
+    if [ ! -f "$ANSWER_FILE" ]; then
+        echo "Error: answer file not found at $ANSWER_FILE"
+        exit 1
+    fi
+
     echo "Validating answer file..."
     proxmox-auto-install-assistant validate-answer "$ANSWER_FILE"
 
     echo "Bundling answer file into ISO..."
-    cp "$ISO_FILE" "$PREPARED_ISO"
-    proxmox-auto-install-assistant prepare-iso "$PREPARED_ISO" \
+    proxmox-auto-install-assistant prepare-iso "$ISO_FILE" \
         --fetch-from iso \
-        --answer-file "$ANSWER_FILE"
-
-    echo "Prepared ISO: $PREPARED_ISO"
+        --answer-file "$ANSWER_FILE" \
+        --output "$PREPARED_ISO"
 else
-    echo "Prepared ISO already up to date: $PREPARED_ISO"
+    echo "Preparing ISO to fetch answer via HTTP (DHCP option 250)..."
+    proxmox-auto-install-assistant prepare-iso "$ISO_FILE" \
+        --fetch-from http \
+        --output "$PREPARED_ISO"
 fi
+

@@ -1,30 +1,30 @@
 all:
   vars:
-    network_gateway: "192.168.0.1"
+    network_gateway: "10.1.1.1"
     network_cidr: "/24"
 
 baremetal:
   hosts:
     control01:
-      ansible_host: 192.168.0.2
+      ansible_host: "10.1.1.2"
       ansible_python_interpreter: /usr/bin/python3
       static_ip: true
 
-dns:
-  hosts:
-    pihole02:
-      ansible_host: 192.168.0.7
-      static_ip: true
-      tofu_hostname: pihole2
-      tofu_cores: 2
-      tofu_memory: 512
-      tofu_disk_size: 8
-      tofu_tags: ["dns"]
+# dns:
+#   hosts:
+#     pihole02:
+#       ansible_host: 192.168.0.7
+#       static_ip: true
+#       tofu_hostname: pihole2
+#       tofu_cores: 2
+#       tofu_memory: 512
+#       tofu_disk_size: 8
+#       tofu_tags: ["dns"]
 
 webservers:
   hosts:
     caddy01:
-      ansible_host: 192.168.0.4
+      ansible_host: caddy01
       static_ip: true
       tofu_hostname: caddy01
       tofu_cores: 1

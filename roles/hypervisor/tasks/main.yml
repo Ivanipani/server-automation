@@ -1,0 +1,65 @@
+
+- name: Configure network interfaces
+  ansible.builtin.template:
+    src: interfaces.j2
+    dest: /etc/network/interfaces
+    owner: root
+    group: root
+    mode: "0644"
+  notify: "restart networking"
+
+- name: Remove Proxmox enterprise PVE repo
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/pve-enterprise.list
+    state: absent
+
+- name: Remove Proxmox enterprise Ceph repo
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/ceph.list
+    state: absent
+
+- name: Add Proxmox no-subscription PVE repo
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/pve-no-subscription.list
+    content: "deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription\n"
+    mode: "0644"
+
+- name: Add Proxmox no-subscription Ceph repo
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/ceph-no-subscription.list
+    content: "deb http://download.proxmox.com/debian/ceph-quincy bookworm no-subscription\n"
+    mode: "0644"
+
+# - name: Stop apt-daily services to release lock
+#   ansible.builtin.systemd:
+#     name: "{{ item }}"
+#     state: stopped
+#   loop:
+#     - apt-daily.service
+#     - apt-daily-upgrade.service
+#     - apt-daily.timer
+#     - apt-daily-upgrade.timer
+#   failed_when: false
+#
+# - name: Kill any running apt/dpkg processes
+#   ansible.builtin.shell: |
+#     pkill -9 -x apt || true
+#     pkill -9 -x apt-get || true
+#     pkill -9 -x dpkg || true
+#     rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock
+#     dpkg --configure -a
+#   changed_when: true
+#
+# - name: Update apt cache
+#   ansible.builtin.apt:
+#     update_cache: true
+#
+
+- name: Install sudo
+  ansible.builtin.apt:
+    name: sudo
+    state: present
+
+# - name: Bootstrap ansible user (baremetal)
+#   import_roles:
+#     - setup-ansible

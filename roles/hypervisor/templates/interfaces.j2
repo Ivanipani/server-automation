@@ -1,0 +1,15 @@
+# Managed by Ansible
+
+auto lo
+iface lo inet loopback
+
+auto {{ hypervisor_interface }}
+iface {{ hypervisor_interface }} inet manual
+
+auto {{ hypervisor_bridge }}
+iface {{ hypervisor_bridge }} inet dhcp
+    bridge-ports {{ hypervisor_interface }}
+    bridge-stp off
+    bridge-fd 0
+
+#source /etc/network/interfaces.d/*
