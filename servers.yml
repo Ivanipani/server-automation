@@ -47,9 +47,9 @@ webservers:
 
 virtual-machines:
   hosts:
-    test01:
-      ansible_host: test01
-      ansible_python_interpreter: /usr/bin/python3
+    # test01:
+    #   ansible_host: test01
+    #   ansible_python_interpreter: /usr/bin/python3
     devbox01:
       ansible_host: devbox01
       ansible_python_interpreter: /usr/bin/python3
@@ -60,5 +60,4 @@ virtual-machines:
 
 containers:
   children:
-    dns:
     webservers:

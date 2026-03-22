@@ -7,9 +7,6 @@ template_vm_id   = 9001
 template_ct_id   = 9101
 
 vms = {
-  # test01 = {
-  #   hostname = "test01"
-  # }
   devbox01 = {
     hostname = "devbox01"
     cores    = 4
@@ -22,27 +19,18 @@ vms = {
 containers = {
   caddy01 = {
     hostname   = "caddy01"
-    # ip_address = "192.168.0.4/24"
-    # gateway    = "192.168.0.1"
+    ip_address = "caddy01/24"
+    gateway    = "10.1.1.1"
     cores      = 1
     memory     = 512
     disk_size  = 4
     tags       = ["caddy", "webserver"]
   }
   nginx01 = {
-    hostname  = "webserver"
-    cores     = 1
-    memory    = 512
-    disk_size = 8
+    hostname   = "webserver"
+    cores      = 1
+    memory     = 512
+    disk_size  = 8
     tags       = ["nginx", "webserver"]
   }
-  # pihole02 = {
-  #   hostname   = "pihole2"
-  #   ip_address = "192.168.0.7/24"
-  #   gateway    = "192.168.0.1"
-  #   cores      = 2
-  #   memory     = 512
-  #   disk_size  = 8
-  #   tags       = ["dns"]
-  # }
 }
