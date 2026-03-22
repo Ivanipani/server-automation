@@ -1,6 +1,12 @@
 ---
 # Full poochella cluster setup — order of playbooks is significant
 #
+# Phase -1: Bootstrap ansible user on OPNsense router
+#   - Tries SSH as 'ansible', falls back to root with vault password
+#   - Uses raw commands (FreeBSD-based, no Python guaranteed)
+
+- import_playbook: bootstrap-router.yml
+
 # Phase 0: Bootstrap ansible user on hypervisors
 #   - Tries SSH as 'ansible', falls back to root with vault password
 #   - Idempotent — skips if ansible user already exists

@@ -1,0 +1,65 @@
+---
+# Ensures the 'ansible' user exists on the OPNsense router.
+# Tries SSH as 'ansible' first; falls back to root with vault password.
+# Uses raw commands throughout — OPNsense is FreeBSD-based and may lack Python.
+- name: Detect SSH user for router
+  hosts: router
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Check if ansible user can connect
+      ansible.builtin.command:
+        cmd: ssh -o BatchMode=yes -o ConnectTimeout=5 ansible@{{ ansible_host }} true
+      register: ansible_ssh
+      ignore_errors: true
+      changed_when: false
+
+    - name: Set bootstrap user
+      ansible.builtin.set_fact:
+        bootstrap_user: "{{ 'ansible' if ansible_ssh.rc == 0 else 'root' }}"
+        use_root_password: "{{ ansible_ssh.rc != 0 }}"
+
+    - name: "Bootstrap user for {{ inventory_hostname }}: {{ bootstrap_user }}"
+      ansible.builtin.debug:
+        msg: "Connecting as '{{ bootstrap_user }}' (ansible user {{ 'already exists' if ansible_ssh.rc == 0 else 'not yet created' }})"
+
+- name: Bootstrap ansible user on OPNsense
+  hosts: router
+  gather_facts: false
+  remote_user: "{{ bootstrap_user }}"
+  vars:
+    ansible_password: "{{ router_root_pass if use_root_password | default(false) else omit }}"
+    ansible_shell_type: csh
+  become: true
+  tasks:
+    - name: Create ansible group
+      ansible.builtin.raw: pw groupshow ansible || pw groupadd ansible
+      changed_when: "'ansible' not in group_check.stdout | default('')"
+
+    - name: Create ansible user
+      ansible.builtin.raw: pw usershow ansible || pw useradd ansible -g ansible -s /bin/sh -m -d /home/ansible
+      changed_when: "'ansible' not in user_check.stdout | default('')"
+
+    - name: Create .ssh directory
+      ansible.builtin.raw: mkdir -p /home/ansible/.ssh && chown ansible:ansible /home/ansible/.ssh && chmod 700 /home/ansible/.ssh
+
+    - name: Deploy SSH public key
+      ansible.builtin.raw: "echo '{{ lookup(\"file\", \"~/.ssh/ansible.pub\") }}' > /home/ansible/.ssh/authorized_keys"
+
+    - name: Set ownership on authorized_keys
+      ansible.builtin.raw: chown ansible:ansible /home/ansible/.ssh/authorized_keys
+
+    - name: Set permissions on authorized_keys
+      ansible.builtin.raw: chmod 600 /home/ansible/.ssh/authorized_keys
+
+    - name: Add ansible user to wheel group
+      ansible.builtin.raw: pw groupmod wheel -m ansible
+
+    - name: Create sudoers.d directory
+      ansible.builtin.raw: mkdir -p /usr/local/etc/sudoers.d
+
+    - name: Configure passwordless sudo for ansible
+      ansible.builtin.raw: "echo 'ansible ALL=(ALL) NOPASSWD: ALL' > /usr/local/etc/sudoers.d/ansible"
+
+    - name: Set permissions on sudoers file
+      ansible.builtin.raw: chmod 440 /usr/local/etc/sudoers.d/ansible
