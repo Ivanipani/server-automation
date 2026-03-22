@@ -26,6 +26,8 @@ resource "proxmox_virtual_environment_vm" "vm" {
   }
 
   initialization {
+    datastore_id = "local-zfs"
+
     ip_config {
       ipv4 {
         address = each.value.ip_address
@@ -65,9 +67,6 @@ resource "proxmox_virtual_environment_container" "ct" {
       }
     }
 
-    user_account {
-      keys = [var.ssh_public_key]
-    }
   }
 
   console {

@@ -9,31 +9,6 @@
   roles:
     - setup-ansible
 
-- name: Refresh SSH host keys for VMs
-  hosts: virtual-machines
-  gather_facts: false
-  connection: local
-  tasks:
-    - name: Remove old host key
-      ansible.builtin.command:
-        cmd: ssh-keygen -R {{ ansible_host }}
-      delegate_to: localhost
-      ignore_errors: true
-
-    - name: Scan and add new host key
-      ansible.builtin.command:
-        cmd: ssh-keyscan {{ ansible_host }}
-      delegate_to: localhost
-      register: host_key
-
-    - name: Update known_hosts
-      ansible.builtin.known_hosts:
-        name: "{{ ansible_host }}"
-        key: "{{ item }}"
-        state: present
-      delegate_to: localhost
-      loop: "{{ host_key.stdout_lines | reject('match', '^#') | list }}"
-
 - name: Detect SSH user for VMs
   hosts: virtual-machines
   gather_facts: false
@@ -63,7 +38,6 @@
 
 - name: Remove temp user (VMs)
   hosts: virtual-machines
-  remote_user: ansible
   become: true
   tasks:
     - name: Remove temp user
@@ -72,3 +46,29 @@
         state: absent
         remove: true
         force: true
+
+- name: Refresh known SSH host keys
+  hosts: all
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Remove old host key
+      ansible.builtin.command:
+        cmd: ssh-keygen -R {{ ansible_host }}
+      delegate_to: localhost
+      ignore_errors: true
+
+    - name: Scan and add new host key
+      ansible.builtin.command:
+        cmd: ssh-keyscan {{ ansible_host }}
+      delegate_to: localhost
+      register: host_key
+
+    - name: Update known_hosts
+      ansible.builtin.known_hosts:
+        name: "{{ ansible_host }}"
+        key: "{{ item }}"
+        state: present
+      delegate_to: localhost
+      loop: "{{ host_key.stdout_lines | reject('match', '^#') | list }}"
+

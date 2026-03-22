@@ -4,12 +4,6 @@
   connection: local
   gather_facts: false
   tasks:
-    - name: Generate tfvars from inventory
-      ansible.builtin.template:
-        src: templates/infrastructure.auto.tfvars.j2
-        dest: "{{ playbook_dir }}/../../tofu/infrastructure.auto.tfvars"
-      tags: [gen-tfvars]
-
     - name: Run tofu init and apply
       community.general.terraform:
         project_path: "{{ playbook_dir }}/../../tofu"

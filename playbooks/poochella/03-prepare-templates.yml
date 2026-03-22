@@ -25,6 +25,7 @@
         image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
         image_file: noble-server-cloudimg-amd64.img
 
+    ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
     lxc_packages: openssh-server curl wget sudo rsync htop
     vm_packages: qemu-guest-agent,curl,wget,sudo,rsync,htop
 

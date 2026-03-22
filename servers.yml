@@ -39,7 +39,7 @@ webservers:
       tofu_disk_size: 4
       tofu_tags: ["caddy", "webserver"]
     nginx01:
-      ansible_host: webserver
+      ansible_host: nginx01
       tofu_cores: 1
       tofu_memory: 512
       tofu_disk_size: 8
@@ -51,7 +51,8 @@ virtual-machines:
     #   ansible_host: test01
     #   ansible_python_interpreter: /usr/bin/python3
     devbox01:
-      ansible_host: devbox01
+      ansible_host: 10.1.1.131
+      # ansible_host: devbox01
       ansible_python_interpreter: /usr/bin/python3
       tofu_cores: 4
       tofu_memory: 4096

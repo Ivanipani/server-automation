@@ -44,6 +44,14 @@
       ansible.builtin.command: "pct exec {{ lxc_template.id }} -- apt-get install -y {{ lxc_packages }}"
       changed_when: true
 
+    - name: "Inject SSH public key into container {{ lxc_template.id }}"
+      ansible.builtin.shell: |
+        pct exec {{ lxc_template.id }} -- mkdir -p /root/.ssh
+        pct exec {{ lxc_template.id }} -- chmod 700 /root/.ssh
+        pct exec {{ lxc_template.id }} -- sh -c 'echo "{{ ssh_public_key }}" > /root/.ssh/authorized_keys'
+        pct exec {{ lxc_template.id }} -- chmod 600 /root/.ssh/authorized_keys
+      changed_when: true
+
     - name: "Lock root password in container {{ lxc_template.id }}"
       ansible.builtin.command: "{{ item }}"
       loop:
