@@ -1,4 +1,39 @@
 ---
+- name: Ensure Proxmox API token exists
+  hosts: baremetal
+  become: true
+  gather_facts: false
+  vars:
+    token_user: "root@pam"
+    token_name: "tofu-lan"
+    secrets_file: "{{ playbook_dir }}/../../tofu/secrets.auto.tfvars"
+  tasks:
+    - name: List existing API tokens
+      ansible.builtin.command:
+        cmd: pveum user token list {{ token_user }} --output-format json
+      register: token_list
+      changed_when: false
+
+    - name: Check if token already exists
+      ansible.builtin.set_fact:
+        token_exists: "{{ token_list.stdout | from_json | selectattr('tokenid', 'equalto', token_name) | list | length > 0 }}"
+
+    - name: Create API token
+      ansible.builtin.command:
+        cmd: pveum user token add {{ token_user }} {{ token_name }} --privsep 0 --output-format json
+      register: token_result
+      when: not token_exists
+
+    - name: Write secrets file
+      delegate_to: localhost
+      become: false
+      ansible.builtin.copy:
+        content: |
+          proxmox_api_token = "{{ token_user }}!{{ token_name }}={{ (token_result.stdout | from_json).value }}"
+        dest: "{{ secrets_file }}"
+        mode: "0600"
+      when: not token_exists
+
 - name: Provision infrastructure with OpenTofu
   hosts: localhost
   connection: local
