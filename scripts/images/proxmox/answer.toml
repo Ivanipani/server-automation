@@ -4,7 +4,7 @@ country = "us"
 fqdn = "control01.local"
 mailto = "root@localhost"
 timezone = "America/New_York"
-root_password = "babybaby"
+root-password = "babybaby"
 root-ssh-keys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
 ]
@@ -13,8 +13,8 @@ reboot-on-error = false
 [network]
 source = "from-dhcp"
 
-[network.interface-name-pinning]
-enabled = true
+# [network.interface-name-pinning]
+# enabled = true
 
 [disk-setup]
 filesystem = "zfs"
