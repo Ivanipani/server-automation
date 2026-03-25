@@ -17,6 +17,10 @@ baremetal:
       ansible_python_interpreter: /usr/bin/python3
       static_ip: true
 
+databases:
+  hosts:
+    postgres01:
+      ansible_host: postgres01.lan
 # dns:
 #   hosts:
 #     pihole02:
@@ -54,10 +58,8 @@ virtual-machines:
       # ansible_host: 10.1.1.131
       ansible_host: devbox01
       ansible_python_interpreter: /usr/bin/python3
-      tofu_cores: 4
-      tofu_memory: 4096
-      tofu_disk_size: 40
-      tofu_tags: ["dev", "ivan"]
+    postgres01:
+      ansible_host: postgres01.lan
 
 containers:
   children:

@@ -10,9 +10,16 @@ vms = {
   devbox01 = {
     hostname  = "devbox01"
     cores     = 4
-    memory    = 4096
+    memory    = 8192
     disk_size = 40
     tags      = ["dev", "ivan"]
+  }
+  postgres01 = {
+    hostname  = "postgres01"
+    cores     = 4
+    memory    = 4096
+    disk_size = 40
+    tags      = ["database"]
   }
 }
 
@@ -24,11 +31,11 @@ containers = {
     disk_size = 4
     tags      = ["caddy", "webserver"]
   }
-  nginx01 = {
-    hostname  = "nginx01"
-    cores     = 1
-    memory    = 512
-    disk_size = 8
-    tags      = ["nginx", "webserver"]
-  }
+  # nginx01 = {
+  #   hostname  = "nginx01"
+  #   cores     = 1
+  #   memory    = 512
+  #   disk_size = 8
+  #   tags      = ["nginx", "webserver"]
+  # }
 }
