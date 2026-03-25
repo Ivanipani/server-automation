@@ -1,0 +1,7 @@
+---
+# Trunk — sessions, dev tools, users, services
+
+- import_playbook: 07-sessions-and-shell.yml
+- import_playbook: 08-dev-tools.yml
+- import_playbook: 09-users.yml
+- import_playbook: 10-install-caddy.yml

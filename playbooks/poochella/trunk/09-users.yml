@@ -46,9 +46,10 @@
         group: root
         mode: "0440"
         validate: "visudo -cf %s"
-- name: Configure dev tools for 'pani' user
-  become: true
-  hosts: baremetal:virtual-machines
-  roles:
-    - ivan-user
+
+# - name: Configure dev tools for 'pani' user
+#   become: true
+#   hosts: baremetal:virtual-machines
+#   roles:
+#     - ivan-user
 
