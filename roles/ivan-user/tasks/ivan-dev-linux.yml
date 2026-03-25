@@ -8,30 +8,30 @@
   ansible.builtin.set_fact:
     pani_home: "{{ getent_passwd['pani'][4] }}"
 
-- name: Set up SSH authorized key for pani
-  ansible.posix.authorized_key:
-    user: pani
-    key: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
-    state: present
-
+# - name: Set up SSH authorized key for pani
+#   ansible.posix.authorized_key:
+#     user: pani
+#     key: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
+#     state: present
+#
 - name: Check if dotfiles repo exists
   ansible.builtin.stat:
     path: "{{ pani_home }}/dotfiles"
   register: dotfiles_dir
 
-- name: Allow pani to access SSH agent socket
-  ansible.builtin.file:
-    path: "{{ ansible_env.SSH_AUTH_SOCK | dirname }}"
-    mode: "0755"
-    state: directory
-  when: not dotfiles_dir.stat.exists
-
-- name: Set agent socket permissions
-  ansible.builtin.file:
-    path: "{{ ansible_env.SSH_AUTH_SOCK }}"
-    mode: "0666"
-  when: not dotfiles_dir.stat.exists
-
+# - name: Allow pani to access SSH agent socket
+#   ansible.builtin.file:
+#     path: "{{ ansible_env.SSH_AUTH_SOCK | dirname }}"
+#     mode: "0755"
+#     state: directory
+#   when: not dotfiles_dir.stat.exists
+#
+# - name: Set agent socket permissions
+#   ansible.builtin.file:
+#     path: "{{ ansible_env.SSH_AUTH_SOCK }}"
+#     mode: "0666"
+#   when: not dotfiles_dir.stat.exists
+#
 - name: Clone dotfiles repo
   ansible.builtin.git:
     repo: git@github.com:Ivanipani/dotfiles.git
@@ -41,8 +41,8 @@
     force: true
   become: true
   become_user: pani
-  environment:
-    SSH_AUTH_SOCK: "{{ ansible_env.SSH_AUTH_SOCK }}"
+  # environment:
+  #   SSH_AUTH_SOCK: "{{ ansible_env.SSH_AUTH_SOCK }}"
   when: not dotfiles_dir.stat.exists
 
 - name: Ensure .config directory exists
