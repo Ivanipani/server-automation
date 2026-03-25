@@ -1,0 +1,8 @@
+---
+# Indirection layer for vault secrets
+# Playbooks/roles reference these; actual values live in vault.yml
+
+postgres_pass: "{{ vault_postgres_pass }}"
+router_root_pass: "{{ vault_router_root_pass }}"
+hypervisor_root_pass: "{{ vault_hypervisor_root_pass }}"
+ansible_user_pass: "{{ vault_ansible_user_pass }}"

@@ -1,6 +1,6 @@
 ---
 - name: Install system-level development tools
-  hosts: baremetal:virtual-machines
+  hosts: baremetal:virtual-machines:!databases
   become: true
   roles:
     - python

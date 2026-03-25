@@ -47,9 +47,9 @@
     mode: "0644"
   notify: restart postgresql
 
-- name: Set postgres user password
-  community.postgresql.postgresql_user:
-    name: postgres
-    password: "{{ postgresql_password }}"
-  become: true
-  become_user: postgres
+# - name: Set postgres user password
+#   community.postgresql.postgresql_user:
+#     name: postgres
+#     password: "{{ postgres_pass }}"
+#   become: true
+#   become_user: postgres

@@ -3,7 +3,7 @@ proxmox_node     = "control01"
 
 ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
 
-template_vm_id = 9001
+template_vm_id = 9002
 template_ct_id = 9101
 
 vms = {
