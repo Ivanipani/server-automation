@@ -55,9 +55,7 @@ virtual-machines:
     #   ansible_host: test01
     #   ansible_python_interpreter: /usr/bin/python3
     devbox01:
-      # ansible_host: 10.1.1.131
-      ansible_host: devbox01
-      ansible_python_interpreter: /usr/bin/python3
+      ansible_host: devbox01.lan
     postgres01:
       ansible_host: postgres01.lan
 

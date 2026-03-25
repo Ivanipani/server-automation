@@ -41,7 +41,7 @@
   tasks:
     - name: Run tofu init and apply
       community.general.terraform:
-        project_path: "{{ playbook_dir }}/../../tofu"
+        project_path: "{{ playbook_dir }}/../../../tofu"
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true
