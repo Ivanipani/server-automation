@@ -1,6 +1,0 @@
----
-argument_specs:
-  main:
-    short_description: Create 'ansible' user on all poochella machines.
-    author:
-      - Ivan Perdomo

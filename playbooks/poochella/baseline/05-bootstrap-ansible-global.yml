@@ -19,7 +19,7 @@
   become: true
   remote_user: "{{ bootstrap_user }}"
   roles:
-    - setup-ansible
+    - create-user
 
 
 - name: Detect SSH user for containers
@@ -39,7 +39,7 @@
   remote_user: "{{ bootstrap_user }}"
   become: true
   roles:
-    - setup-ansible
+    - create-user
 #
 # - name: Remove temp user (VMs)
 #   hosts: virtual-machines

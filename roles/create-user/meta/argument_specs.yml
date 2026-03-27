@@ -1,0 +1,12 @@
+---
+argument_specs:
+  main:
+    short_description: Create user accounts with SSH keys and sudoers policies.
+    author:
+      - Ivan Perdomo
+    options:
+      users:
+        type: list
+        elements: dict
+        required: true
+        description: List of user objects to create.

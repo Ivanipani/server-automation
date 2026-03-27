@@ -1,0 +1,54 @@
+---
+- name: Ensure SSH keypair exists on control node
+  ansible.builtin.command:
+    cmd: ssh-keygen -t ed25519 -f ~/.ssh/ansible -N ""
+    creates: ~/.ssh/ansible
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Create required groups
+  ansible.builtin.group:
+    name: "{{ item }}"
+    state: present
+  loop: >-
+    {{ users | default([])
+       | map(attribute='groups')
+       | flatten
+       | unique
+       | list }}
+  loop_control:
+    label: "{{ item }}"
+
+- name: Create user accounts
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    groups: "{{ item.groups }}"
+    shell: "{{ item.shell | default('/bin/zsh') }}"
+    create_home: true
+    password: "{{ item.password | password_hash('sha512') if (set_user_passwords | default(false)) and item.password is defined else omit }}"
+    state: "{{ item.state | default('present') }}"
+  loop: "{{ users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Set up SSH authorized keys
+  ansible.posix.authorized_key:
+    user: "{{ item.name }}"
+    key: "{{ lookup('file', item.ssh_key) }}"
+    state: present
+  loop: "{{ users | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.ssh_key is defined
+
+- name: Configure sudoers policies
+  community.general.sudoers:
+    name: "{{ item.name }}"
+    user: "{{ item.name }}"
+    commands: "{{ item.sudoers.commands }}"
+    nopassword: "{{ item.sudoers.nopassword | default(false) }}"
+    state: present
+  loop: "{{ users | default([]) | selectattr('sudoers', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.name }}"

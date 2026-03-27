@@ -72,4 +72,4 @@
 
 - name: Bootstrap ansible user (baremetal)
   import_role:
-    name: setup-ansible
+    name: create-user
