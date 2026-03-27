@@ -1,38 +1,48 @@
 # just
-just_install_script_url: "https://just.systems/install.sh"
+just_version: "1.48.0"
+just_url: "https://github.com/casey/just/releases/download/{{ just_version }}/just-{{ just_version }}-x86_64-unknown-linux-musl.tar.gz"
 just_install_dir: "/opt/bin"
+just_bin: "{{ just_install_dir }}/just"
 
 # zellij
-zellij_url: "https://github.com/zellij-org/zellij/releases/latest/download/zellij-x86_64-unknown-linux-musl.tar.gz"
+zellij_version: "0.44.0"
+zellij_url: "https://github.com/zellij-org/zellij/releases/download/v{{ zellij_version }}/zellij-x86_64-unknown-linux-musl.tar.gz"
 zellij_install_dir: "/opt/bin"
+zellij_bin: "{{ zellij_install_dir }}/zellij"
 zellij_plugins_dir: "/opt/zellij-plugins"
 
 # neovim
 neovim_version: "0.11.6"
 neovim_url: "https://github.com/neovim/neovim/releases/download/v{{ neovim_version }}/nvim-linux-x86_64.tar.gz"
 neovim_install_dir: "/opt/nvim"
+neovim_bin: "{{ neovim_install_dir }}/bin/nvim"
 
 # jj
 jj_version: "0.39.0"
 jj_url: "https://github.com/jj-vcs/jj/releases/download/v{{ jj_version }}/jj-v{{ jj_version }}-x86_64-unknown-linux-musl.tar.gz"
 jj_install_dir: "/opt/bin"
+jj_bin: "{{ jj_install_dir }}/jj"
 
 # ripgrep
 ripgrep_version: "15.1.0"
 ripgrep_url: "https://github.com/BurntSushi/ripgrep/releases/download/{{ ripgrep_version }}/ripgrep-{{ ripgrep_version }}-x86_64-unknown-linux-musl.tar.gz"
 ripgrep_install_dir: "/opt/ripgrep"
+ripgrep_bin: "{{ ripgrep_install_dir }}/rg"
 
 # fd
 fd_version: "10.4.2"
 fd_url: "https://github.com/sharkdp/fd/releases/download/v{{ fd_version }}/fd-v{{ fd_version }}-x86_64-unknown-linux-musl.tar.gz"
 fd_install_dir: "/opt/fd"
+fd_bin: "{{ fd_install_dir }}/fd"
 
 # fzf
 fzf_version: "0.70.0"
 fzf_url: "https://github.com/junegunn/fzf/releases/download/v{{ fzf_version }}/fzf-{{ fzf_version }}-linux_amd64.tar.gz"
 fzf_install_dir: "/opt/bin"
+fzf_bin: "{{ fzf_install_dir }}/fzf"
 
 # direnv
 direnv_version: "2.37.1"
 direnv_url: "https://github.com/direnv/direnv/releases/download/v{{ direnv_version }}/direnv.linux-amd64"
 direnv_install_dir: "/opt/bin"
+direnv_bin: "{{ direnv_install_dir }}/direnv"

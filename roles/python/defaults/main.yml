@@ -1,1 +1,6 @@
-uv_version: "0.10.10"
+# uv
+uv_version: "0.11.2"
+uv_url: "https://github.com/astral-sh/uv/releases/download/{{ uv_version }}/uv-x86_64-unknown-linux-musl.tar.gz"
+uv_install_dir: "/opt/uv"
+uv_bin: "{{ uv_install_dir }}/uv"
+uvx_bin: "{{ uv_install_dir }}/uvx"

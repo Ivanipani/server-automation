@@ -1,44 +1,63 @@
+---
 - name: Check if uv is already installed
   ansible.builtin.stat:
-    path: /opt/bin/uv
-  register: uv_binary
+    path: "{{ uv_bin }}"
+  register: uv_check
 
-- name: Ensure /opt/uv directory exists
-  ansible.builtin.file:
-    path: /opt/uv
-    state: directory
-    mode: "0755"
-  when: not uv_binary.stat.exists
+- name: Check uv version
+  ansible.builtin.command:
+    cmd: "{{ uv_bin }} --version"
+  register: uv_version_check
+  changed_when: false
+  failed_when: false
+  when: uv_check.stat.exists
 
-- name: Download uv release
-  ansible.builtin.get_url:
-    url: https://github.com/astral-sh/uv/releases/download/{{ uv_version }}/uv-x86_64-unknown-linux-musl.tar.gz
-    dest: /tmp/uv.tar.gz
-  when: not uv_binary.stat.exists
+- name: uv not installed
+  ansible.builtin.debug:
+    msg: "uv not found, installing version {{ uv_version }}"
+  when: not uv_check.stat.exists
+
+- name: uv version mismatch
+  ansible.builtin.debug:
+    msg: "uv {{ uv_version_check.stdout | default('') | trim }} -> {{ uv_version }}"
+  when:
+    - uv_check.stat.exists
+    - uv_version not in (uv_version_check.stdout | default(''))
 
 - name: Install uv
-  ansible.builtin.unarchive:
-    src: /tmp/uv.tar.gz
-    dest: /opt/uv
-    remote_src: true
-    extra_opts: ['--strip-components=1']
-    creates: /opt/uv/uv
-  when: not uv_binary.stat.exists
+  block:
+    - name: Ensure uv directory exists
+      ansible.builtin.file:
+        path: "{{ uv_install_dir }}"
+        state: directory
+        mode: "0755"
 
-- name: Symlink uv binary
-  ansible.builtin.file:
-    src: /opt/uv/uv
-    dest: /opt/bin/uv
-    state: link
-  when: not uv_binary.stat.exists
+    - name: Download uv release
+      ansible.builtin.get_url:
+        url: "{{ uv_url }}"
+        dest: /tmp/uv.tar.gz
 
-- name: Symlink uvx binary
-  ansible.builtin.file:
-    src: /opt/uv/uvx
-    dest: /opt/bin/uvx
-    state: link
-  when: not uv_binary.stat.exists
+    - name: Extract uv
+      ansible.builtin.unarchive:
+        src: /tmp/uv.tar.gz
+        dest: "{{ uv_install_dir }}"
+        remote_src: true
+        extra_opts: ['--strip-components=1']
 
+    - name: Symlink uv binary
+      ansible.builtin.file:
+        src: "{{ uv_bin }}"
+        dest: /opt/bin/uv
+        state: link
+
+    - name: Symlink uvx binary
+      ansible.builtin.file:
+        src: "{{ uvx_bin }}"
+        dest: /opt/bin/uvx
+        state: link
+  when: >-
+    not uv_check.stat.exists
+    or uv_version not in (uv_version_check.stdout | default(''))
 
 # - name: Install Pantsbuild
 #   ansible.builtin.get_url:

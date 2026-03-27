@@ -27,34 +27,59 @@
     path: "{{ item }}"
   register: tool_checks
   loop:
-    - "{{ just_install_dir }}/just"
-    - "{{ zellij_install_dir }}/zellij"
-    - "{{ neovim_install_dir }}/bin/nvim"
-    - "{{ jj_install_dir }}/jj"
-    - "{{ ripgrep_install_dir }}/rg"
-    - "{{ fd_install_dir }}/fd"
-    - "{{ fzf_install_dir }}/fzf"
-    - "{{ direnv_install_dir }}/direnv"
+    - "{{ just_bin }}"
+    - "{{ zellij_bin }}"
+    - "{{ neovim_bin }}"
+    - "{{ jj_bin }}"
+    - "{{ ripgrep_bin }}"
+    - "{{ fd_bin }}"
+    - "{{ fzf_bin }}"
+    - "{{ direnv_bin }}"
 
 - name: Build installed tools lookup
   ansible.builtin.set_fact:
     installed: "{{ dict(tool_checks.results | map(attribute='item') | zip(tool_checks.results | map(attribute='stat') | map(attribute='exists'))) }}"
 
+- name: Check installed tool versions
+  ansible.builtin.command:
+    cmd: "{{ item.path }} --version"
+  register: version_checks
+  changed_when: false
+  failed_when: false
+  when: installed[item.path]
+  loop:
+    - { path: "{{ just_bin }}", version: "{{ just_version }}" }
+    - { path: "{{ zellij_bin }}", version: "{{ zellij_version }}" }
+    - { path: "{{ neovim_bin }}", version: "{{ neovim_version }}" }
+    - { path: "{{ jj_bin }}", version: "{{ jj_version }}" }
+    - { path: "{{ ripgrep_bin }}", version: "{{ ripgrep_version }}" }
+    - { path: "{{ fd_bin }}", version: "{{ fd_version }}" }
+    - { path: "{{ fzf_bin }}", version: "{{ fzf_version }}" }
+    - { path: "{{ direnv_bin }}", version: "{{ direnv_version }}" }
+
+- name: Build version mismatch lookup
+  ansible.builtin.set_fact:
+    needs_upgrade: "{{ needs_upgrade | default({}) | combine({item.item.path: item.item.version not in (item.stdout | default(''))}) }}"
+  loop: "{{ version_checks.results }}"
+  when: not (item.skipped | default(false))
+
 # just
 
 - name: Install just
   block:
-    - name: Download just installer
+    - name: Download just
       ansible.builtin.get_url:
-        url: "{{ just_install_script_url }}"
-        dest: /tmp/just-install.sh
-        mode: '0755'
+        url: "{{ just_url }}"
+        dest: /tmp/just.tar.gz
 
-    - name: Run just installer
-      ansible.builtin.shell:
-        cmd: "/tmp/just-install.sh --to {{ just_install_dir }}"
-        creates: "{{ just_install_dir }}/just"
-  when: not installed[just_install_dir + '/just']
+    - name: Extract just
+      ansible.builtin.unarchive:
+        src: /tmp/just.tar.gz
+        dest: "{{ just_install_dir }}"
+        remote_src: true
+  when: >-
+    not installed[just_bin]
+    or (needs_upgrade[just_bin] | default(false))
 
 # zellij
 
@@ -76,7 +101,9 @@
         path: "{{ zellij_plugins_dir }}"
         state: directory
         mode: "0755"
-  when: not installed[zellij_install_dir + '/zellij']
+  when: >-
+    not installed[zellij_bin]
+    or (needs_upgrade[zellij_bin] | default(false))
 
 # neovim
 
@@ -102,10 +129,12 @@
 
     - name: Symlink neovim binary
       ansible.builtin.file:
-        src: "{{ neovim_install_dir }}/bin/nvim"
+        src: "{{ neovim_bin }}"
         dest: /opt/bin/nvim
         state: link
-  when: not installed[neovim_install_dir + '/bin/nvim']
+  when: >-
+    not installed[neovim_bin]
+    or (needs_upgrade[neovim_bin] | default(false))
 
 # jj
 
@@ -121,7 +150,9 @@
         src: /tmp/jj.tar.gz
         dest: "{{ jj_install_dir }}"
         remote_src: true
-  when: not installed[jj_install_dir + '/jj']
+  when: >-
+    not installed[jj_bin]
+    or (needs_upgrade[jj_bin] | default(false))
 
 # ripgrep
 
@@ -147,10 +178,12 @@
 
     - name: Symlink ripgrep binary
       ansible.builtin.file:
-        src: "{{ ripgrep_install_dir }}/rg"
+        src: "{{ ripgrep_bin }}"
         dest: /opt/bin/rg
         state: link
-  when: not installed[ripgrep_install_dir + '/rg']
+  when: >-
+    not installed[ripgrep_bin]
+    or (needs_upgrade[ripgrep_bin] | default(false))
 
 # fd-find
 
@@ -176,10 +209,12 @@
 
     - name: Symlink fd-find binary
       ansible.builtin.file:
-        src: "{{ fd_install_dir }}/fd"
+        src: "{{ fd_bin }}"
         dest: /opt/bin/fd
         state: link
-  when: not installed[fd_install_dir + '/fd']
+  when: >-
+    not installed[fd_bin]
+    or (needs_upgrade[fd_bin] | default(false))
 
 # fzf
 
@@ -195,7 +230,9 @@
         src: /tmp/fzf.tar.gz
         dest: "{{ fzf_install_dir }}"
         remote_src: true
-  when: not installed[fzf_install_dir + '/fzf']
+  when: >-
+    not installed[fzf_bin]
+    or (needs_upgrade[fzf_bin] | default(false))
 
 # direnv
 
@@ -204,6 +241,8 @@
     - name: Download direnv
       ansible.builtin.get_url:
         url: "{{ direnv_url }}"
-        dest: "{{ direnv_install_dir }}/direnv"
+        dest: "{{ direnv_bin }}"
         mode: "755"
-  when: not installed[direnv_install_dir + '/direnv']
+  when: >-
+    not installed[direnv_bin]
+    or (needs_upgrade[direnv_bin] | default(false))
