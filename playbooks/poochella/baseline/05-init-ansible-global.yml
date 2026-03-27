@@ -2,13 +2,6 @@
 # Establishes a user 'ansible' with SSH + sudo access.
 # All Ansible-managed nodes require this setup
 
-# - name: Bootstrap ansible user (containers)
-#   hosts: containers
-#   remote_user: root
-#   become: true
-#   roles:
-#     - setup-ansible
-#
 - name: Detect SSH user for VMs
   hosts: virtual-machines
   gather_facts: false
@@ -16,7 +9,7 @@
   tasks:
     - name: Check if ansible user can connect
       ansible.builtin.command:
-        cmd: ssh -o BatchMode=yes -o ConnectTimeout=5 ansible@{{ ansible_host }} true
+        cmd: ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ansible@{{ ansible_host }} true
       register: ansible_ssh
       ignore_errors: true
       changed_when: false
@@ -36,16 +29,44 @@
   roles:
     - setup-ansible
 
-- name: Remove temp user (VMs)
-  hosts: virtual-machines
-  become: true
+
+- name: Detect SSH user for containers
+  hosts: containers
+  gather_facts: false
+  connection: local
   tasks:
-    - name: Remove temp user
-      ansible.builtin.user:
-        name: temp
-        state: absent
-        remove: true
-        force: true
+    - name: Check if ansible user can connect
+      ansible.builtin.command:
+        cmd: ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ansible@{{ ansible_host }} true
+      register: ansible_ssh_lxc
+      ignore_errors: true
+      changed_when: false
+
+    - name: Set bootstrap user
+      ansible.builtin.set_fact:
+        bootstrap_user_lxc: "{{ 'ansible' if ansible_ssh_lxc.rc == 0 else 'root' }}"
+
+    - name: "Bootstrap user for {{ inventory_hostname }}: {{ bootstrap_user_lxc }}"
+      ansible.builtin.debug:
+        msg: "Connecting as '{{ bootstrap_user_lxc }}' (ansible user {{ 'already exists' if ansible_ssh_lxc.rc == 0 else 'not yet created' }})"
+
+- name: Bootstrap ansible user (containers)
+  hosts: containers
+  remote_user: "{{ bootstrap_user_lxc }}"
+  become: true
+  roles:
+    - setup-ansible
+#
+# - name: Remove temp user (VMs)
+#   hosts: virtual-machines
+#   become: true
+#   tasks:
+#     - name: Remove temp user
+#       ansible.builtin.user:
+#         name: temp
+#         state: absent
+#         remove: true
+#         force: true
 
 # - name: Refresh known SSH host keys
 #   hosts: all

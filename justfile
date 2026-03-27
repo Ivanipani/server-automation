@@ -87,7 +87,7 @@ run *options: check
     set -euo pipefail
     selected=$(find playbooks -name '*.yml' -type f | sort | fzf)
     echo "Running $selected"
-    ansible-playbook {{ options }} "$selected"
+    ansible-playbook --vault-password-file ansible-pass {{ options }} "$selected"
 
 # Run the test playbook
 test: check
@@ -99,14 +99,6 @@ test: check
         exit 0
     fi
     ansible-playbook -i servers.yml test/test.yml --tags "$tags"
-
-# Bootstrap ansible user on baremetal hosts (day-0, requires vault password)
-bootstrap-host: check
-    ansible-playbook playbooks/poochella/init-ansible-global.yml --ask-vault-pass --limit baremetal
-
-# Full bootstrap: prepare templates → provision infrastructure → configure cluster
-bootstrap: check
-    ansible-playbook playbooks/poochella/site.yml --ask-vault-pass
 
 tofu-validate:
     cd tofu && tofu validate
@@ -122,3 +114,7 @@ tofu-plan: tofu-validate
 # Apply infrastructure changes
 tofu-apply: tofu-validate
     cd tofu && tofu apply
+
+# Encrypt a variable with ansible-vault
+secret-encrypt name:
+    ansible-vault encrypt_string --vault-id dev@ansible-pass --stdin-name {{name}}

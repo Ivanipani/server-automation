@@ -46,8 +46,3 @@
         dest: /etc/zsh/zshrc
         mode: "0644"
 
-    - name: Set zsh as shell for ansible user
-      ansible.builtin.user:
-        name: ansible
-        shell: /usr/bin/zsh
-

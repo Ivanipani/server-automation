@@ -19,7 +19,7 @@
     shell: /bin/bash
     groups: sudo
     append: true
-    password: '!'
+    password: "{{ ansible_user_pass | password_hash('sha512') if (set_user_passwords | default(false)) else '!' }}"
     state: present
 
 - name: Set up SSH authorized key for ansible

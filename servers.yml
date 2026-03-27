@@ -2,19 +2,18 @@ all:
   vars:
     network_gateway: "10.1.1.1"
     network_cidr: "/24"
+    ansible_python_interpreter: /usr/bin/python3
 
 router:
   hosts:
     opnsense01:
       ansible_host: "10.1.1.1"
-      # ansible_python_interpreter: /usr/local/bin/python3
       static_ip: true
 
 baremetal:
   hosts:
     control01:
       ansible_host: control01.lan
-      ansible_python_interpreter: /usr/bin/python3
       static_ip: true
 
 databases:
@@ -36,24 +35,18 @@ webservers:
   hosts:
     caddy01:
       ansible_host: caddy01
-      static_ip: true
-      tofu_hostname: caddy01
-      tofu_cores: 1
-      tofu_memory: 512
-      tofu_disk_size: 4
-      tofu_tags: ["caddy", "webserver"]
-    nginx01:
-      ansible_host: nginx01
-      tofu_cores: 1
-      tofu_memory: 512
-      tofu_disk_size: 8
-      tofu_tags: ["nginx", "webserver"]
+
+    # nginx01:
+    #   ansible_host: nginx01
+    #   tofu_cores: 1
+    #   tofu_memory: 512
+    #   tofu_disk_size: 8
+    #   tofu_tags: ["nginx", "webserver"]
 
 virtual-machines:
   hosts:
     # test01:
     #   ansible_host: test01
-    #   ansible_python_interpreter: /usr/bin/python3
     devbox01:
       ansible_host: devbox01.lan
     postgres01:

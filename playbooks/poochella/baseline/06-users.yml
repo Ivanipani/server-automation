@@ -23,6 +23,7 @@
         groups: "{{ item.groups }}"
         shell: "{{ item.shell | default('/bin/zsh') }}"
         create_home: true
+        password: "{{ item.password | password_hash('sha512') if (set_user_passwords | default(false)) and item.password is defined else omit }}"
         state: "{{ item.state | default('present') }}"
       loop: "{{ users | default([]) }}"
       loop_control:

@@ -1,6 +1,7 @@
 ---
 users:
   - name: pani
-    groups: [sudo, promoter, talent]
-    shell: /bin/zsh
+    groups: [sudo, promoter, talent, docker]
+    shell: /usr/bin/zsh
     ssh_key: "~/.ssh/ansible.pub"
+    password: "{{ pani_user_pass }}"
