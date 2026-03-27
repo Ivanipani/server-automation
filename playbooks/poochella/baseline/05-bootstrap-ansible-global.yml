@@ -7,20 +7,12 @@
   gather_facts: false
   connection: local
   tasks:
-    - name: Check if ansible user can connect
-      ansible.builtin.command:
-        cmd: ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ansible@{{ ansible_host }} true
-      register: ansible_ssh
-      ignore_errors: true
-      changed_when: false
-
-    - name: Set bootstrap user
-      ansible.builtin.set_fact:
-        bootstrap_user: "{{ 'ansible' if ansible_ssh.rc == 0 else 'temp' }}"
-
-    - name: "Bootstrap user for {{ inventory_hostname }}: {{ bootstrap_user }}"
-      ansible.builtin.debug:
-        msg: "Connecting as '{{ bootstrap_user }}' (ansible user {{ 'already exists' if ansible_ssh.rc == 0 else 'not yet created' }})"
+    - name: Detect bootstrap user
+      ansible.builtin.include_tasks:
+        file: tasks/detect-bootstrap-user.yml
+      vars:
+        fallback_user: temp
+        ssh_extra_flags: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 - name: Bootstrap ansible user (VMs)
   hosts: virtual-machines
@@ -35,24 +27,16 @@
   gather_facts: false
   connection: local
   tasks:
-    - name: Check if ansible user can connect
-      ansible.builtin.command:
-        cmd: ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ansible@{{ ansible_host }} true
-      register: ansible_ssh_lxc
-      ignore_errors: true
-      changed_when: false
-
-    - name: Set bootstrap user
-      ansible.builtin.set_fact:
-        bootstrap_user_lxc: "{{ 'ansible' if ansible_ssh_lxc.rc == 0 else 'root' }}"
-
-    - name: "Bootstrap user for {{ inventory_hostname }}: {{ bootstrap_user_lxc }}"
-      ansible.builtin.debug:
-        msg: "Connecting as '{{ bootstrap_user_lxc }}' (ansible user {{ 'already exists' if ansible_ssh_lxc.rc == 0 else 'not yet created' }})"
+    - name: Detect bootstrap user
+      ansible.builtin.include_tasks:
+        file: tasks/detect-bootstrap-user.yml
+      vars:
+        fallback_user: root
+        ssh_extra_flags: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 - name: Bootstrap ansible user (containers)
   hosts: containers
-  remote_user: "{{ bootstrap_user_lxc }}"
+  remote_user: "{{ bootstrap_user }}"
   become: true
   roles:
     - setup-ansible

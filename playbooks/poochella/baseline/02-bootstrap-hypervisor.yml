@@ -7,21 +7,11 @@
   gather_facts: false
   connection: local
   tasks:
-    - name: Check if ansible user can connect
-      ansible.builtin.command:
-        cmd: ssh -o BatchMode=yes -o ConnectTimeout=5 ansible@{{ ansible_host }} true
-      register: ansible_ssh
-      ignore_errors: true
-      changed_when: false
-
-    - name: Set bootstrap user
-      ansible.builtin.set_fact:
-        bootstrap_user: "{{ 'ansible' if ansible_ssh.rc == 0 else 'root' }}"
-        use_root_password: "{{ ansible_ssh.rc != 0 }}"
-
-    - name: "Bootstrap user for {{ inventory_hostname }}: {{ bootstrap_user }}"
-      ansible.builtin.debug:
-        msg: "Connecting as '{{ bootstrap_user }}' (ansible user {{ 'already exists' if ansible_ssh.rc == 0 else 'not yet created' }})"
+    - name: Detect bootstrap user
+      ansible.builtin.include_tasks:
+        file: tasks/detect-bootstrap-user.yml
+      vars:
+        fallback_user: root
 
 - name: Configure hypervisors for automated management
   hosts: baremetal
