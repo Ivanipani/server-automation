@@ -5,5 +5,6 @@
 - import_playbook: 02-bootstrap-hypervisor.yml
 - import_playbook: 03-prepare-templates.yml
 - import_playbook: 04-provision-infrastructure.yml
-- import_playbook: 05-init-ansible-global.yml
-- import_playbook: 06-firewall.yml
+- import_playbook: 05-bootstrap-ansible-global.yml
+- import_playbook: 06-users.yml
+- import_playbook: 07-firewall.yml

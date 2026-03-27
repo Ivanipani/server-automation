@@ -5,8 +5,3 @@
   roles:
     - create-user
 
-# - name: Configure dev tools for 'pani' user
-#   become: true
-#   hosts: baremetal:virtual-machines
-#   roles:
-#     - ivan-user
