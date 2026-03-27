@@ -1,6 +1,6 @@
 ---
 - name: Create user accounts and configure access
-  hosts: baremetal:virtual-machines
+  hosts: all:!router
   become: true
 
   tasks:

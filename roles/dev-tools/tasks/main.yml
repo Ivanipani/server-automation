@@ -27,14 +27,14 @@
     path: "{{ item }}"
   register: tool_checks
   loop:
-    - /opt/bin/just
-    - /opt/bin/zellij
-    - /opt/nvim/bin/nvim
-    - /opt/bin/jj
-    - /opt/ripgrep/rg
-    - /opt/fd/fd
-    - /opt/bin/fzf
-    - /opt/bin/direnv
+    - "{{ just_install_dir }}/just"
+    - "{{ zellij_install_dir }}/zellij"
+    - "{{ neovim_install_dir }}/bin/nvim"
+    - "{{ jj_install_dir }}/jj"
+    - "{{ ripgrep_install_dir }}/rg"
+    - "{{ fd_install_dir }}/fd"
+    - "{{ fzf_install_dir }}/fzf"
+    - "{{ direnv_install_dir }}/direnv"
 
 - name: Build installed tools lookup
   ansible.builtin.set_fact:
@@ -42,151 +42,168 @@
 
 # just
 
-- name: Download just installer
-  ansible.builtin.get_url:
-    url: https://just.systems/install.sh
-    dest: /tmp/just-install.sh
-    mode: '0755'
-  when: not installed['/opt/bin/just']
-
 - name: Install just
-  ansible.builtin.shell:
-    cmd: /tmp/just-install.sh --to /opt/bin
-    creates: /opt/bin/just
-  when: not installed['/opt/bin/just']
+  block:
+    - name: Download just installer
+      ansible.builtin.get_url:
+        url: "{{ just_install_script_url }}"
+        dest: /tmp/just-install.sh
+        mode: '0755'
+
+    - name: Run just installer
+      ansible.builtin.shell:
+        cmd: "/tmp/just-install.sh --to {{ just_install_dir }}"
+        creates: "{{ just_install_dir }}/just"
+  when: not installed[just_install_dir + '/just']
 
 # zellij
 
-- name: Download zellij
-  ansible.builtin.get_url:
-    url: https://github.com/zellij-org/zellij/releases/latest/download/zellij-x86_64-unknown-linux-musl.tar.gz
-    dest: /tmp/zellij.tar.gz
-  when: not installed['/opt/bin/zellij']
-
 - name: Install zellij
-  ansible.builtin.unarchive:
-    src: /tmp/zellij.tar.gz
-    dest: /opt/bin
-    remote_src: true
-  when: not installed['/opt/bin/zellij']
+  block:
+    - name: Download zellij
+      ansible.builtin.get_url:
+        url: "{{ zellij_url }}"
+        dest: /tmp/zellij.tar.gz
 
-- name: Ensure zellij plugins directory exists
-  ansible.builtin.file:
-    path: /opt/zellij-plugins
-    state: directory
-    mode: "0755"
+    - name: Extract zellij
+      ansible.builtin.unarchive:
+        src: /tmp/zellij.tar.gz
+        dest: "{{ zellij_install_dir }}"
+        remote_src: true
+
+    - name: Ensure zellij plugins directory exists
+      ansible.builtin.file:
+        path: "{{ zellij_plugins_dir }}"
+        state: directory
+        mode: "0755"
+  when: not installed[zellij_install_dir + '/zellij']
 
 # neovim
 
-- name: Ensure tool directories exist
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    mode: "0755"
-  loop:
-    - /opt/nvim
-    - /opt/ripgrep
-    - /opt/fd
-
-- name: Download neovim
-  ansible.builtin.get_url:
-    url: https://github.com/neovim/neovim/releases/download/v{{ neovim_version }}/nvim-linux-x86_64.tar.gz
-    dest: /tmp/nvim.tar.gz
-  when: not installed['/opt/nvim/bin/nvim']
-
 - name: Install neovim
-  ansible.builtin.unarchive:
-    src: /tmp/nvim.tar.gz
-    dest: /opt/nvim
-    remote_src: true
-    extra_opts: ['--strip-components=1']
-  when: not installed['/opt/nvim/bin/nvim']
+  block:
+    - name: Ensure neovim directory exists
+      ansible.builtin.file:
+        path: "{{ neovim_install_dir }}"
+        state: directory
+        mode: "0755"
 
-- name: Symlink neovim binary
-  ansible.builtin.file:
-    src: /opt/nvim/bin/nvim
-    dest: /opt/bin/nvim
-    state: link
+    - name: Download neovim
+      ansible.builtin.get_url:
+        url: "{{ neovim_url }}"
+        dest: /tmp/nvim.tar.gz
+
+    - name: Extract neovim
+      ansible.builtin.unarchive:
+        src: /tmp/nvim.tar.gz
+        dest: "{{ neovim_install_dir }}"
+        remote_src: true
+        extra_opts: ['--strip-components=1']
+
+    - name: Symlink neovim binary
+      ansible.builtin.file:
+        src: "{{ neovim_install_dir }}/bin/nvim"
+        dest: /opt/bin/nvim
+        state: link
+  when: not installed[neovim_install_dir + '/bin/nvim']
 
 # jj
 
-- name: Download jj
-  ansible.builtin.get_url:
-    url: https://github.com/jj-vcs/jj/releases/download/v{{ jj_version }}/jj-v{{ jj_version }}-x86_64-unknown-linux-musl.tar.gz
-    dest: /tmp/jj.tar.gz
-  when: not installed['/opt/bin/jj']
-
 - name: Install jj
-  ansible.builtin.unarchive:
-    src: /tmp/jj.tar.gz
-    dest: /opt/bin
-    remote_src: true
-  when: not installed['/opt/bin/jj']
+  block:
+    - name: Download jj
+      ansible.builtin.get_url:
+        url: "{{ jj_url }}"
+        dest: /tmp/jj.tar.gz
+
+    - name: Extract jj
+      ansible.builtin.unarchive:
+        src: /tmp/jj.tar.gz
+        dest: "{{ jj_install_dir }}"
+        remote_src: true
+  when: not installed[jj_install_dir + '/jj']
 
 # ripgrep
 
-- name: Download ripgrep
-  ansible.builtin.get_url:
-    url: https://github.com/BurntSushi/ripgrep/releases/download/{{ ripgrep_version }}/ripgrep-{{ ripgrep_version }}-x86_64-unknown-linux-musl.tar.gz
-    dest: /tmp/ripgrep.tar.gz
-  when: not installed['/opt/ripgrep/rg']
-
 - name: Install ripgrep
-  ansible.builtin.unarchive:
-    src: /tmp/ripgrep.tar.gz
-    dest: /opt/ripgrep
-    remote_src: true
-    extra_opts: ['--strip-components=1']
-  when: not installed['/opt/ripgrep/rg']
+  block:
+    - name: Ensure ripgrep directory exists
+      ansible.builtin.file:
+        path: "{{ ripgrep_install_dir }}"
+        state: directory
+        mode: "0755"
 
-- name: Symlink ripgrep binary
-  ansible.builtin.file:
-    src: /opt/ripgrep/rg
-    dest: /opt/bin/rg
-    state: link
+    - name: Download ripgrep
+      ansible.builtin.get_url:
+        url: "{{ ripgrep_url }}"
+        dest: /tmp/ripgrep.tar.gz
+
+    - name: Extract ripgrep
+      ansible.builtin.unarchive:
+        src: /tmp/ripgrep.tar.gz
+        dest: "{{ ripgrep_install_dir }}"
+        remote_src: true
+        extra_opts: ['--strip-components=1']
+
+    - name: Symlink ripgrep binary
+      ansible.builtin.file:
+        src: "{{ ripgrep_install_dir }}/rg"
+        dest: /opt/bin/rg
+        state: link
+  when: not installed[ripgrep_install_dir + '/rg']
 
 # fd-find
 
-- name: Download fd-find
-  ansible.builtin.get_url:
-    url: https://github.com/sharkdp/fd/releases/download/v{{ fd_version }}/fd-v{{ fd_version }}-x86_64-unknown-linux-musl.tar.gz
-    dest: /tmp/fd-find.tar.gz
-  when: not installed['/opt/fd/fd']
-
 - name: Install fd-find
-  ansible.builtin.unarchive:
-    src: /tmp/fd-find.tar.gz
-    dest: /opt/fd
-    remote_src: true
-    extra_opts: ['--strip-components=1']
-  when: not installed['/opt/fd/fd']
+  block:
+    - name: Ensure fd directory exists
+      ansible.builtin.file:
+        path: "{{ fd_install_dir }}"
+        state: directory
+        mode: "0755"
 
-- name: Symlink fd-find binary
-  ansible.builtin.file:
-    src: /opt/fd/fd
-    dest: /opt/bin/fd
-    state: link
+    - name: Download fd-find
+      ansible.builtin.get_url:
+        url: "{{ fd_url }}"
+        dest: /tmp/fd-find.tar.gz
+
+    - name: Extract fd-find
+      ansible.builtin.unarchive:
+        src: /tmp/fd-find.tar.gz
+        dest: "{{ fd_install_dir }}"
+        remote_src: true
+        extra_opts: ['--strip-components=1']
+
+    - name: Symlink fd-find binary
+      ansible.builtin.file:
+        src: "{{ fd_install_dir }}/fd"
+        dest: /opt/bin/fd
+        state: link
+  when: not installed[fd_install_dir + '/fd']
 
 # fzf
 
-- name: Download fzf
-  ansible.builtin.get_url:
-    url: https://github.com/junegunn/fzf/releases/download/v{{ fzf_version }}/fzf-{{ fzf_version }}-linux_amd64.tar.gz
-    dest: /tmp/fzf.tar.gz
-  when: not installed['/opt/bin/fzf']
-
 - name: Install fzf
-  ansible.builtin.unarchive:
-    src: /tmp/fzf.tar.gz
-    dest: /opt/bin
-    remote_src: true
-  when: not installed['/opt/bin/fzf']
+  block:
+    - name: Download fzf
+      ansible.builtin.get_url:
+        url: "{{ fzf_url }}"
+        dest: /tmp/fzf.tar.gz
+
+    - name: Extract fzf
+      ansible.builtin.unarchive:
+        src: /tmp/fzf.tar.gz
+        dest: "{{ fzf_install_dir }}"
+        remote_src: true
+  when: not installed[fzf_install_dir + '/fzf']
 
 # direnv
 
-- name: Download direnv
-  ansible.builtin.get_url:
-    url: https://github.com/direnv/direnv/releases/download/v{{ direnv_version }}/direnv.linux-amd64
-    dest: /opt/bin/direnv
-    mode: "755"
-  when: not installed['/opt/bin/direnv']
+- name: Install direnv
+  block:
+    - name: Download direnv
+      ansible.builtin.get_url:
+        url: "{{ direnv_url }}"
+        dest: "{{ direnv_install_dir }}/direnv"
+        mode: "755"
+  when: not installed[direnv_install_dir + '/direnv']
