@@ -1,7 +1,18 @@
 ---
 users:
+  - name: ansible
+    groups: [ansible, sudo]
+    shell: /bin/bash
+    ssh_key: "~/.ssh/ansible.pub"
+    password: "{{ ansible_user_pass }}"
+    sudoers:
+      commands: ALL
+      nopassword: true
   - name: pani
     groups: [sudo]
     shell: /usr/bin/zsh
     ssh_key: "~/.ssh/ansible.pub"
     password: "{{ pani_user_pass }}"
+    sudoers:
+      commands: ALL
+      nopassword: true

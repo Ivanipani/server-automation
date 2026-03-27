@@ -39,14 +39,16 @@
         label: "{{ item.name }}"
       when: item.ssh_key is defined
 
-    - name: Grant pani passwordless sudo access
-      ansible.builtin.copy:
-        dest: /etc/sudoers.d/pani
-        content: "pani ALL=(ALL) NOPASSWD: ALL\n"
-        owner: root
-        group: root
-        mode: "0440"
-        validate: "visudo -cf %s"
+    - name: Configure sudoers policies
+      community.general.sudoers:
+        name: "{{ item.name }}"
+        user: "{{ item.name }}"
+        commands: "{{ item.sudoers.commands }}"
+        nopassword: "{{ item.sudoers.nopassword | default(false) }}"
+        state: present
+      loop: "{{ users | default([]) | selectattr('sudoers', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
 
 # - name: Configure dev tools for 'pani' user
 #   become: true
