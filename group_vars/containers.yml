@@ -1,0 +1,10 @@
+---
+users:
+  - name: ansible
+    groups: [ansible, sudo]
+    shell: /bin/bash
+    ssh_key: "~/.ssh/ansible.pub"
+    password: "{{ ansible_user_pass }}"
+    sudoers:
+      commands: ALL
+      nopassword: true

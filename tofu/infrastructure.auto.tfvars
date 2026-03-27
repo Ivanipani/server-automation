@@ -29,6 +29,8 @@ containers = {
     cores     = 1
     memory    = 512
     disk_size = 4
+    ip_address = "10.1.1.10/24"
+    gateway   = "10.1.1.1"
     tags      = ["caddy", "webserver"]
   }
   # nginx01 = {
