@@ -2,13 +2,15 @@
 # Firewall configuration for all poochella nodes
 # Default-deny incoming, allow outgoing, with per-group port allowances
 
-# 2. Containers — per-host open ports
+# Containers — per-host open ports
 - hosts: containers
   become: true
   roles:
     - role: firewall-basic
       vars:
         inbound_allow: "{{ _container_inbound[inventory_hostname] | default([]) }}"
+        outbound_deny:
+          - { port: 22, proto: tcp }
   vars:
     _container_inbound:
       caddy01:
@@ -23,11 +25,19 @@
         - { port: 67, proto: udp }
         - { port: 80, proto: tcp }
 
-# 3. Virtual machines — application port range
+# Virtual machines — per-host open ports
 - hosts: virtual-machines
   become: true
   roles:
     - role: firewall-basic
       vars:
-        inbound_allow:
-          - { port: "50000:50100", proto: tcp }
+        inbound_allow: "{{ _vm_inbound[inventory_hostname] | default([]) }}"
+        outbound_deny:
+          - { port: 22, proto: tcp }
+  vars:
+    _vm_inbound:
+      devbox01:
+        - { port: "50000:50100", proto: tcp }
+      postgres01:
+        - { port: "50000:50100", proto: tcp }
+        - { port: 5432, proto: tcp }

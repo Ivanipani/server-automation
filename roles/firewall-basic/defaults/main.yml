@@ -1,0 +1,5 @@
+---
+firewall_outbound_policy: allow
+inbound_allow: []
+outbound_allow: []
+outbound_deny: []

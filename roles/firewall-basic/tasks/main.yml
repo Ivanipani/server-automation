@@ -3,7 +3,6 @@
   ansible.builtin.apt:
     name: ufw
     state: present
-    update_cache: true
 
 - name: Enable ufw and set default policy to deny incoming traffic
   community.general.ufw:
@@ -11,9 +10,9 @@
     default: deny
     direction: incoming
 
-- name: Set default policy to allow outgoing traffic
+- name: Set default outgoing policy
   community.general.ufw:
-    default: allow
+    default: "{{ firewall_outbound_policy }}"
     direction: outgoing
 
 - name: Allow SSH traffic
@@ -29,4 +28,22 @@
     port: "{{ item.port | string }}"
     proto: "{{ item.proto }}"
     comment: "Allow inbound {{ item.port }}/{{ item.proto }}"
-  loop: "{{ inbound_allow | default([]) }}"
+  loop: "{{ inbound_allow }}"
+
+- name: Deny outbound ports
+  community.general.ufw:
+    rule: deny
+    direction: out
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+    comment: "Deny outbound {{ item.port }}/{{ item.proto }}"
+  loop: "{{ outbound_deny }}"
+
+- name: Allow outbound ports
+  community.general.ufw:
+    rule: allow
+    direction: out
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+    comment: "Allow outbound {{ item.port }}/{{ item.proto }}"
+  loop: "{{ outbound_allow }}"

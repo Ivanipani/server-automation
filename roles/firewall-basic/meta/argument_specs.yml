@@ -1,12 +1,37 @@
 ---
 argument_specs:
   main:
-    short_description: Main entry point for the lxc role
+    short_description: Configure UFW firewall with inbound/outbound rules
     author:
       - Ivan Perdomo
     options:
-      app_port:
-        type: "int"
+      firewall_outbound_policy:
+        type: str
+        default: "allow"
+        choices:
+          - allow
+          - deny
         description:
-          - "The server listening port."
-          - "Must be in the range 50000-50100."
+          - "Default policy for outgoing traffic."
+          - "When 'deny', only ports in outbound_allow are permitted out."
+      inbound_allow:
+        type: list
+        elements: dict
+        default: []
+        description:
+          - "List of inbound ports to allow."
+          - "Each item must have 'port' (int or range string) and 'proto' (tcp/udp)."
+      outbound_allow:
+        type: list
+        elements: dict
+        default: []
+        description:
+          - "List of outbound ports to explicitly allow."
+          - "Useful when firewall_outbound_policy is 'deny'."
+      outbound_deny:
+        type: list
+        elements: dict
+        default: []
+        description:
+          - "List of outbound ports to explicitly deny."
+          - "Applied regardless of firewall_outbound_policy."
