@@ -1,0 +1,30 @@
+---
+- name: Generate SSH key for pani user
+  hosts: baremetal:virtual-machines
+  remote_user: pani
+  become: false
+  tasks:
+    - name: Generate ed25519 SSH key
+      community.crypto.openssh_keypair:
+        path: ~/.ssh/id_ed25519
+        type: ed25519
+        comment: "pani@{{ inventory_hostname }}"
+      register: ssh_key
+
+    - name: Add SSH key to GitHub
+      ansible.builtin.uri:
+        url: https://api.github.com/user/keys
+        method: POST
+        headers:
+          Authorization: "Bearer {{ github_pat }}"
+        body_format: json
+        body:
+          title: "pani@{{ inventory_hostname }}"
+          key: "{{ ssh_key.public_key }}"
+        status_code: [201, 422]
+      delegate_to: localhost
+      run_once: false
+
+    - name: Print public key
+      ansible.builtin.debug:
+        msg: "{{ ssh_key.public_key }}"

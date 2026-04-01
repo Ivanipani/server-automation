@@ -7,4 +7,5 @@ router_root_pass: "{{ vault_router_root_pass }}"
 hypervisor_root_pass: "{{ vault_hypervisor_root_pass }}"
 ansible_user_pass: "{{ vault_ansible_user_pass }}"
 pani_user_pass: "{{ vault_pani_user_pass }}"
+github_pat: "{{ vault_github_pat }}"
 set_user_passwords: true
