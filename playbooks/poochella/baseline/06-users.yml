@@ -3,5 +3,15 @@
   hosts: all:!router
   become: true
   roles:
-    - create-user
+    - role: create-user
+      vars:
+        users:
+          - name: pani
+            groups: [sudo, promoter, talent, docker]
+            shell: /usr/bin/zsh
+            ssh_key: "~/.ssh/ansible.pub"
+            password: "{{ pani_user_pass }}"
+            sudoers:
+              commands: ALL
+              nopassword: true
 

@@ -19,7 +19,17 @@
   become: true
   remote_user: "{{ bootstrap_user }}"
   roles:
-    - create-user
+    - role: create-user
+      vars:
+        users:
+          - name: ansible
+            groups: [ansible, sudo]
+            shell: /bin/bash
+            ssh_key: "~/.ssh/ansible.pub"
+            password: "{{ ansible_user_pass }}"
+            sudoers:
+              commands: ALL
+              nopassword: true
 
 
 - name: Detect SSH user for containers
@@ -39,7 +49,17 @@
   remote_user: "{{ bootstrap_user }}"
   become: true
   roles:
-    - create-user
+    - role: create-user
+      vars:
+        users:
+          - name: ansible
+            groups: [ansible, sudo]
+            shell: /bin/bash
+            ssh_key: "~/.ssh/ansible.pub"
+            password: "{{ ansible_user_pass }}"
+            sudoers:
+              commands: ALL
+              nopassword: true
 #
 # - name: Remove temp user (VMs)
 #   hosts: virtual-machines
