@@ -1,11 +1,10 @@
+---
 - name: Install required packages for NodeSource setup
   ansible.builtin.apt:
     name:
       - ca-certificates
-      - curl
       - gnupg
     state: present
-    update_cache: true
 
 - name: Check if NodeSource repository is already configured
   ansible.builtin.stat:
