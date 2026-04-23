@@ -14,7 +14,10 @@ baremetal:
   hosts:
     control01:
       ansible_host: control01.lan
-      static_ip: true
+    control02:
+      ansible_host: control02.lan
+    control03:
+      ansible_host: control03.lan
 
 databases:
   hosts:
