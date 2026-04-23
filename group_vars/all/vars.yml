@@ -8,4 +8,5 @@ hypervisor_root_pass: "{{ vault_hypervisor_root_pass }}"
 ansible_user_pass: "{{ vault_ansible_user_pass }}"
 pani_user_pass: "{{ vault_pani_user_pass }}"
 github_pat: "{{ vault_github_pat }}"
+tailscale_auth_key: "{{ vault_tailscale_auth_key }}"
 set_user_passwords: true

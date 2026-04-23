@@ -1,0 +1,6 @@
+---
+- name: Install Tailscale on hypervisors
+  hosts: baremetal
+  become: true
+  roles:
+    - role: tailscale

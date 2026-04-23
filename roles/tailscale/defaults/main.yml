@@ -1,0 +1,9 @@
+---
+tailscale_version: "1.96.4"
+tailscale_arch: "amd64"
+tailscale_url: "https://pkgs.tailscale.com/stable/tailscale_{{ tailscale_version }}_{{ tailscale_arch }}.tgz"
+tailscale_install_dir: "/opt/tailscale"
+tailscale_bin: "{{ tailscale_install_dir }}/tailscale"
+tailscaled_bin: "{{ tailscale_install_dir }}/tailscaled"
+tailscale_state_dir: "/var/lib/tailscale"
+tailscale_up_args: ""
