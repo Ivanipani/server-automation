@@ -1,1 +1,8 @@
 ---
+proxmox_control_nodes:
+  - hostname: control01
+    address: 10.1.1.101
+  - hostname: control02
+    address: 10.1.1.103
+  - hostname: control03
+    address: 10.1.1.104

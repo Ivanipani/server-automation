@@ -10,7 +10,7 @@
 - name: Check if ansible user can connect
   ansible.builtin.command:
     cmd: >-
-      ssh -o BatchMode=yes -o ConnectTimeout=5
+      ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new
       {{ ssh_extra_flags | default('') }}
       ansible@{{ ansible_host }} true
   register: ansible_ssh
