@@ -58,3 +58,9 @@ difftastic_version: "0.69.0"
 difftastic_url: "https://github.com/Wilfred/difftastic/releases/download/{{ difftastic_version }}/difft-x86_64-unknown-linux-musl.tar.gz"
 difftastic_install_dir: "/opt/bin"
 difftastic_bin: "{{ difftastic_install_dir }}/difft"
+
+# jjui
+jjui_version: "0.10.4"
+jjui_url: "https://github.com/idursun/jjui/releases/download/v{{ jjui_version }}/jjui-{{ jjui_version }}-linux-amd64.zip"
+jjui_install_dir: "/opt/jjui"
+jjui_bin: "{{ jjui_install_dir }}/jjui-{{ jjui_version }}-linux-amd64"

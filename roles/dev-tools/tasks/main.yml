@@ -14,6 +14,7 @@
       - dnsutils
       - iotop
       - sysstat
+      - unzip
     state: present
 
 - name: Ensure /opt/bin directory exists
@@ -37,6 +38,7 @@
     - "{{ direnv_bin }}"
     - "{{ atuin_bin }}"
     - "{{ difftastic_bin }}"
+    - "{{ jjui_bin }}"
 
 - name: Build installed tools lookup
   ansible.builtin.set_fact:
@@ -60,6 +62,7 @@
     - { path: "{{ direnv_bin }}", version: "{{ direnv_version }}" }
     - { path: "{{ atuin_bin }}", version: "{{ atuin_version }}" }
     - { path: "{{ difftastic_bin }}", version: "{{ difftastic_version }}" }
+    - { path: "{{ jjui_bin }}", version: "{{ jjui_version }}" }
 
 - name: Build version mismatch lookup
   ansible.builtin.set_fact:
@@ -299,3 +302,33 @@
   when: >-
     not installed[difftastic_bin]
     or (needs_upgrade[difftastic_bin] | default(false))
+
+# jjui
+
+- name: Install jjui
+  block:
+    - name: Ensure jjui directory exists
+      ansible.builtin.file:
+        path: "{{ jjui_install_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download jjui
+      ansible.builtin.get_url:
+        url: "{{ jjui_url }}"
+        dest: /tmp/jjui.zip
+
+    - name: Extract jjui
+      ansible.builtin.unarchive:
+        src: /tmp/jjui.zip
+        dest: "{{ jjui_install_dir }}"
+        remote_src: true
+
+    - name: Symlink jjui binary
+      ansible.builtin.file:
+        src: "{{ jjui_bin }}"
+        dest: /opt/bin/jjui
+        state: link
+  when: >-
+    not installed[jjui_bin]
+    or (needs_upgrade[jjui_bin] | default(false))
