@@ -1,4 +1,5 @@
 ---
+tailscale_enabled: true
 tailscale_version: "1.96.4"
 tailscale_arch: "amd64"
 tailscale_url: "https://pkgs.tailscale.com/stable/tailscale_{{ tailscale_version }}_{{ tailscale_arch }}.tgz"
