@@ -1,4 +1,5 @@
 ---
+tailscale_enabled: false
 proxmox_control_nodes:
   - hostname: control01
     address: 10.1.1.101

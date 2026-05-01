@@ -46,3 +46,15 @@ direnv_version: "2.37.1"
 direnv_url: "https://github.com/direnv/direnv/releases/download/v{{ direnv_version }}/direnv.linux-amd64"
 direnv_install_dir: "/opt/bin"
 direnv_bin: "{{ direnv_install_dir }}/direnv"
+
+# atuin
+atuin_version: "18.16.0"
+atuin_url: "https://github.com/atuinsh/atuin/releases/download/v{{ atuin_version }}/atuin-x86_64-unknown-linux-musl.tar.gz"
+atuin_install_dir: "/opt/atuin"
+atuin_bin: "{{ atuin_install_dir }}/atuin"
+
+# difftastic
+difftastic_version: "0.69.0"
+difftastic_url: "https://github.com/Wilfred/difftastic/releases/download/{{ difftastic_version }}/difft-x86_64-unknown-linux-musl.tar.gz"
+difftastic_install_dir: "/opt/bin"
+difftastic_bin: "{{ difftastic_install_dir }}/difft"

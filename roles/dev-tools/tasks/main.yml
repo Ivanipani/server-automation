@@ -35,6 +35,8 @@
     - "{{ fd_bin }}"
     - "{{ fzf_bin }}"
     - "{{ direnv_bin }}"
+    - "{{ atuin_bin }}"
+    - "{{ difftastic_bin }}"
 
 - name: Build installed tools lookup
   ansible.builtin.set_fact:
@@ -56,6 +58,8 @@
     - { path: "{{ fd_bin }}", version: "{{ fd_version }}" }
     - { path: "{{ fzf_bin }}", version: "{{ fzf_version }}" }
     - { path: "{{ direnv_bin }}", version: "{{ direnv_version }}" }
+    - { path: "{{ atuin_bin }}", version: "{{ atuin_version }}" }
+    - { path: "{{ difftastic_bin }}", version: "{{ difftastic_version }}" }
 
 - name: Build version mismatch lookup
   ansible.builtin.set_fact:
@@ -246,3 +250,52 @@
   when: >-
     not installed[direnv_bin]
     or (needs_upgrade[direnv_bin] | default(false))
+
+# atuin
+
+- name: Install atuin
+  block:
+    - name: Ensure atuin directory exists
+      ansible.builtin.file:
+        path: "{{ atuin_install_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download atuin
+      ansible.builtin.get_url:
+        url: "{{ atuin_url }}"
+        dest: /tmp/atuin.tar.gz
+
+    - name: Extract atuin
+      ansible.builtin.unarchive:
+        src: /tmp/atuin.tar.gz
+        dest: "{{ atuin_install_dir }}"
+        remote_src: true
+        extra_opts: ['--strip-components=1']
+
+    - name: Symlink atuin binary
+      ansible.builtin.file:
+        src: "{{ atuin_bin }}"
+        dest: /opt/bin/atuin
+        state: link
+  when: >-
+    not installed[atuin_bin]
+    or (needs_upgrade[atuin_bin] | default(false))
+
+# difftastic
+
+- name: Install difftastic
+  block:
+    - name: Download difftastic
+      ansible.builtin.get_url:
+        url: "{{ difftastic_url }}"
+        dest: /tmp/difftastic.tar.gz
+
+    - name: Extract difftastic
+      ansible.builtin.unarchive:
+        src: /tmp/difftastic.tar.gz
+        dest: "{{ difftastic_install_dir }}"
+        remote_src: true
+  when: >-
+    not installed[difftastic_bin]
+    or (needs_upgrade[difftastic_bin] | default(false))
