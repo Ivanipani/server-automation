@@ -1,0 +1,29 @@
+[global]
+keyboard = "en-us"
+country = "us"
+fqdn = "pve-home-01.local"
+mailto = "root@localhost"
+timezone = "America/New_York"
+root-password = "babybaby"
+root-ssh-keys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
+]
+reboot-on-error = false
+
+[network]
+source = "from-dhcp"
+
+[network.interface-name-pinning]
+enabled = true
+
+[network.interface-name-pinning.mapping]
+"18:60:24:dc:b7:32" = "lan0"
+
+[first-boot]
+source = "from-iso"
+ordering = "before-network"
+
+[disk-setup]
+filesystem = "zfs"
+disk-list = ["sda"]
+zfs = { raid = "raid0" }

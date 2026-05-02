@@ -1,7 +1,7 @@
 [global]
 keyboard = "en-us"
 country = "us"
-fqdn = "control01.local"
+fqdn = "pve-home-02.local"
 mailto = "root@localhost"
 timezone = "America/New_York"
 root-password = "babybaby"
@@ -13,10 +13,17 @@ reboot-on-error = false
 [network]
 source = "from-dhcp"
 
-# [network.interface-name-pinning]
-# enabled = true
+[network.interface-name-pinning]
+enabled = true
+
+[network.interface-name-pinning.mapping]
+"B0:0C:D1:6F:A6:7D" = "lan0"
+
+[first-boot]
+source = "from-iso"
+ordering = "before-network"
 
 [disk-setup]
 filesystem = "zfs"
-disk-list = ["sda"]
+disk-list = ["nvme0n1"]
 zfs = { raid = "raid0" }

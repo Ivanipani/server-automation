@@ -91,6 +91,8 @@ def build_bundle_cmd(
         "iso",
         "--answer-file",
         str(answer_path),
+        "--on-first-boot",
+        str(answer_path.parent / "first-boot.sh"),
         "--output",
         str(output_path),
     ]
