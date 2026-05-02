@@ -3,7 +3,7 @@
 # Idempotent — safe to re-run
 
 - name: Prepare Proxmox templates
-  hosts: control01
+  hosts: pve-home-01
   gather_facts: false
   become: true
   vars:

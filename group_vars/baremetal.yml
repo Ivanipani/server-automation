@@ -1,9 +1,9 @@
 ---
 tailscale_enabled: false
 proxmox_control_nodes:
-  - hostname: control01
-    address: 10.1.1.101
-  - hostname: control02
-    address: 10.1.1.103
-  - hostname: control03
-    address: 10.1.1.104
+  - hostname: pve-home-01
+    address: 10.1.1.105
+  - hostname: pve-home-02
+    address: 10.1.1.106
+  - hostname: pve-home-03
+    address: 10.1.1.107

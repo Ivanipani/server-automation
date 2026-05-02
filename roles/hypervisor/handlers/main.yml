@@ -1,5 +1,12 @@
-- name: Restart networking
-  ansible.builtin.systemd:
-    name: networking
-    state: restarted
+- name: Reload network configuration
+  ansible.builtin.command: ifreload -a
+  async: 60
+  poll: 0
+  changed_when: true
+  listen: "restart networking"
+
+- name: Wait for connection after network reload
+  ansible.builtin.wait_for_connection:
+    delay: 5
+    timeout: 120
   listen: "restart networking"

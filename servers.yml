@@ -12,12 +12,12 @@ router:
 
 baremetal:
   hosts:
-    control01:
-      ansible_host: control01.lan
-    control02:
-      ansible_host: control02.lan
-    control03:
-      ansible_host: control03.lan
+    # pve-home-01:
+    #   ansible_host: pve-home-01.lan
+    pve-home-02:
+      ansible_host: pve-home-02.lan
+    # pve-home-03:
+    #   ansible_host: pve-home-03.lan
 
 databases:
   hosts:

@@ -1,5 +1,5 @@
-proxmox_endpoint = "https://control01:8006"
-proxmox_node     = "control01"
+proxmox_endpoint = "https://pve-home-01.lan:8006"
+proxmox_node     = "pve-home-01"
 
 ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
 

@@ -1,13 +1,4 @@
 
-- name: Configure network interfaces
-  ansible.builtin.template:
-    src: interfaces.j2
-    dest: /etc/network/interfaces
-    owner: root
-    group: root
-    mode: "0644"
-  notify: "restart networking"
-
 - name: Remove Proxmox enterprise PVE repo
   ansible.builtin.file:
     path: "{{ item }}"

@@ -1,6 +1,6 @@
 ---
 - name: Install system-level development tools
-  hosts: control01
+  hosts: baremetal
   # hosts: baremetal:virtual-machines:!databases
   become: true
   roles:

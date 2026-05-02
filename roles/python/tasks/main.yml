@@ -32,6 +32,12 @@
         state: directory
         mode: "0755"
 
+    - name: Ensure /opt/bin directory exists
+      ansible.builtin.file:
+        path: /opt/bin
+        state: directory
+        mode: "0755"
+
     - name: Download uv release
       ansible.builtin.get_url:
         url: "{{ uv_url }}"
