@@ -10,3 +10,5 @@ pani_user_pass: "{{ vault_pani_user_pass }}"
 github_pat: "{{ vault_github_pat }}"
 tailscale_auth_key: "{{ vault_tailscale_auth_key }}"
 set_user_passwords: true
+github_ssh_private_key: "{{ vault_github_ssh_private_key }}"
+github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCpJGXP2r/5bmi8MKlbtN4/mavu ivanperdomo@Ivans-MacBook-Pro.local"

@@ -1,30 +1,37 @@
 ---
-- name: Generate SSH key for pani user
+- name: Deploy shared GitHub SSH key for pani user
   hosts: baremetal:virtual-machines
   remote_user: pani
   become: false
   tasks:
-    - name: Generate ed25519 SSH key
-      community.crypto.openssh_keypair:
-        path: ~/.ssh/id_ed25519
-        type: ed25519
-        comment: "pani@{{ inventory_hostname }}"
-      register: ssh_key
+    - name: Ensure ~/.ssh exists
+      ansible.builtin.file:
+        path: ~/.ssh
+        state: directory
+        mode: "0700"
 
-    - name: Add SSH key to GitHub
-      ansible.builtin.uri:
-        url: https://api.github.com/user/keys
-        method: POST
-        headers:
-          Authorization: "Bearer {{ github_pat }}"
-        body_format: json
-        body:
-          title: "pani@{{ inventory_hostname }}"
-          key: "{{ ssh_key.public_key }}"
-        status_code: [201, 422]
-      delegate_to: localhost
-      run_once: false
+    - name: Install GitHub SSH private key
+      ansible.builtin.copy:
+        content: "{{ github_ssh_private_key }}"
+        dest: ~/.ssh/id_ed25519
+        mode: "0600"
+      no_log: true
 
-    - name: Print public key
-      ansible.builtin.debug:
-        msg: "{{ ssh_key.public_key }}"
+    - name: Install GitHub SSH public key
+      ansible.builtin.copy:
+        content: "{{ github_ssh_public_key }}\n"
+        dest: ~/.ssh/id_ed25519.pub
+        mode: "0644"
+
+    - name: Trust github.com host key
+      ansible.builtin.known_hosts:
+        path: ~/.ssh/known_hosts
+        name: github.com
+        key: "{{ lookup('pipe', 'ssh-keyscan -t ed25519 github.com 2>/dev/null') }}"
+        state: present
+
+    - name: Verify GitHub SSH access
+      ansible.builtin.command: ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -T git@github.com
+      register: gh_check
+      changed_when: false
+      failed_when: gh_check.rc != 1
