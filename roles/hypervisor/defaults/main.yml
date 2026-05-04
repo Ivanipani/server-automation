@@ -1,4 +1,5 @@
 hypervisor_interface: "eno1"
 hypervisor_bridge: "vmbr0"
+proxmox_cluster_name: pve-cluster
 # Secrets (hypervisor_root_pass, ansible_user_pass) are defined in group_vars/all/vault.yml
 

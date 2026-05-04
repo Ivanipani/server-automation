@@ -1,0 +1,32 @@
+---
+# Joins this node to the cluster created by proxmox_control_nodes[0].
+# Idempotent: skipped when /etc/pve/corosync.conf already exists.
+# Intended to run with `serial: 1` so joins happen one at a time.
+
+- name: Check for existing corosync.conf
+  ansible.builtin.stat:
+    path: /etc/pve/corosync.conf
+  register: corosync_conf
+
+- name: Verify root SSH to cluster master is non-interactive
+  ansible.builtin.command:
+    cmd: >-
+      ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new
+      root@{{ proxmox_control_nodes[0].address }} true
+  changed_when: false
+  when: not corosync_conf.stat.exists
+
+- name: Join Proxmox cluster
+  ansible.builtin.command:
+    cmd: pvecm add {{ proxmox_control_nodes[0].address }} --use_ssh 1
+  when: not corosync_conf.stat.exists
+  changed_when: true
+
+- name: Wait for cluster quorum
+  ansible.builtin.command:
+    cmd: pvecm status
+  register: pvecm_status
+  changed_when: false
+  retries: 12
+  delay: 5
+  until: pvecm_status.stdout is search('Quorate:\s*Yes')

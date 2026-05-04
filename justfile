@@ -118,3 +118,14 @@ tofu-apply: tofu-validate
 # Encrypt a variable with ansible-vault
 secret-encrypt name:
     ansible-vault encrypt_string --vault-id dev@ansible-pass --stdin-name {{name}}
+
+# Init hypervisor for development
+do-hypervisor-init:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02-bootstrap-hypervisor.yml
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/07-sessions-and-shell.yml
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/07-users.yml
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/08-dev-tools.yml
+
+# Form the Proxmox cluster (run after do-hypervisor-init)
+do-cluster-init:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02b-cluster-hypervisor.yml

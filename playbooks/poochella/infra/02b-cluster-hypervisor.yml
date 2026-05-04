@@ -1,0 +1,38 @@
+---
+# Forms a Proxmox VE cluster from group `baremetal`.
+# proxmox_control_nodes[0] runs `pvecm create`; remaining nodes join via
+# `pvecm add <master> --use_ssh 1`. Idempotent — re-running on a healthy
+# cluster is a no-op; appending a node to proxmox_control_nodes joins it
+# on the next run.
+#
+# Pre-condition: 02-bootstrap-hypervisor.yml has run (the `ansible` user
+# with sudo NOPASSWD exists on each host). Joiners must be fresh PVE
+# installs (no VMs/CTs, no custom storage.cfg) — `pvecm add` rewrites
+# /etc/pve on the joiner.
+
+- name: Establish inter-node root SSH trust
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: hypervisor
+        tasks_from: cluster_ssh.yml
+
+- name: Create Proxmox cluster on first control node
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: hypervisor
+        tasks_from: cluster_create.yml
+      when: inventory_hostname == proxmox_control_nodes[0].hostname
+
+- name: Join remaining nodes to cluster
+  hosts: baremetal
+  become: true
+  serial: 1
+  tasks:
+    - ansible.builtin.import_role:
+        name: hypervisor
+        tasks_from: cluster_join.yml
+      when: inventory_hostname != proxmox_control_nodes[0].hostname

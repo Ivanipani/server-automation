@@ -1,0 +1,31 @@
+---
+# Creates the Proxmox cluster on the master node (proxmox_control_nodes[0]).
+# Idempotent: skipped when /etc/pve/corosync.conf already exists.
+
+- name: Check for existing corosync.conf
+  ansible.builtin.stat:
+    path: /etc/pve/corosync.conf
+  register: corosync_conf
+
+- name: Create Proxmox cluster
+  ansible.builtin.command:
+    cmd: pvecm create {{ proxmox_cluster_name }}
+  when: not corosync_conf.stat.exists
+  changed_when: true
+  register: pvecm_create
+
+- name: Wait for corosync.conf to materialize
+  ansible.builtin.wait_for:
+    path: /etc/pve/corosync.conf
+    timeout: 60
+  when: pvecm_create is changed
+
+- name: Show cluster status
+  ansible.builtin.command:
+    cmd: pvecm status
+  register: pvecm_status
+  changed_when: false
+
+- name: Cluster status
+  ansible.builtin.debug:
+    var: pvecm_status.stdout_lines

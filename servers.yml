@@ -12,17 +12,17 @@ router:
 
 baremetal:
   hosts:
-    # pve-home-01:
-    #   ansible_host: pve-home-01.lan
+    pve-home-01:
+      ansible_host: pve-home-01.lan
     pve-home-02:
       ansible_host: pve-home-02.lan
     pve-home-03:
       ansible_host: pve-home-03.lan
 
-databases:
-  hosts:
-    postgres01:
-      ansible_host: postgres01.lan
+# databases:
+#   hosts:
+#     postgres01:
+#       ansible_host: postgres01.lan
 # dns:
 #   hosts:
 #     pihole02:
@@ -34,11 +34,11 @@ databases:
 #       tofu_disk_size: 8
 #       tofu_tags: ["dns"]
 
-webservers:
-  hosts:
-    caddy01:
-      ansible_host: caddy01
-
+# webservers:
+#   hosts:
+#     caddy01:
+#       ansible_host: caddy01
+#
     # nginx01:
     #   ansible_host: nginx01
     #   tofu_cores: 1
@@ -48,8 +48,6 @@ webservers:
 
 virtual-machines:
   hosts:
-    # test01:
-    #   ansible_host: test01
     devbox01:
       ansible_host: devbox01.lan
   children:

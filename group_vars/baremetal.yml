@@ -1,5 +1,6 @@
 ---
 tailscale_enabled: false
+proxmox_cluster_name: usfa
 proxmox_control_nodes:
   - hostname: pve-home-01
     address: 10.1.1.105
