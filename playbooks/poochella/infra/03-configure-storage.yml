@@ -3,30 +3,44 @@
 # Provides: RBD (VM block storage), CephFS (K8s RWX), RGW (S3 object),
 # size=3/min_size=2 HA, cephx users + bundle ready for ceph-csi.
 #
-# DESTRUCTIVE on first run: removes rpool/data and creates a Ceph zvol.
-# Refuses to run unless `confirm_destroy_local_zfs: true` is set per host.
+# Disk partitioning is handled by the `hypervisor-disks` role (separate
+# concern); this playbook orchestrates both roles in sequence.
+#
+# DESTRUCTIVE on first run: partitions unallocated space at the end of
+# each node's boot disk into a ceph-osd partition + a longhorn partition.
+# Refuses to run unless `confirm_carve_data_disk: true` is set per host.
 #
 # Pre-conditions:
 #   - 02-bootstrap-hypervisor.yml completed (ansible user, repos staged)
 #   - 02b-cluster-hypervisor.yml completed (PVE cluster quorate)
-#   - PVE installed with ZFS root (`rpool` exists; no LVM `pve` VG)
+#   - PVE installed with LVM/ext4 root AND `lvm.hdsize = 100` so that
+#     ~900 GB at the end of the disk is unpartitioned. See the answer
+#     files under scripts/images/proxmox/pve-home-0X.toml.
 #   - No VMs or containers exist yet on any node
 
-- name: Ceph preflight (gates)
+- name: Disk preflight (gates + boot-disk detection)
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: hypervisor-disks
+        tasks_from: preflight.yml
+
+- name: Carve ceph-osd + longhorn partitions on the boot disk
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: hypervisor-disks
+        tasks_from: carve.yml
+
+- name: Ceph preflight (cluster quorate + ceph-osd partition present)
   hosts: baremetal
   become: true
   tasks:
     - ansible.builtin.import_role:
         name: ceph
         tasks_from: preflight.yml
-
-- name: Carve OSD zvol from rpool
-  hosts: baremetal
-  become: true
-  tasks:
-    - ansible.builtin.import_role:
-        name: ceph
-        tasks_from: disks.yml
 
 - name: Install Ceph packages on all nodes
   hosts: baremetal

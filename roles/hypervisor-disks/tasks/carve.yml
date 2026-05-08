@@ -1,0 +1,84 @@
+---
+# Carve two new GPT partitions at the end of the boot disk:
+#   - {{ ceph_osd_partition_label }} (ceph_osd_partition_size)
+#   - {{ longhorn_partition_label }} (longhorn_partition_size; 0 = remaining)
+# Idempotent: skips per-partition if the labelled partition already exists.
+#
+# Requires: preflight.yml has set the `boot_disk` fact.
+
+- name: Check whether the ceph-osd partition already exists (by GPT label)
+  ansible.builtin.stat:
+    path: "/dev/disk/by-partlabel/{{ ceph_osd_partition_label }}"
+  register: ceph_part_stat
+
+- name: Check whether the longhorn partition already exists (by GPT label)
+  ansible.builtin.stat:
+    path: "/dev/disk/by-partlabel/{{ longhorn_partition_label }}"
+  register: longhorn_part_stat
+
+- name: Determine next free partition number for ceph-osd
+  ansible.builtin.shell: |
+    set -euo pipefail
+    last=$(sgdisk -p /dev/{{ boot_disk }} | awk '/^[[:space:]]+[0-9]+/ {n=$1} END {print n}')
+    echo $((last + 1))
+  register: next_partnum
+  changed_when: false
+  when: not ceph_part_stat.stat.exists
+
+- name: Create the ceph-osd partition
+  ansible.builtin.command: >-
+    sgdisk
+    -n {{ next_partnum.stdout.strip() }}:0:+{{ ceph_osd_partition_size }}
+    -t {{ next_partnum.stdout.strip() }}:8300
+    -c {{ next_partnum.stdout.strip() }}:{{ ceph_osd_partition_label }}
+    /dev/{{ boot_disk }}
+  changed_when: true
+  when: not ceph_part_stat.stat.exists
+
+- name: Determine next free partition number for longhorn
+  ansible.builtin.shell: |
+    set -euo pipefail
+    last=$(sgdisk -p /dev/{{ boot_disk }} | awk '/^[[:space:]]+[0-9]+/ {n=$1} END {print n}')
+    echo $((last + 1))
+  register: next_partnum_lh
+  changed_when: false
+  when: not longhorn_part_stat.stat.exists
+
+- name: Create the longhorn partition (size 0 = use rest of disk)
+  ansible.builtin.command: >-
+    sgdisk
+    -n {{ next_partnum_lh.stdout.strip() }}:0:{{ '+' + longhorn_partition_size if (longhorn_partition_size | string) != '0' else '0' }}
+    -t {{ next_partnum_lh.stdout.strip() }}:8300
+    -c {{ next_partnum_lh.stdout.strip() }}:{{ longhorn_partition_label }}
+    /dev/{{ boot_disk }}
+  changed_when: true
+  when: not longhorn_part_stat.stat.exists
+
+- name: Refresh kernel partition table
+  ansible.builtin.command: "partprobe /dev/{{ boot_disk }}"
+  changed_when: false
+  when: (not ceph_part_stat.stat.exists) or (not longhorn_part_stat.stat.exists)
+
+- name: Wait for ceph-osd partition device node to appear
+  ansible.builtin.wait_for:
+    path: "/dev/disk/by-partlabel/{{ ceph_osd_partition_label }}"
+    timeout: 30
+
+- name: Wait for longhorn partition device node to appear
+  ansible.builtin.wait_for:
+    path: "/dev/disk/by-partlabel/{{ longhorn_partition_label }}"
+    timeout: 30
+
+- name: Check for unexpected signatures on the ceph-osd partition (do not auto-wipe)
+  ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ ceph_osd_partition_label }}"
+  register: wipefs_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if the ceph-osd partition has pre-existing signatures
+  ansible.builtin.fail:
+    msg: >-
+      /dev/disk/by-partlabel/{{ ceph_osd_partition_label }} has filesystem
+      signatures: {{ wipefs_check.stdout }}.
+      Investigate before continuing — auto-wipe is intentionally disabled.
+  when: wipefs_check.stdout | default('') | length > 0

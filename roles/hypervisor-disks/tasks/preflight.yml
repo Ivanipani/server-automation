@@ -1,0 +1,93 @@
+---
+# Hard gates before any sgdisk write. No auto-recovery on failure.
+
+- name: Assert opt-in flag is set (refuses to run without explicit confirmation)
+  ansible.builtin.assert:
+    that:
+      - confirm_carve_data_disk | default(false) | bool
+    fail_msg: >-
+      `confirm_carve_data_disk` is not true on {{ inventory_hostname }}.
+      This role partitions the boot disk (creates ceph-osd + longhorn
+      partitions in the unallocated space after the PVE LVM). Set the flag
+      in group_vars/baremetal.yml or host_vars/{{ inventory_hostname }}.yml,
+      then re-run.
+
+- name: List existing VMs (qm list)
+  ansible.builtin.command: qm list
+  register: qm_list
+  changed_when: false
+
+- name: List existing containers (pct list)
+  ansible.builtin.command: pct list
+  register: pct_list
+  changed_when: false
+
+- name: Assert no VMs or containers exist (header line only)
+  ansible.builtin.assert:
+    that:
+      - qm_list.stdout_lines | length <= 1
+      - pct_list.stdout_lines | length <= 1
+    fail_msg: >-
+      VMs or containers exist on {{ inventory_hostname }}. The disk-carving
+      step would risk them. Refusing to proceed.
+
+- name: Verify PVE LVM root is present (pve VG)
+  ansible.builtin.command: vgs --noheadings -o vg_name pve
+  register: pve_vg
+  changed_when: false
+  failed_when: false
+
+- name: Assert pve VG exists (PVE installed with LVM/ext4 root)
+  ansible.builtin.assert:
+    that:
+      - pve_vg.rc == 0
+      - "'pve' in pve_vg.stdout"
+    fail_msg: >-
+      PVE volume group `pve` not found on {{ inventory_hostname }}.
+      Expected an ext4/LVM PVE install (not ZFS). Reinstall with
+      filesystem = "ext4" and lvm.hdsize = 100 in the answer file.
+
+- name: Detect the boot disk (parent of the PVE LVM PV)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    pv=$(pvs --noheadings -o pv_name | awk 'NR==1 {print $1}')
+    lsblk -no PKNAME "$pv"
+  register: boot_disk_detect
+  changed_when: false
+
+- name: Set boot_disk fact
+  ansible.builtin.set_fact:
+    boot_disk: "{{ boot_disk_detect.stdout.strip() }}"
+
+- name: Assert boot disk was detected
+  ansible.builtin.assert:
+    that:
+      - boot_disk | length > 0
+      - "'sd' in boot_disk or 'nvme' in boot_disk or 'vd' in boot_disk"
+    fail_msg: >-
+      Could not detect the PVE boot disk on {{ inventory_hostname }}
+      (got '{{ boot_disk }}'). Check `pvs` and `lsblk`.
+
+- name: Read free space on the boot disk (parted -m output)
+  ansible.builtin.command: "parted -m -s /dev/{{ boot_disk }} unit B print free"
+  register: parted_free
+  changed_when: false
+
+- name: Assert sufficient free unpartitioned space at end of disk
+  ansible.builtin.assert:
+    that:
+      - parted_free.stdout | regex_findall(':free;') | length > 0
+      - >-
+        (parted_free.stdout_lines
+         | select('search', ':free;')
+         | map('regex_search', '([0-9]+)B:([0-9]+)B:([0-9]+)B:free;')
+         | reject('equalto', None)
+         | map('list')
+         | map('last')
+         | map('int')
+         | max) > hypervisor_disks_min_free_bytes
+    fail_msg: >-
+      /dev/{{ boot_disk }} has insufficient free unpartitioned space on
+      {{ inventory_hostname }} (need > {{ hypervisor_disks_min_free_bytes }} bytes
+      after the PVE LVM partition). Reinstall PVE with `lvm.hdsize = 100` in
+      the answer file.

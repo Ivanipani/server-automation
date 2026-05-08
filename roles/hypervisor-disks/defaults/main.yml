@@ -1,0 +1,29 @@
+---
+# Boot-disk partitioning for the poochella Proxmox cluster.
+#
+# Pre-condition: PVE installed with `lvm.hdsize = 100` (see
+# scripts/images/proxmox/pve-home-0X.toml) so that ~900 GB at the end of
+# the boot disk is unpartitioned. This role carves that into two GPT
+# partitions, identified by stable GPT labels:
+#   - {{ ceph_osd_partition_label }} → consumed by `pveceph osd create`
+#   - {{ longhorn_partition_label }} → left raw for future K8s/Longhorn use
+#
+# Layout target on a 1 TB disk:
+#   sda1/sda2  BIOS + EFI boot  (~1 GB total)
+#   sda3       LVM PV → `pve` VG (root, swap, data thinpool) (~99 GB)
+#   sda4       (this role) ceph-osd  (450 GB)
+#   sda5       (this role) longhorn  (450 GB raw)
+
+# DESTRUCTIVE: setting this true authorizes sgdisk to write the GPT.
+# Per-host opt-in lives in group_vars/baremetal.yml or host_vars.
+confirm_carve_data_disk: false
+
+ceph_osd_partition_label: ceph-osd
+ceph_osd_partition_size: 450G                 # passed to sgdisk -n N:0:+450G
+
+longhorn_partition_label: longhorn
+longhorn_partition_size: 450G                 # set to 0 to fill remaining disk
+
+# Free-space safety margin: refuse to run if the boot disk has less than
+# this much unpartitioned space at the end. Tuned for 1 TB disks.
+hypervisor_disks_min_free_bytes: 800000000000   # 800 GB
