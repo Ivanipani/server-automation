@@ -24,6 +24,6 @@ source = "from-iso"
 ordering = "before-network"
 
 [disk-setup]
-filesystem = "zfs"
+filesystem = "ext4"
 disk-list = ["nvme0n1"]
-zfs = { raid = "raid0" }
+lvm = { hdsize = 100 }

@@ -14,3 +14,23 @@ github_ssh_private_key: "{{ vault_github_ssh_private_key }}"
 github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCpJGXP2r/5bmi8MKlbtN4/mavu ivanperdomo@Ivans-MacBook-Pro.local"
 opnsense_api_key: "{{ vault_opnsense_api_key }}"
 opnsense_api_secret: "{{ vault_opnsense_api_secret }}"
+
+proxmox_control_nodes:
+  - hostname: pve-home-01
+    address: 10.1.1.105
+    mac: "18:60:24:dc:b7:32"
+  - hostname: pve-home-02
+    address: 10.1.1.106
+    mac: "b0:0c:d1:6f:a6:7d"
+  - hostname: pve-home-03
+    address: 10.1.1.107
+    mac: "e4:e7:49:47:dc:bf"
+
+router_nodes:
+  - hostname: heimdall
+    address: 10.1.1.1
+
+switch_nodes:
+  - hostname: router-01
+    address: 10.1.1.102
+    mac: "04:f4:1c:82:e0:ff"

@@ -1,9 +1,35 @@
 ---
-opnsense_api_url: "https://{{ ansible_host }}"
-opnsense_api_validate_certs: false
+# OPNsense connection (consumed via module_defaults in the calling playbook).
+opnsense_firewall: "{{ ansible_host }}"
+opnsense_api_ssl_verify: false
 
-opnsense_dnsmasq_domain: lan
-opnsense_dnsmasq_descr_marker: "managed-by-ansible"
+# General dnsmasq settings.
+dnsmasq_enabled: true
+dnsmasq_listen_interfaces: [lan]
+# Port for dnsmasq's DNS function. Defaults to 53053 to avoid conflicting
+# with Unbound on port 53 (OPNsense's default DNS resolver). Set to 0 to
+# disable dnsmasq DNS entirely; set to 53 only if Unbound is disabled.
+dnsmasq_dns_port: 53053
+dnsmasq_dhcp_domain: lan
+dnsmasq_dhcp_authoritative: true
+dnsmasq_dhcp_fqdn: true
+dnsmasq_register_static_dns: true
+dnsmasq_dhcp_lease_max: 1000
 
-# Caller passes a list of dicts: {hostname, address, mac, description?}.
-opnsense_dnsmasq_static_leases: []
+# DHCP pool. Set to {} to skip range management.
+dnsmasq_dhcp_range:
+  description: lan-pool
+  interface: LAN
+  start_addr: 10.1.1.100
+  end_addr: 10.1.1.200
+  lease_time: 86400
+  domain: lan
+
+# Static reservations. Caller passes a list of dicts:
+#   - hostname: pve-home-01
+#     address: 10.1.1.105
+#     mac: "18:60:24:dc:b7:32"
+# The `description` field on each dnsmasq_host entry is derived from the
+# hostname and serves as the natural key for idempotency.
+dnsmasq_static_leases: []
+dnsmasq_static_lease_prefix: lan-static

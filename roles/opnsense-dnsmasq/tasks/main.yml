@@ -1,50 +1,49 @@
 ---
-# Reconciles a list of static DHCP+DNS host overrides on OPNsense's dnsmasq
-# plugin via the REST API. Idempotent per host: existing entries with the same
-# host+domain are updated only when ip/mac drift; missing ones are created;
-# matches are skipped.
+# Configures the OPNsense dnsmasq plugin: general settings, a DHCP range, and
+# static host reservations. Idempotent — each module diffs against existing
+# state and reloads dnsmasq only when something actually changes.
 #
-# Pre-condition: an OPNsense API key/secret pair exists. Create one in the
-# OPNsense GUI: System -> Access -> Users -> (your user) -> API keys -> +.
-# Store the key as `vault_opnsense_api_key` and the secret as
-# `vault_opnsense_api_secret`.
+# Auth params (firewall, api_key, api_secret, ssl_verify) come from
+# module_defaults in the calling playbook so individual tasks stay terse.
+#
+# Pre-condition: an OPNsense API key/secret pair exists in vault as
+# `vault_opnsense_api_key` and `vault_opnsense_api_secret`. Create them in
+# the OPNsense GUI: System -> Access -> Users -> (your user) -> API keys -> +.
 
-- name: Fetch existing dnsmasq host overrides
-  ansible.builtin.uri:
-    url: "{{ opnsense_api_url }}/api/dnsmasq/settings/searchHost"
-    method: GET
-    user: "{{ opnsense_api_key }}"
-    password: "{{ opnsense_api_secret }}"
-    force_basic_auth: true
-    validate_certs: "{{ opnsense_api_validate_certs }}"
-    return_content: true
-  register: dnsmasq_search
-  delegate_to: localhost
-  become: false
+- name: Configure dnsmasq general settings
+  oxlorg.opnsense.dnsmasq_general:
+    enabled: "{{ dnsmasq_enabled }}"
+    interfaces: "{{ dnsmasq_listen_interfaces }}"
+    port: "{{ dnsmasq_dns_port }}"
+    dhcp_authoritative: "{{ dnsmasq_dhcp_authoritative }}"
+    dhcp_fqdn: "{{ dnsmasq_dhcp_fqdn }}"
+    dhcp_domain: "{{ dnsmasq_dhcp_domain }}"
+    dhcp_lease_max: "{{ dnsmasq_dhcp_lease_max }}"
+    regdhcpstatic: "{{ dnsmasq_register_static_dns }}"
 
-- name: Reset reconcile change marker
-  ansible.builtin.set_fact:
-    dnsmasq_changed: false
+- name: Configure DHCP range
+  oxlorg.opnsense.dnsmasq_range:
+    description: "{{ dnsmasq_dhcp_range.description }}"
+    interface: "{{ dnsmasq_dhcp_range.interface }}"
+    start_addr: "{{ dnsmasq_dhcp_range.start_addr }}"
+    end_addr: "{{ dnsmasq_dhcp_range.end_addr }}"
+    lease_time: "{{ dnsmasq_dhcp_range.lease_time }}"
+    domain: "{{ dnsmasq_dhcp_range.domain | default(omit) }}"
+    state: present
+  when: dnsmasq_dhcp_range | length > 0
 
-- name: Reconcile each static lease
-  ansible.builtin.include_tasks: reconcile_host.yml
-  loop: "{{ opnsense_dnsmasq_static_leases }}"
+- name: Configure static DHCP+DNS reservations
+  oxlorg.opnsense.dnsmasq_host:
+    description: "{{ dnsmasq_static_lease_prefix }}-{{ lease.hostname }}"
+    host: "{{ lease.hostname }}"
+    # The dnsmasq_host module's validator requires a multi-label FQDN here
+    # (must contain a dot). When dhcp_domain is single-label like 'lan', omit
+    # the per-host domain — entries inherit the global dhcp_domain anyway.
+    domain: "{{ dnsmasq_dhcp_domain if '.' in dnsmasq_dhcp_domain else omit }}"
+    ip: ["{{ lease.address }}"]
+    hardware_addr: ["{{ lease.mac | lower }}"]
+    state: present
+  loop: "{{ dnsmasq_static_leases }}"
   loop_control:
     loop_var: lease
     label: "{{ lease.hostname }} -> {{ lease.address }} ({{ lease.mac }})"
-
-- name: Apply dnsmasq configuration
-  ansible.builtin.uri:
-    url: "{{ opnsense_api_url }}/api/dnsmasq/service/reconfigure"
-    method: POST
-    user: "{{ opnsense_api_key }}"
-    password: "{{ opnsense_api_secret }}"
-    force_basic_auth: true
-    validate_certs: "{{ opnsense_api_validate_certs }}"
-    status_code: [200]
-    body_format: json
-    body: {}
-  delegate_to: localhost
-  become: false
-  when: dnsmasq_changed
-  changed_when: true

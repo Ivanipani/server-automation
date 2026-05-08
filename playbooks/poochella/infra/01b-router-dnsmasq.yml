@@ -1,19 +1,33 @@
 ---
-# Configures static DHCP+DNS reservations for Proxmox baremetal hosts on the
-# OPNsense router's dnsmasq plugin. Idempotent.
+# Configures OPNsense dnsmasq: general settings, LAN DHCP range, and static
+# DHCP+DNS reservations for Proxmox baremetal hosts. Idempotent.
 #
-# Pre-condition: an OPNsense API key/secret pair exists in vault as
-# `vault_opnsense_api_key` and `vault_opnsense_api_secret`. Create them via
-# System -> Access -> Users -> (user) -> API keys in the OPNsense GUI.
+# Pre-condition: OPNsense API credentials in vault as `vault_opnsense_api_key`
+# and `vault_opnsense_api_secret`. Create them in the OPNsense GUI:
+# System -> Access -> Users -> (your user) -> API keys -> +.
 #
-# The playbook does not SSH into OPNsense; it talks to the REST API from the
-# control node, so connection: local is used.
-
-- name: Configure OPNsense dnsmasq static leases for baremetal
+# Talks to the OPNsense API from the controller; no SSH into the router.
+- name: Show interpreter
   hosts: router
   gather_facts: false
   connection: local
+  tasks:
+    - name:
+      debug:
+        var: ansible_playbook_python
+
+- name: Configure OPNsense dnsmasq for baremetal
+  hosts: router
+  gather_facts: false
+  connection: local
+  module_defaults:
+    group/oxlorg.opnsense.dnsmasq:
+      firewall: "{{ ansible_host }}"
+      api_key: "{{ opnsense_api_key }}"
+      api_secret: "{{ opnsense_api_secret }}"
+      ssl_verify: false
   vars:
-    opnsense_dnsmasq_static_leases: "{{ proxmox_control_nodes }}"
+    dnsmasq_static_leases: "{{ proxmox_control_nodes + switch_nodes }}"
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   roles:
     - role: opnsense-dnsmasq

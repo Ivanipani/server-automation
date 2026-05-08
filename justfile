@@ -48,7 +48,7 @@ check:
     fi
 
     # Check required Ansible collections
-    for collection in community.general community.postgresql ansible.posix; do
+    for collection in community.general community.postgresql ansible.posix oxlorg.opnsense; do
         if ansible-galaxy collection list "$collection" 2>/dev/null | grep -q "$collection"; then
             echo "  ✓ Ansible collection: $collection"
         else
@@ -70,7 +70,7 @@ check:
 # Install all dependencies needed for this project
 install:
     echo "Installing ansible..."
-    uv tool install ansible-core --with passlib --force
+    uv tool install ansible-core --with passlib --with httpx --force
     echo "Installing required ansible collections..."
     ansible-galaxy install -r requirements.yml
 
@@ -117,7 +117,7 @@ tofu-apply: tofu-validate
 
 # Encrypt a variable with ansible-vault
 secret-encrypt name:
-    ansible-vault encrypt_string --vault-id dev@ansible-pass --stdin-name {{name}}
+    ansible-vault encrypt_string --vault-password-file ansible-pass --stdin-name {{name}}
 
 # Init hypervisor for development
 do-hypervisor-init:
@@ -131,7 +131,8 @@ do-cluster-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02b-cluster-hypervisor.yml
 
 # Bootstrap Ceph storage (RBD/CephFS/RGW). DESTRUCTIVE on first run —
-# requires `confirm_destroy_local_zfs: true` in group_vars/baremetal.yml.
+# partitions the boot disk; requires `confirm_carve_data_disk: true` in
+# group_vars/baremetal.yml AND PVE installed with `lvm.hdsize = 100`.
 do-storage-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03-configure-storage.yml
 
