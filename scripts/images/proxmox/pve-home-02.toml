@@ -4,7 +4,7 @@ country = "us"
 fqdn = "pve-home-02.local"
 mailto = "root@localhost"
 timezone = "America/New_York"
-root-password = "babybaby"
+root-password = "changeme"
 root-ssh-keys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
 ]

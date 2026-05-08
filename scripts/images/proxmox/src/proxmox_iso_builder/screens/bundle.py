@@ -63,9 +63,11 @@ class BundleScreen(Screen):
         def write_log(line: str) -> None:
             log.write(line)
 
-        # Derive output path in images/
-        stem = state.iso_path.stem
-        output_path = state.images_dir / f"{stem}-autoinstall.iso"
+        # Derive output path in images/, including the host name so each host
+        # produces a distinct ISO and subsequent builds don't overwrite.
+        iso_stem = state.iso_path.stem
+        host_stem = state.answer_path.stem
+        output_path = state.images_dir / f"{iso_stem}-{host_stem}-autoinstall.iso"
 
         # On macOS, copy source ISO to output path first (Docker mounts it in-place)
         if state.platform == "darwin":

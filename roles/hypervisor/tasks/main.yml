@@ -74,3 +74,10 @@
         sudoers:
           commands: ALL
           nopassword: true
+
+- name: Set root password from vault
+  ansible.builtin.user:
+    name: root
+    password: "{{ hypervisor_root_pass | password_hash('sha512') }}"
+    update_password: always
+  no_log: true

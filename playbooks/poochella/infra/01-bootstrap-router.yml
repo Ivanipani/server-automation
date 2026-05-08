@@ -53,3 +53,26 @@
 
     - name: Set permissions on sudoers file
       ansible.builtin.raw: chmod 440 /usr/local/etc/sudoers.d/ansible
+
+# Set root password via the OPNsense API so it persists in config.xml
+# (changing it via `pw` would only update the system shadow file and could
+# be reverted by an OPNsense config reload).
+- name: Set OPNsense root password from vault
+  hosts: router
+  gather_facts: false
+  connection: local
+  module_defaults:
+    group/oxlorg.opnsense.user:
+      firewall: "{{ ansible_host }}"
+      api_key: "{{ opnsense_api_key }}"
+      api_secret: "{{ opnsense_api_secret }}"
+      ssl_verify: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  tasks:
+    - name: Update root user password
+      oxlorg.opnsense.user:
+        name: root
+        password: "{{ router_root_pass }}"
+        update_password: always
+      no_log: true
