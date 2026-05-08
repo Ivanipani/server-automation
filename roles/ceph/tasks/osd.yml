@@ -1,17 +1,21 @@
 ---
-# Create one OSD per host on the previously-carved zvol.
+# Create one OSD per host on the ceph-osd partition created in disks.yml.
 # Idempotency: ceph-volume lvm list reports the device if already in use.
 
-- name: Check whether the zvol is already an OSD
-  ansible.builtin.command: >-
-    ceph-volume lvm list /dev/zvol/{{ ceph_zpool }}/{{ ceph_osd_zvol_name }}
+- name: Resolve the underlying device path for the ceph-osd partition
+  ansible.builtin.command: "readlink -f /dev/disk/by-partlabel/{{ ceph_osd_partition_label }}"
+  register: ceph_osd_devpath
+  changed_when: false
+
+- name: Check whether the ceph-osd partition is already an OSD
+  ansible.builtin.command: "ceph-volume lvm list {{ ceph_osd_devpath.stdout.strip() }}"
   register: cv_list
   changed_when: false
   failed_when: false
 
-- name: Create BlueStore OSD on the Ceph zvol (data + DB + WAL colocated)
+- name: Create BlueStore OSD on the ceph-osd partition (data + DB + WAL colocated)
   ansible.builtin.command: >-
-    pveceph osd create /dev/zvol/{{ ceph_zpool }}/{{ ceph_osd_zvol_name }}
+    pveceph osd create {{ ceph_osd_devpath.stdout.strip() }}
   changed_when: true
   when: >
     cv_list.rc != 0 or
