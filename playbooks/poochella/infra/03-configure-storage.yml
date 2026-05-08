@@ -1,0 +1,106 @@
+---
+# Bootstrap a Ceph Squid cluster across the 3-node Proxmox cluster.
+# Provides: RBD (VM block storage), CephFS (K8s RWX), RGW (S3 object),
+# size=3/min_size=2 HA, cephx users + bundle ready for ceph-csi.
+#
+# DESTRUCTIVE on first run: removes rpool/data and creates a Ceph zvol.
+# Refuses to run unless `confirm_destroy_local_zfs: true` is set per host.
+#
+# Pre-conditions:
+#   - 02-bootstrap-hypervisor.yml completed (ansible user, repos staged)
+#   - 02b-cluster-hypervisor.yml completed (PVE cluster quorate)
+#   - PVE installed with ZFS root (`rpool` exists; no LVM `pve` VG)
+#   - No VMs or containers exist yet on any node
+
+- name: Ceph preflight (gates)
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: preflight.yml
+
+- name: Carve OSD zvol from rpool
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: disks.yml
+
+- name: Install Ceph packages on all nodes
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: install.yml
+
+- name: Initialize Ceph cluster (run-once)
+  hosts: baremetal
+  become: true
+  run_once: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: init.yml
+
+- name: Create monitors and managers on all nodes
+  hosts: baremetal
+  become: true
+  serial: 1                                   # mons join sequentially for clean quorum
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: mon-mgr.yml
+
+- name: Create OSDs on all nodes
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: osd.yml
+
+- name: Create RBD pools (run-once)
+  hosts: baremetal
+  become: true
+  run_once: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: pools.yml
+
+- name: Create CephFS + MDS + ceph-csi subvolumegroup
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: cephfs.yml
+
+- name: Deploy RGW (S3 object storage) on first node
+  hosts: baremetal[0]
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: rgw.yml
+
+- name: Create cephx users for ceph-csi (run-once)
+  hosts: baremetal
+  become: true
+  run_once: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: users.yml
+
+- name: Emit vault-encrypted ceph-csi bundle (run-once)
+  hosts: baremetal
+  become: true
+  run_once: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: output.yml

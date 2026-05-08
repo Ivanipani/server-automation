@@ -1,0 +1,93 @@
+---
+# RGW (S3 object storage). pveceph has no rgw subcommand as of squid;
+# this is the manual radosgw + systemd path.
+# Run-once on first baremetal node — the keyring lands in pmxcfs and
+# replicates, so any node can run the daemon.
+
+- name: Install radosgw package
+  ansible.builtin.apt:
+    name: radosgw
+    state: present
+
+- name: Ensure RGW data directory exists
+  ansible.builtin.file:
+    path: "/var/lib/ceph/radosgw/ceph-rgw.{{ ceph_rgw_name }}"
+    state: directory
+    owner: ceph
+    group: ceph
+    mode: "0750"
+
+- name: Check whether RGW cephx user already exists
+  ansible.builtin.command: "ceph auth get client.rgw.{{ ceph_rgw_name }}"
+  register: rgw_auth_check
+  changed_when: false
+  failed_when: false
+
+- name: Create RGW cephx user + keyring
+  ansible.builtin.command: >-
+    ceph auth get-or-create client.rgw.{{ ceph_rgw_name }}
+    mon 'allow rw' osd 'allow rwx'
+    -o /var/lib/ceph/radosgw/ceph-rgw.{{ ceph_rgw_name }}/keyring
+  changed_when: true
+  when: rgw_auth_check.rc != 0
+
+- name: Set ownership on the RGW keyring
+  ansible.builtin.file:
+    path: "/var/lib/ceph/radosgw/ceph-rgw.{{ ceph_rgw_name }}/keyring"
+    owner: ceph
+    group: ceph
+    mode: "0600"
+
+- name: Read current ceph.conf
+  ansible.builtin.slurp:
+    src: /etc/pve/ceph.conf
+  register: ceph_conf_raw
+
+- name: Append [client.rgw.{{ ceph_rgw_name }}] block if not already present
+  ansible.builtin.blockinfile:
+    path: /etc/pve/ceph.conf
+    marker: "# {mark} ANSIBLE MANAGED BLOCK rgw.{{ ceph_rgw_name }}"
+    block: |
+      [client.rgw.{{ ceph_rgw_name }}]
+          host = {{ inventory_hostname_short }}
+          keyring = /var/lib/ceph/radosgw/ceph-rgw.{{ ceph_rgw_name }}/keyring
+          rgw_frontends = beast port={{ ceph_rgw_port }}
+          log_file = /var/log/ceph/client.rgw.{{ ceph_rgw_name }}.log
+  when: "'[client.rgw.' + ceph_rgw_name + ']' not in (ceph_conf_raw.content | b64decode)"
+
+- name: Enable + start radosgw daemon
+  ansible.builtin.systemd:
+    name: "ceph-radosgw@rgw.{{ ceph_rgw_name }}.service"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for RGW endpoint to respond
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ ceph_rgw_port }}"
+    timeout: 30
+
+- name: Check whether RGW admin user exists
+  ansible.builtin.command: radosgw-admin user info --uid=admin
+  register: rgw_admin_check
+  changed_when: false
+  failed_when: false
+
+- name: Create RGW admin user (one-time bootstrap)
+  ansible.builtin.command: >-
+    radosgw-admin user create
+    --uid=admin
+    --display-name=admin
+    --max-buckets=0
+  register: rgw_admin_create
+  changed_when: true
+  when: rgw_admin_check.rc != 0
+
+- name: Show RGW admin S3 credentials (capture and store securely)
+  ansible.builtin.debug:
+    msg: >-
+      RGW admin user created. Capture the access_key/secret_key from the
+      stdout above and store them in your secrets manager. They will not
+      be printed again.
+  when: rgw_admin_check.rc != 0

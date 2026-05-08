@@ -1,0 +1,92 @@
+---
+# Hard gates — every assertion must pass on every host before any
+# destructive disk-carving tasks run. No auto-recovery.
+
+- name: Assert opt-in flag is set (refuses to run without explicit confirmation)
+  ansible.builtin.assert:
+    that:
+      - confirm_destroy_local_zfs | default(false) | bool
+    fail_msg: >-
+      `confirm_destroy_local_zfs` is not true on {{ inventory_hostname }}.
+      This playbook destroys rpool/data and creates a Ceph zvol — it requires
+      explicit per-host opt-in. Set the flag in group_vars/baremetal.yml or
+      host_vars/{{ inventory_hostname }}.yml, then re-run.
+
+- name: Read PVE cluster status
+  ansible.builtin.command: pvecm status
+  register: pvecm_status
+  changed_when: false
+
+- name: Read corosync quorum vote count
+  ansible.builtin.command: corosync-quorumtool -s
+  register: corosync_quorum
+  changed_when: false
+  failed_when: false                          # tool exits 2 on inquorate; we parse output
+
+- name: Assert Proxmox cluster is quorate with 3 votes
+  ansible.builtin.assert:
+    that:
+      - "'Quorate' in pvecm_status.stdout"
+      - "'Total votes:    3' in corosync_quorum.stdout or 'Total votes: 3' in corosync_quorum.stdout"
+    fail_msg: >-
+      Cluster is not quorate or does not have 3 votes on {{ inventory_hostname }}.
+      Run 02b-cluster-hypervisor.yml first.
+
+- name: List existing VMs (qm list)
+  ansible.builtin.command: qm list
+  register: qm_list
+  changed_when: false
+
+- name: List existing containers (pct list)
+  ansible.builtin.command: pct list
+  register: pct_list
+  changed_when: false
+
+- name: Assert no VMs or containers exist (header line only)
+  ansible.builtin.assert:
+    that:
+      - qm_list.stdout_lines | length <= 1
+      - pct_list.stdout_lines | length <= 1
+    fail_msg: >-
+      VMs or containers exist on {{ inventory_hostname }}. The disk-carving
+      step would destroy them. Refusing to proceed.
+
+- name: Verify rpool exists
+  ansible.builtin.command: zpool list -H -o name {{ ceph_zpool }}
+  register: zpool_check
+  changed_when: false
+
+- name: Assert rpool is present
+  ansible.builtin.assert:
+    that:
+      - zpool_check.rc == 0
+      - zpool_check.stdout.strip() == ceph_zpool
+    fail_msg: >-
+      Expected ZFS pool '{{ ceph_zpool }}' not found on {{ inventory_hostname }}.
+
+- name: Read rpool free capacity (bytes)
+  ansible.builtin.command: zpool list -Hp -o free {{ ceph_zpool }}
+  register: zpool_free
+  changed_when: false
+
+- name: Assert rpool has enough free space for the OSD zvol
+  ansible.builtin.assert:
+    that:
+      - zpool_free.stdout | int > (ceph_osd_zvol_size | regex_replace('G$', '') | int * 1073741824)
+    fail_msg: >-
+      Insufficient free space in {{ ceph_zpool }} on {{ inventory_hostname }}.
+      Free: {{ zpool_free.stdout | int / 1073741824 }} GiB,
+      need >: {{ ceph_osd_zvol_size }}.
+
+- name: Check clock skew
+  ansible.builtin.command: chronyc tracking
+  register: chrony_tracking
+  changed_when: false
+  failed_when: false
+
+- name: Warn if clock offset is high (mon clock-skew threshold is ~50ms)
+  ansible.builtin.debug:
+    msg: >-
+      Clock check: {{ chrony_tracking.stdout_lines | select('match', '^System time') | list }}.
+      Verify offset is < 50ms before continuing in production; mon clock-skew
+      will degrade the cluster.

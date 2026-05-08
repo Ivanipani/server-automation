@@ -2,10 +2,12 @@
 # Baseline infrastructure — bootstrap, templates, provisioning, firewall
 
 - import_playbook: 01-bootstrap-router.yml
+- import_playbook: 01b-router-dnsmasq.yml
 - import_playbook: 02-bootstrap-hypervisor.yml
 - import_playbook: 02b-cluster-hypervisor.yml
-- import_playbook: 03-prepare-templates.yml
-- import_playbook: 04-provision-infrastructure.yml
-- import_playbook: 05-bootstrap-ansible-global.yml
-- import_playbook: 06-firewall.yml
-- import_playbook: 07-tailscale.yml
+- import_playbook: 03-configure-storage.yml
+- import_playbook: 04-prepare-templates.yml
+- import_playbook: 05-provision-infrastructure.yml
+- import_playbook: 06-bootstrap-ansible-global.yml
+- import_playbook: 07-firewall.yml
+- import_playbook: 08-tailscale.yml

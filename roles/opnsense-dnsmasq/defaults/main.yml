@@ -1,0 +1,9 @@
+---
+opnsense_api_url: "https://{{ ansible_host }}"
+opnsense_api_validate_certs: false
+
+opnsense_dnsmasq_domain: lan
+opnsense_dnsmasq_descr_marker: "managed-by-ansible"
+
+# Caller passes a list of dicts: {hostname, address, mac, description?}.
+opnsense_dnsmasq_static_leases: []

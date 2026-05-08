@@ -1,0 +1,39 @@
+---
+# Create one OSD per host on the previously-carved zvol.
+# Idempotency: ceph-volume lvm list reports the device if already in use.
+
+- name: Check whether the zvol is already an OSD
+  ansible.builtin.command: >-
+    ceph-volume lvm list /dev/zvol/{{ ceph_zpool }}/{{ ceph_osd_zvol_name }}
+  register: cv_list
+  changed_when: false
+  failed_when: false
+
+- name: Create BlueStore OSD on the Ceph zvol (data + DB + WAL colocated)
+  ansible.builtin.command: >-
+    pveceph osd create /dev/zvol/{{ ceph_zpool }}/{{ ceph_osd_zvol_name }}
+  changed_when: true
+  when: >
+    cv_list.rc != 0 or
+    (cv_list.stdout | length == 0) or
+    'osd id' not in cv_list.stdout
+
+- name: Apply osd_memory_target tuning (single-disk-on-everything mitigation)
+  ansible.builtin.command: >-
+    ceph config set osd osd_memory_target {{ ceph_osd_memory_target }}
+  changed_when: true
+  run_once: true
+
+- name: Wait for all OSDs to be up + in
+  ansible.builtin.command: ceph osd tree -f json
+  register: osd_tree
+  retries: 30
+  delay: 2
+  until: >
+    osd_tree.rc == 0 and
+    ((osd_tree.stdout | from_json).nodes
+     | selectattr('type', 'equalto', 'osd')
+     | selectattr('status', 'equalto', 'up')
+     | list | length) >= (groups['baremetal'] | length)
+  changed_when: false
+  run_once: true

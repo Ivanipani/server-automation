@@ -129,3 +129,12 @@ do-hypervisor-init:
 # Form the Proxmox cluster (run after do-hypervisor-init)
 do-cluster-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02b-cluster-hypervisor.yml
+
+# Bootstrap Ceph storage (RBD/CephFS/RGW). DESTRUCTIVE on first run —
+# requires `confirm_destroy_local_zfs: true` in group_vars/baremetal.yml.
+do-storage-init:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03-configure-storage.yml
+
+# Configure OPNsense dnsmasq static leases for baremetal
+do-router-dhcp:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/01b-router-dnsmasq.yml

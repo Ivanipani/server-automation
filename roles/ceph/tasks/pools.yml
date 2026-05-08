@@ -1,0 +1,44 @@
+---
+# RBD pools — `vms` for Proxmox VMs (registered as PVE storage),
+# `kubernetes-rbd` for ceph-csi (managed by K8s, not PVE).
+
+- name: Read current pool list
+  ansible.builtin.command: ceph osd pool ls
+  register: ceph_pools
+  changed_when: false
+
+- name: Create RBD pool for Proxmox VMs (auto-registers as PVE storage)
+  ansible.builtin.command: >-
+    pveceph pool create {{ ceph_pool_vms.name }}
+    --size 3
+    --min_size 2
+    --pg_num {{ ceph_pool_vms.pg_num }}
+    --pg_autoscale_mode on
+    --target_size_ratio {{ ceph_pool_vms.target_size_ratio }}
+    {% if ceph_pool_vms.add_storages %}--add_storages{% endif %}
+  changed_when: true
+  when: ceph_pool_vms.name not in ceph_pools.stdout_lines
+
+- name: Create RBD pool for ceph-csi (NOT registered as PVE storage)
+  ansible.builtin.command: >-
+    pveceph pool create {{ ceph_pool_k8s_rbd.name }}
+    --size 3
+    --min_size 2
+    --pg_num {{ ceph_pool_k8s_rbd.pg_num }}
+    --pg_autoscale_mode on
+    --target_size_ratio {{ ceph_pool_k8s_rbd.target_size_ratio }}
+  changed_when: true
+  when: ceph_pool_k8s_rbd.name not in ceph_pools.stdout_lines
+
+- name: Initialize RBD application metadata on each pool
+  ansible.builtin.command: >-
+    rbd pool init {{ item }}
+  loop:
+    - "{{ ceph_pool_vms.name }}"
+    - "{{ ceph_pool_k8s_rbd.name }}"
+  changed_when: false                         # idempotent; re-runs are no-ops
+
+- name: Allow LXC rootdir on the vms RBD storage (PVE default is images only)
+  ansible.builtin.command: >-
+    pvesm set {{ ceph_pool_vms.name }} --content images,rootdir
+  changed_when: true                          # pvesm set is idempotent at config-file level

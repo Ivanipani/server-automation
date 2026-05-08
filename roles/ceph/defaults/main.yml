@@ -1,0 +1,44 @@
+---
+# Ceph cluster configuration for the poochella 3-node Proxmox cluster.
+# Single-LAN, single-disk-per-node, ZFS-root layout.
+
+ceph_release: squid
+ceph_public_network: 10.1.1.0/24
+
+# ── Disk carving (DESTRUCTIVE — requires per-host opt-in) ──────────────
+# Each PVE node was installed with ZFS root: the entire disk is consumed
+# by `rpool`. We carve a zvol from rpool to back the Ceph OSD; this is
+# layered (ZFS-on-Ceph adds write amplification) but is the only
+# non-destructive path on a single-disk ZFS-root install.
+confirm_destroy_local_zfs: false              # MUST be set true to run disk-carving tasks
+ceph_zpool: rpool
+ceph_osd_zvol_name: ceph-osd-0
+ceph_osd_zvol_size: 850G                      # ~85% of a 1 TB disk; remainder for OS + headroom
+ceph_osd_zvol_volblocksize: 64K               # Ceph BlueStore default object size
+ceph_destroy_rpool_data: true                 # Remove the unused rpool/data dataset (default PVE/ZFS layout)
+
+# ── Pools ──────────────────────────────────────────────────────────────
+ceph_pool_vms:
+  name: vms
+  pg_num: 32
+  target_size_ratio: 0.6
+  add_storages: true                          # registers as PVE RBD storage
+ceph_pool_k8s_rbd:
+  name: kubernetes-rbd
+  pg_num: 16
+  target_size_ratio: 0.3                      # ceph-csi managed; not in PVE storage.cfg
+
+# ── CephFS ─────────────────────────────────────────────────────────────
+ceph_fs_name: cephfs
+ceph_fs_pg_num: 16
+ceph_fs_subvolumegroup: csi                   # required by ceph-csi-cephfs
+
+# ── RGW (S3 object storage) ───────────────────────────────────────────
+ceph_rgw_name: poochella
+ceph_rgw_port: 7480
+
+# ── Single-disk-on-everything mitigations ─────────────────────────────
+ceph_osd_memory_target: 2147483648            # 2 GiB (default 4 GiB pressures small hosts)
+
+# ── Output bundle for ceph-csi consumption from K8s ───────────────────
+ceph_csi_bundle_path: "{{ playbook_dir }}/files/ceph-csi-bundle.yml.vault"

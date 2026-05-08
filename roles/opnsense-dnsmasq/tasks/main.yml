@@ -1,0 +1,50 @@
+---
+# Reconciles a list of static DHCP+DNS host overrides on OPNsense's dnsmasq
+# plugin via the REST API. Idempotent per host: existing entries with the same
+# host+domain are updated only when ip/mac drift; missing ones are created;
+# matches are skipped.
+#
+# Pre-condition: an OPNsense API key/secret pair exists. Create one in the
+# OPNsense GUI: System -> Access -> Users -> (your user) -> API keys -> +.
+# Store the key as `vault_opnsense_api_key` and the secret as
+# `vault_opnsense_api_secret`.
+
+- name: Fetch existing dnsmasq host overrides
+  ansible.builtin.uri:
+    url: "{{ opnsense_api_url }}/api/dnsmasq/settings/searchHost"
+    method: GET
+    user: "{{ opnsense_api_key }}"
+    password: "{{ opnsense_api_secret }}"
+    force_basic_auth: true
+    validate_certs: "{{ opnsense_api_validate_certs }}"
+    return_content: true
+  register: dnsmasq_search
+  delegate_to: localhost
+  become: false
+
+- name: Reset reconcile change marker
+  ansible.builtin.set_fact:
+    dnsmasq_changed: false
+
+- name: Reconcile each static lease
+  ansible.builtin.include_tasks: reconcile_host.yml
+  loop: "{{ opnsense_dnsmasq_static_leases }}"
+  loop_control:
+    loop_var: lease
+    label: "{{ lease.hostname }} -> {{ lease.address }} ({{ lease.mac }})"
+
+- name: Apply dnsmasq configuration
+  ansible.builtin.uri:
+    url: "{{ opnsense_api_url }}/api/dnsmasq/service/reconfigure"
+    method: POST
+    user: "{{ opnsense_api_key }}"
+    password: "{{ opnsense_api_secret }}"
+    force_basic_auth: true
+    validate_certs: "{{ opnsense_api_validate_certs }}"
+    status_code: [200]
+    body_format: json
+    body: {}
+  delegate_to: localhost
+  become: false
+  when: dnsmasq_changed
+  changed_when: true

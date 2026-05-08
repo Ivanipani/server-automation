@@ -1,0 +1,19 @@
+---
+# Configures static DHCP+DNS reservations for Proxmox baremetal hosts on the
+# OPNsense router's dnsmasq plugin. Idempotent.
+#
+# Pre-condition: an OPNsense API key/secret pair exists in vault as
+# `vault_opnsense_api_key` and `vault_opnsense_api_secret`. Create them via
+# System -> Access -> Users -> (user) -> API keys in the OPNsense GUI.
+#
+# The playbook does not SSH into OPNsense; it talks to the REST API from the
+# control node, so connection: local is used.
+
+- name: Configure OPNsense dnsmasq static leases for baremetal
+  hosts: router
+  gather_facts: false
+  connection: local
+  vars:
+    opnsense_dnsmasq_static_leases: "{{ proxmox_control_nodes }}"
+  roles:
+    - role: opnsense-dnsmasq
