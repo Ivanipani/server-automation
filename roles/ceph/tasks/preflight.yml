@@ -18,7 +18,7 @@
   ansible.builtin.assert:
     that:
       - "'Quorate' in pvecm_status.stdout"
-      - "'Total votes:    3' in corosync_quorum.stdout or 'Total votes: 3' in corosync_quorum.stdout"
+      - (corosync_quorum.stdout | regex_search('Total votes:\\s+3\\b')) is not none
     fail_msg: >-
       Cluster is not quorate or does not have 3 votes on {{ inventory_hostname }}.
       Run 02b-cluster-hypervisor.yml first.

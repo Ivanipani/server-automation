@@ -1,0 +1,95 @@
+---
+# Bootstrap the Ceph cluster: install packages, initialize ceph.conf,
+# create mon + mgr daemons. Played at serial: 1 so monitors join the
+# quorum one node at a time. install runs sequentially per node — small
+# runtime cost on first bootstrap; idempotent on re-runs.
+
+# ─────────────────────────── install ───────────────────────────
+- name: Check if Ceph is already installed
+  ansible.builtin.command: dpkg -s ceph-mon
+  register: ceph_pkg_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Ceph (no-subscription squid) via pveceph
+  # `pveceph install` shells out to `apt-get install` without `-y`, so it
+  # blocks on the "Do you want to continue?" prompt. Pipe `yes` through
+  # to feed it 'y' for any confirmations. The env vars handle other
+  # interactive surfaces (needrestart, apt-listchanges, dpkg confdef).
+  ansible.builtin.shell:
+    cmd: >-
+      yes | pveceph install
+      --repository no-subscription
+      --version {{ ceph_release }}
+      --allow-experimental 0
+  # environment:
+  #   DEBIAN_FRONTEND: noninteractive
+  register: pveceph_install
+  changed_when: "'is already installed' not in pveceph_install.stdout"
+  when: ceph_pkg_check.rc != 0
+
+# ─────────────────────────── init ──────────────────────────────
+# /etc/pve/ceph.conf lives in pmxcfs and replicates cluster-wide.
+- name: Check whether ceph.conf already exists in pmxcfs
+  ansible.builtin.stat:
+    path: /etc/pve/ceph.conf
+  register: ceph_conf_stat
+  run_once: true
+
+- name: Initialize Ceph (sets public network only — single-LAN homelab)
+  ansible.builtin.command: >-
+    pveceph init --network {{ ceph_public_network }}
+  changed_when: true
+  run_once: true
+  when: not ceph_conf_stat.stat.exists
+
+# ─────────────────────────── mon + mgr ─────────────────────────
+# Idempotency: query mon/mgr maps and skip if this node is already there.
+- name: Read current mon map
+  ansible.builtin.command: ceph mon dump -f json
+  register: ceph_mon_dump
+  changed_when: false
+  failed_when: false                          # empty cluster has no mons yet
+
+- name: Compute set of existing mon names
+  ansible.builtin.set_fact:
+    existing_mons: >-
+      {{ (ceph_mon_dump.stdout | from_json).mons
+         | map(attribute='name') | list
+         if ceph_mon_dump.rc == 0 and ceph_mon_dump.stdout | length > 0
+         else [] }}
+
+- name: Create monitor on this node
+  ansible.builtin.command: pveceph mon create
+  changed_when: true
+  when: inventory_hostname_short not in existing_mons
+
+- name: Wait for mon to join quorum
+  ansible.builtin.command: ceph mon stat -f json
+  register: mon_stat
+  retries: 30
+  delay: 2
+  until: >
+    mon_stat.rc == 0 and
+    inventory_hostname_short in
+      ((mon_stat.stdout | from_json).quorum | default([])
+       | map(attribute='name') | list)
+  changed_when: false
+  when: inventory_hostname_short not in existing_mons
+
+- name: Read current mgr map
+  ansible.builtin.command: ceph mgr dump -f json
+  register: ceph_mgr_dump
+  changed_when: false
+
+- name: Compute set of existing mgr names
+  ansible.builtin.set_fact:
+    existing_mgrs: >-
+      {{ ([(ceph_mgr_dump.stdout | from_json).active_name | default('')]
+          + ((ceph_mgr_dump.stdout | from_json).standbys | default([]) | map(attribute='name') | list))
+         | reject('equalto', '') | list }}
+
+- name: Create manager on this node
+  ansible.builtin.command: pveceph mgr create
+  changed_when: true
+  when: inventory_hostname_short not in existing_mgrs

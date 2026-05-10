@@ -2,36 +2,28 @@
 # Ceph cluster configuration for the poochella 3-node Proxmox cluster.
 # Disk partitioning is OWNED BY the `hypervisor-disks` role; this role
 # only consumes the `ceph-osd` GPT partition it produces.
+#
+# The role provides RBD storage for PVE guests and an RGW S3 endpoint.
+# It does NOT manage Kubernetes-facing storage (no ceph-csi pools,
+# users, or bundles) — keep K8s storage in a separate role/playbook.
 
 ceph_release: squid
 ceph_public_network: 10.1.1.0/24
 
-# Where to find the OSD device. Must match the `label` of an entry in
-# the `hypervisor_disks_partitions` list (default: `ceph-osd`).
-ceph_osd_partition_label: ceph-osd
+# `ceph_osd_partition_label` is defined in group_vars/baremetal.yml so
+# it stays in sync with the `hypervisor_disks_partitions` list consumed
+# by the hypervisor-disks role.
 
-# ── Pools ──────────────────────────────────────────────────────────────
+# ── Pool: VM block storage ─────────────────────────────────────────────
 ceph_pool_vms:
   name: vms
   pg_num: 32
   target_size_ratio: 0.6
   add_storages: true                          # registers as PVE RBD storage
-ceph_pool_k8s_rbd:
-  name: kubernetes-rbd
-  pg_num: 16
-  target_size_ratio: 0.3                      # ceph-csi managed; not in PVE storage.cfg
 
-# ── CephFS ─────────────────────────────────────────────────────────────
-ceph_fs_name: cephfs
-ceph_fs_pg_num: 16
-ceph_fs_subvolumegroup: csi                   # required by ceph-csi-cephfs
-
-# ── RGW (S3 object storage) ───────────────────────────────────────────
+# ── RGW (S3 object storage) ────────────────────────────────────────────
 ceph_rgw_name: poochella
 ceph_rgw_port: 7480
 
 # ── Single-disk-on-everything mitigations ─────────────────────────────
 ceph_osd_memory_target: 2147483648            # 2 GiB (default 4 GiB pressures small hosts)
-
-# ── Output bundle for ceph-csi consumption from K8s ───────────────────
-ceph_csi_bundle_path: "{{ playbook_dir }}/files/ceph-csi-bundle.yml.vault"

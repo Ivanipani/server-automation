@@ -23,8 +23,11 @@ confirm_carve_data_disk: false
 #   Set to "0" on the last entry to fill the remaining disk.
 # Partitions are created in list order using sequential partition
 # numbers, so reordering changes the on-disk layout.
+# The ceph-osd partition's label is defined in group_vars/baremetal.yml
+# (`ceph_osd_partition_label`) so the ceph role consumes the exact same
+# string. Other labels (longhorn, etc.) are role-local.
 hypervisor_disks_partitions:
-  - label: ceph-osd
+  - label: "{{ ceph_osd_partition_label }}"
     size: 400G
   - label: longhorn
     size: 400G

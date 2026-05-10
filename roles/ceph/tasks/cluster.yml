@@ -1,0 +1,84 @@
+---
+# Build the Ceph data plane on top of the bootstrapped cluster: OSDs
+# (per node) and the `vms` RBD pool used for Proxmox guest disks.
+# Played in parallel on baremetal; pool tasks carry `run_once: true`.
+
+# ─────────────────────────── OSD per node ──────────────────────
+- name: Resolve the underlying device path for the ceph-osd partition
+  ansible.builtin.command: "readlink -f /dev/disk/by-partlabel/{{ ceph_osd_partition_label }}"
+  register: ceph_osd_devpath
+  changed_when: false
+
+- name: Check whether the ceph-osd partition is already an OSD
+  ansible.builtin.command: "ceph-volume lvm list {{ ceph_osd_devpath.stdout.strip() }}"
+  register: cv_list
+  changed_when: false
+  failed_when: false
+
+- name: Create BlueStore OSD on the ceph-osd partition (data + DB + WAL colocated)
+  ansible.builtin.command: >-
+    pveceph osd create {{ ceph_osd_devpath.stdout.strip() }}
+  changed_when: true
+  when: >
+    cv_list.rc != 0 or
+    (cv_list.stdout | length == 0) or
+    'osd id' not in cv_list.stdout
+
+- name: Apply osd_memory_target tuning (single-disk-on-everything mitigation)
+  ansible.builtin.command: >-
+    ceph config set osd osd_memory_target {{ ceph_osd_memory_target }}
+  changed_when: true
+  run_once: true
+
+- name: Wait for all OSDs to be up + in
+  ansible.builtin.command: ceph osd tree -f json
+  register: osd_tree
+  retries: 30
+  delay: 2
+  until: >
+    osd_tree.rc == 0 and
+    ((osd_tree.stdout | from_json).nodes
+     | selectattr('type', 'equalto', 'osd')
+     | selectattr('status', 'equalto', 'up')
+     | list | length) >= (groups['baremetal'] | length)
+  changed_when: false
+  run_once: true
+
+# ─────────────────────────── RBD pool: vms (run-once) ──────────
+- name: Read current pool list
+  ansible.builtin.command: ceph osd pool ls
+  register: ceph_pools
+  changed_when: false
+  run_once: true
+
+- name: Create RBD pool for Proxmox VMs (auto-registers as PVE storage)
+  ansible.builtin.command: >-
+    pveceph pool create {{ ceph_pool_vms.name }}
+    --size 3
+    --min_size 2
+    --pg_num {{ ceph_pool_vms.pg_num }}
+    --pg_autoscale_mode on
+    --target_size_ratio {{ ceph_pool_vms.target_size_ratio }}
+    {% if ceph_pool_vms.add_storages %}--add_storages{% endif %}
+  changed_when: true
+  run_once: true
+  when: ceph_pool_vms.name not in ceph_pools.stdout_lines
+
+- name: Initialize RBD application metadata on the vms pool
+  ansible.builtin.command: "rbd pool init {{ ceph_pool_vms.name }}"
+  changed_when: false                         # idempotent; re-runs are no-ops
+  run_once: true
+
+- name: Allow LXC rootdir on the vms RBD storage (PVE default is images only)
+  ansible.builtin.command: >-
+    pvesm set {{ ceph_pool_vms.name }} --content images,rootdir
+  changed_when: true                          # pvesm set is idempotent at config-file level
+  run_once: true
+
+- name: Storage bootstrap complete — next steps
+  ansible.builtin.debug:
+    msg: |
+      Ceph cluster ready.
+        - PVE storage: {{ ceph_pool_vms.name }} (RBD) registered for VM disks.
+        - RGW (S3) endpoint: http://{{ inventory_hostname_short }}:{{ ceph_rgw_port }}/
+  run_once: true

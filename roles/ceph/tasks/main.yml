@@ -1,11 +1,12 @@
 ---
-# Ceph role dispatcher — orchestration is in 03b-install-ceph.yml,
-# which imports specific tasks_from per play. This file exists for
-# `roles: [ceph]` entry-point compatibility but is intentionally empty.
+# Ceph role dispatcher — orchestration lives in playbooks/poochella/
+# infra/03b-install-ceph.yml, which imports specific tasks_from per
+# play. This file exists for `roles: [ceph]` entry-point compatibility
+# but is intentionally a no-op.
 
 - name: Ceph role default entry-point is unused — see 03b-install-ceph.yml
   ansible.builtin.debug:
     msg: >-
       Use `tasks_from:` to invoke specific stages
-      (preflight, disks, install, init, mon-mgr, osd, pools, cephfs, rgw, users, output).
+      (preflight, bootstrap, cluster, rgw).
   run_once: true
