@@ -1,40 +1,33 @@
 ---
-# Create a single GPT partition (type 8300) identified by `partition.label`
-# and sized per `partition.size` (sgdisk +SIZE syntax; "0" = fill rest).
-# Idempotent: no-op if a partition with this label already exists.
-# After ensuring the partition exists, verifies it is free of pre-existing
-# filesystem signatures (does not auto-wipe).
+# Create a single GPT partition (type 8300) identified by `partition.label`,
+# sized per `partition.size` (sgdisk +SIZE syntax; "0" = fill rest).
+# Idempotent on `partition.label`. Fails if the carved space already has
+# filesystem signatures — auto-wipe is intentionally disabled.
+#
+# `partx -u` is used instead of `partprobe` because the boot disk has an
+# active LVM PV; BLKRRPART is refused on busy disks but BLKPG (partx) works.
 #
 # Loop var: `partition` (mapping with `label` and `size`).
 # Required upstream fact: `boot_disk` (set by preflight.yml).
+
+- name: "[{{ partition.label }}] Sync kernel partition table from disk"
+  ansible.builtin.command: "partx -u /dev/{{ boot_disk }}"
+  changed_when: false
 
 - name: "[{{ partition.label }}] Check whether the partition already exists"
   ansible.builtin.stat:
     path: "/dev/disk/by-partlabel/{{ partition.label }}"
   register: part_stat
 
-- name: "[{{ partition.label }}] Determine next free partition number"
+- name: "[{{ partition.label }}] Create the partition and refresh kernel"
   ansible.builtin.shell: |
     set -euo pipefail
-    last=$(sgdisk -p /dev/{{ boot_disk }} | awk '/^[[:space:]]+[0-9]+/ {n=$1} END {print n}')
-    echo $((last + 1))
-  register: next_partnum
-  changed_when: false
-  when: not part_stat.stat.exists
-
-- name: "[{{ partition.label }}] Create the partition"
-  ansible.builtin.command: >-
-    sgdisk
-    -n {{ next_partnum.stdout.strip() }}:0:{{ '+' + partition.size if (partition.size | string) != '0' else '0' }}
-    -t {{ next_partnum.stdout.strip() }}:8300
-    -c {{ next_partnum.stdout.strip() }}:{{ partition.label }}
-    /dev/{{ boot_disk }}
+    sgdisk -n 0:0:{{ '+' + partition.size if (partition.size | string) != '0' else '0' }} \
+           -t 0:8300 \
+           -c 0:{{ partition.label }} \
+           /dev/{{ boot_disk }}
+    partx -u /dev/{{ boot_disk }}
   changed_when: true
-  when: not part_stat.stat.exists
-
-- name: "[{{ partition.label }}] Refresh kernel partition table"
-  ansible.builtin.command: "partprobe /dev/{{ boot_disk }}"
-  changed_when: false
   when: not part_stat.stat.exists
 
 - name: "[{{ partition.label }}] Wait for partition device node to appear"
@@ -42,16 +35,8 @@
     path: "/dev/disk/by-partlabel/{{ partition.label }}"
     timeout: 30
 
-- name: "[{{ partition.label }}] Check for unexpected signatures (do not auto-wipe)"
+- name: "[{{ partition.label }}] Fail if the partition has pre-existing signatures"
   ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ partition.label }}"
   register: wipefs_check
   changed_when: false
-  failed_when: false
-
-- name: "[{{ partition.label }}] Fail if the partition has pre-existing signatures"
-  ansible.builtin.fail:
-    msg: >-
-      /dev/disk/by-partlabel/{{ partition.label }} has filesystem
-      signatures: {{ wipefs_check.stdout }}.
-      Investigate before continuing — auto-wipe is intentionally disabled.
-  when: wipefs_check.stdout | default('') | length > 0
+  failed_when: wipefs_check.stdout | length > 0

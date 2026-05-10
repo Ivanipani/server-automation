@@ -10,5 +10,5 @@ proxmox_cluster_name: usfa
 # Requires PVE installed with `lvm.hdsize = 100` so that ~900 GB is
 # unpartitioned and available. Only set this on a freshly-installed
 # node with no VMs/containers.
-confirm_carve_data_disk: false
+confirm_carve_data_disk: true
 ceph_public_network: 10.1.1.0/24

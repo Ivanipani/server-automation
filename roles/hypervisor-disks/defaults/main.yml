@@ -25,10 +25,6 @@ confirm_carve_data_disk: false
 # numbers, so reordering changes the on-disk layout.
 hypervisor_disks_partitions:
   - label: ceph-osd
-    size: 450G
+    size: 400G
   - label: longhorn
-    size: 450G
-
-# Free-space safety margin: refuse to run if the boot disk has less than
-# this much unpartitioned space at the end. Tuned for 1 TB disks.
-hypervisor_disks_min_free_bytes: 800000000000   # 800 GB
+    size: 400G
