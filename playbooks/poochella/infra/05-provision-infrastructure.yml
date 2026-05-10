@@ -1,38 +1,53 @@
 ---
-- name: Ensure Proxmox API token exists
-  hosts: baremetal
+# Provisions VMs and containers defined in tofu/ using OpenTofu.
+#
+# Auth: `proxmox_api_token` is provided by group_vars/all/vault.yml
+# (indirection in group_vars/all/vars.yml). It's passed to Tofu via the
+# TF_VAR_proxmox_api_token environment variable — no plaintext file on
+# disk.
+#
+# To rotate the token:
+#   pveum user token modify root@pam tofu-lan
+#   ansible-vault encrypt_string '<new-token>' \
+#     --name vault_proxmox_api_token --vault-password-file ./ansible-pass
+#   # paste the output over the existing block in group_vars/all/vault.yml
+#
+# To bootstrap a NEW PVE token (first-time setup):
+#   ssh root@pve-home-01 'pveum user token add root@pam tofu-lan --privsep 0'
+#   # encrypt the printed secret as shown above
+
+- name: Verify Proxmox API token exists in PVE and the vault
+  hosts: baremetal[0]
   become: true
   gather_facts: false
   vars:
     token_user: "root@pam"
     token_name: "tofu-lan"
-    secrets_file: "{{ playbook_dir }}/../../tofu/secrets.auto.tfvars"
   tasks:
+    - name: Assert the vault holds proxmox_api_token
+      ansible.builtin.assert:
+        that:
+          - proxmox_api_token is defined
+          - proxmox_api_token | length > 0
+        fail_msg: >-
+          `proxmox_api_token` is not in the vault. Bootstrap via
+          `pveum user token add {{ token_user }} {{ token_name }} --privsep 0`,
+          then encrypt the secret into group_vars/all/vault.yml as
+          `vault_proxmox_api_token` using `ansible-vault encrypt_string`.
+
     - name: List existing API tokens
       ansible.builtin.command:
         cmd: pveum user token list {{ token_user }} --output-format json
       register: token_list
       changed_when: false
 
-    - name: Check if token already exists
-      ansible.builtin.set_fact:
-        token_exists: "{{ token_list.stdout | from_json | selectattr('tokenid', 'equalto', token_name) | list | length > 0 }}"
-
-    - name: Create API token
-      ansible.builtin.command:
-        cmd: pveum user token add {{ token_user }} {{ token_name }} --privsep 0 --output-format json
-      register: token_result
-      when: not token_exists
-
-    - name: Write secrets file
-      delegate_to: localhost
-      become: false
-      ansible.builtin.copy:
-        content: |
-          proxmox_api_token = "{{ token_user }}!{{ token_name }}={{ (token_result.stdout | from_json).value }}"
-        dest: "{{ secrets_file }}"
-        mode: "0600"
-      when: not token_exists
+    - name: Assert the PVE-side token still exists
+      ansible.builtin.assert:
+        that:
+          - token_list.stdout | from_json | selectattr('tokenid', 'equalto', token_name) | list | length > 0
+        fail_msg: >-
+          The vault has a token but PVE doesn't list '{{ token_name }}' under
+          {{ token_user }}. Recreate it on the PVE node and update the vault.
 
 - name: Provision infrastructure with OpenTofu
   hosts: localhost
@@ -45,7 +60,10 @@
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true
+      environment:
+        TF_VAR_proxmox_api_token: "{{ proxmox_api_token }}"
       register: tofu_output
+      no_log: false
 
     - name: Show provisioned resources
       ansible.builtin.debug:

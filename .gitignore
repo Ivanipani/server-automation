@@ -7,3 +7,4 @@
 .claude
 *.iso
 *.img
+tofu/secrets.auto.tfvars

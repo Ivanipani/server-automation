@@ -3,11 +3,11 @@ resource "proxmox_virtual_environment_vm" "vm" {
 
   name        = each.value.hostname
   description = each.key
-  node_name   = var.proxmox_node
+  node_name   = each.value.node != null ? each.value.node : var.proxmox_node
   tags        = each.value.tags
 
   clone {
-    vm_id = var.template_vm_id
+    vm_id = each.value.template_id != null ? each.value.template_id : var.template_vm_id
     full  = true
   }
 
@@ -22,11 +22,11 @@ resource "proxmox_virtual_environment_vm" "vm" {
   disk {
     interface    = "virtio0"
     size         = each.value.disk_size
-    datastore_id = "local-zfs"
+    datastore_id = "vms" # Ceph RBD; cluster-shared so VMs can live-migrate
   }
 
   initialization {
-    datastore_id = "local-zfs"
+    datastore_id = "vms" # cloud-init drive on Ceph too
 
     ip_config {
       ipv4 {
@@ -70,9 +70,9 @@ resource "proxmox_virtual_environment_container" "ct" {
   }
 
   console {
-    enabled  = true
+    enabled   = true
     tty_count = 2
-    type     = "tty"
+    type      = "tty"
   }
 
   cpu {

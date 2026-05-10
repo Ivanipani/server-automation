@@ -32,13 +32,15 @@ variable "template_ct_id" {
 variable "vms" {
   description = "Map of VMs to create"
   type = map(object({
-    hostname   = string
-    cores      = optional(number, 2)
-    memory     = optional(number, 2048)
-    disk_size  = optional(number, 20)
-    ip_address = optional(string, "dhcp")
-    gateway    = optional(string, "")
-    tags       = optional(list(string), [])
+    hostname    = string
+    cores       = optional(number, 2)
+    memory      = optional(number, 2048)
+    disk_size   = optional(number, 20)
+    ip_address  = optional(string, "dhcp")
+    gateway     = optional(string, "")
+    tags        = optional(list(string), [])
+    node        = optional(string) # null → use var.proxmox_node
+    template_id = optional(number) # null → use var.template_vm_id
   }))
   default = {}
 }
