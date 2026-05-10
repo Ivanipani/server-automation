@@ -6,8 +6,8 @@
 ceph_release: squid
 ceph_public_network: 10.1.1.0/24
 
-# Where to find the OSD device. Must match `ceph_osd_partition_label`
-# in the hypervisor-disks role (default: `ceph-osd`).
+# Where to find the OSD device. Must match the `label` of an entry in
+# the `hypervisor_disks_partitions` list (default: `ceph-osd`).
 ceph_osd_partition_label: ceph-osd
 
 # ── Pools ──────────────────────────────────────────────────────────────

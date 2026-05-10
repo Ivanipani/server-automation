@@ -1,0 +1,32 @@
+---
+# Partition the boot disk on each baremetal node into ceph-osd +
+# longhorn partitions. Storage engines (Ceph, Longhorn) are installed
+# by separate playbooks that consume these partitions.
+#
+# DESTRUCTIVE on first run: partitions unallocated space at the end of
+# each node's boot disk. Refuses to run unless `confirm_carve_data_disk:
+# true` is set per host.
+#
+# Pre-conditions:
+#   - 02-bootstrap-hypervisor.yml completed (ansible user, repos staged)
+#   - 02b-cluster-hypervisor.yml completed (PVE cluster quorate)
+#   - PVE installed with LVM/ext4 root AND `lvm.hdsize = 100` so that
+#     ~900 GB at the end of the disk is unpartitioned. See the answer
+#     files under scripts/images/proxmox/pve-home-0X.toml.
+#   - No VMs or containers exist yet on any node
+
+- name: Disk preflight (gates + boot-disk detection)
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: hypervisor-disks
+        tasks_from: preflight.yml
+
+- name: Carve ceph-osd + longhorn partitions on the boot disk
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: hypervisor-disks
+        tasks_from: carve.yml

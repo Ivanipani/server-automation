@@ -5,7 +5,8 @@
 - import_playbook: 01b-router-dnsmasq.yml
 - import_playbook: 02-bootstrap-hypervisor.yml
 - import_playbook: 02b-cluster-hypervisor.yml
-- import_playbook: 03-configure-storage.yml
+- import_playbook: 03-partition-disks.yml
+- import_playbook: 03b-install-ceph.yml
 - import_playbook: 04-prepare-templates.yml
 - import_playbook: 05-provision-infrastructure.yml
 - import_playbook: 06-bootstrap-ansible-global.yml

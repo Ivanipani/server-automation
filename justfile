@@ -119,6 +119,32 @@ tofu-apply: tofu-validate
 secret-encrypt name:
     ansible-vault encrypt_string --vault-password-file ansible-pass --stdin-name {{name}}
 
+# Clear and re-seed SSH host keys for every host in the inventory
+ssh-refresh:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    targets=$(ansible-inventory --list 2>/dev/null | python3 -c "
+    import json, sys
+    data = json.load(sys.stdin)
+    meta = data.get('_meta', {}).get('hostvars', {})
+    out = set()
+    for host, vars in meta.items():
+        out.add(host)
+        if 'ansible_host' in vars:
+            out.add(vars['ansible_host'])
+    print('\n'.join(sorted(out)))
+    ")
+    for t in $targets; do
+        echo "Refreshing $t..."
+        ssh-keygen -R "$t" 2>/dev/null || true
+        ip=$(dig +short "$t" 2>/dev/null | head -n1 || true)
+        if [ -n "$ip" ]; then
+            ssh-keygen -R "$ip" 2>/dev/null || true
+        fi
+        ssh-keyscan "$t" 2>/dev/null >> "$HOME/.ssh/known_hosts" || true
+    done
+    echo "Done."
+
 # Init hypervisor for development
 do-hypervisor-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02-bootstrap-hypervisor.yml
@@ -130,11 +156,16 @@ do-hypervisor-init:
 do-cluster-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02b-cluster-hypervisor.yml
 
-# Bootstrap Ceph storage (RBD/CephFS/RGW). DESTRUCTIVE on first run —
-# partitions the boot disk; requires `confirm_carve_data_disk: true` in
-# group_vars/baremetal.yml AND PVE installed with `lvm.hdsize = 100`.
-do-storage-init:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03-configure-storage.yml
+# Partition the boot disk into ceph-osd + longhorn partitions.
+# DESTRUCTIVE on first run — requires `confirm_carve_data_disk: true`
+# in group_vars/baremetal.yml AND PVE installed with `lvm.hdsize = 100`.
+do-partition-disks:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03-partition-disks.yml
+
+# Bootstrap Ceph storage (RBD/CephFS/RGW). Requires `do-partition-disks`
+# to have been run first.
+do-ceph-init:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03b-install-ceph.yml
 
 # Configure OPNsense dnsmasq static leases for baremetal
 do-router-dhcp:

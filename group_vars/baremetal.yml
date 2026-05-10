@@ -2,13 +2,13 @@
 tailscale_enabled: false
 proxmox_cluster_name: usfa
 
-# Ceph + Longhorn storage (consumed by 03-configure-storage.yml).
+# Storage partitioning (consumed by 03-partition-disks.yml).
 # DESTRUCTIVE: setting `confirm_carve_data_disk: true` authorizes the
 # playbook to partition the unallocated space at the end of the boot
-# disk into ceph-osd + longhorn partitions. Requires PVE installed with
-# `lvm.hdsize = 100` so that ~900 GB is unpartitioned and available.
-# Only set this on a freshly-installed node with no VMs/containers.
+# disk per the `hypervisor_disks_partitions` list (defaults to a
+# ceph-osd + longhorn pair, see roles/hypervisor-disks/defaults/main.yml).
+# Requires PVE installed with `lvm.hdsize = 100` so that ~900 GB is
+# unpartitioned and available. Only set this on a freshly-installed
+# node with no VMs/containers.
 confirm_carve_data_disk: false
 ceph_public_network: 10.1.1.0/24
-ceph_osd_partition_size: 450G                 # of a 1 TB disk
-longhorn_partition_size: 450G

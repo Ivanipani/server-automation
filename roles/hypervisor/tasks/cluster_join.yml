@@ -8,6 +8,38 @@
     path: /etc/pve/corosync.conf
   register: corosync_conf
 
+# `pvecm add` refuses to run if /etc/corosync/authkey or
+# /etc/corosync/corosync.conf already exist (assert_joinable()). When
+# a prior join attempt failed mid-flight these files are left behind,
+# so subsequent runs hit "authentication key already exists" and never
+# recover. Clean them up — but ONLY when we've already established the
+# node isn't actually in a cluster (no /etc/pve/corosync.conf).
+- name: Check for leftover /etc/corosync/authkey from a failed prior join
+  ansible.builtin.stat:
+    path: /etc/corosync/authkey
+  register: corosync_authkey
+  when: not corosync_conf.stat.exists
+
+- name: Clean up leftover corosync state from a failed prior join
+  when:
+    - not corosync_conf.stat.exists
+    - corosync_authkey.stat.exists | default(false)
+  block:
+    - name: Stop corosync (defensive — partial prior attempt may have started it)
+      ansible.builtin.systemd:
+        name: corosync
+        state: stopped
+
+    - name: Remove leftover /etc/corosync/authkey
+      ansible.builtin.file:
+        path: /etc/corosync/authkey
+        state: absent
+
+    - name: Remove leftover /etc/corosync/corosync.conf
+      ansible.builtin.file:
+        path: /etc/corosync/corosync.conf
+        state: absent
+
 - name: Verify root SSH to cluster master is non-interactive
   ansible.builtin.command:
     cmd: >-

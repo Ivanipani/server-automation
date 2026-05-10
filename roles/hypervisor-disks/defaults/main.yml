@@ -2,27 +2,32 @@
 # Boot-disk partitioning for the poochella Proxmox cluster.
 #
 # Pre-condition: PVE installed with `lvm.hdsize = 100` (see
-# scripts/images/proxmox/pve-home-0X.toml) so that ~900 GB at the end of
-# the boot disk is unpartitioned. This role carves that into two GPT
-# partitions, identified by stable GPT labels:
-#   - {{ ceph_osd_partition_label }} → consumed by `pveceph osd create`
-#   - {{ longhorn_partition_label }} → left raw for future K8s/Longhorn use
+# scripts/images/proxmox/pve-home-0X.toml) so that ~900 GB at the end
+# of the boot disk is unpartitioned. This role carves that free space
+# into the GPT partitions listed in `hypervisor_disks_partitions`,
+# each identified by a stable GPT label and exposed at
+# /dev/disk/by-partlabel/<label>.
 #
 # Layout target on a 1 TB disk:
 #   sda1/sda2  BIOS + EFI boot  (~1 GB total)
 #   sda3       LVM PV → `pve` VG (root, swap, data thinpool) (~99 GB)
-#   sda4       (this role) ceph-osd  (450 GB)
-#   sda5       (this role) longhorn  (450 GB raw)
+#   sda4..N    (this role) one partition per item in the list below
 
 # DESTRUCTIVE: setting this true authorizes sgdisk to write the GPT.
 # Per-host opt-in lives in group_vars/baremetal.yml or host_vars.
 confirm_carve_data_disk: false
 
-ceph_osd_partition_label: ceph-osd
-ceph_osd_partition_size: 450G                 # passed to sgdisk -n N:0:+450G
-
-longhorn_partition_label: longhorn
-longhorn_partition_size: 450G                 # set to 0 to fill remaining disk
+# Ordered list of partitions to carve at the end of the boot disk.
+# - `label` becomes the GPT partition label (must be unique per disk).
+# - `size` uses sgdisk +SIZE syntax (e.g. "450G", "10M").
+#   Set to "0" on the last entry to fill the remaining disk.
+# Partitions are created in list order using sequential partition
+# numbers, so reordering changes the on-disk layout.
+hypervisor_disks_partitions:
+  - label: ceph-osd
+    size: 450G
+  - label: longhorn
+    size: 450G
 
 # Free-space safety margin: refuse to run if the boot disk has less than
 # this much unpartitioned space at the end. Tuned for 1 TB disks.

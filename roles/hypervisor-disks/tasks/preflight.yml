@@ -7,10 +7,10 @@
       - confirm_carve_data_disk | default(false) | bool
     fail_msg: >-
       `confirm_carve_data_disk` is not true on {{ inventory_hostname }}.
-      This role partitions the boot disk (creates ceph-osd + longhorn
-      partitions in the unallocated space after the PVE LVM). Set the flag
-      in group_vars/baremetal.yml or host_vars/{{ inventory_hostname }}.yml,
-      then re-run.
+      This role partitions the boot disk (carves the partitions listed in
+      `hypervisor_disks_partitions` into the unallocated space after the
+      PVE LVM). Set the flag in group_vars/baremetal.yml or
+      host_vars/{{ inventory_hostname }}.yml, then re-run.
 
 - name: List existing VMs (qm list)
   ansible.builtin.command: qm list
