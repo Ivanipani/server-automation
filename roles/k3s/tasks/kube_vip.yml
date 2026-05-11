@@ -1,0 +1,35 @@
+---
+# Deploy kube-vip on the first control plane only. k3s auto-applies any
+# manifest dropped under /var/lib/rancher/k3s/server/manifests/, so the
+# DaemonSet rolls out cluster-wide from a single drop.
+#
+# Run order: AFTER server_init.yml on the first CP, BEFORE server_join.yml
+# on the others — so joiners can use the VIP as their --server endpoint.
+
+- name: Validate kube-vip address
+  ansible.builtin.assert:
+    that:
+      - k3s_kube_vip_address | length > 0
+    fail_msg: >-
+      k3s_kube_vip_enabled is true but k3s_kube_vip_address is empty.
+      Set it in group_vars/kubernetes.yml (e.g. "10.1.1.50" — must be a
+      free address on the same L2 segment as the control planes).
+    quiet: true
+
+- name: Fetch kube-vip RBAC manifest
+  ansible.builtin.get_url:
+    url: "{{ k3s_kube_vip_rbac_url }}"
+    dest: /var/lib/rancher/k3s/server/manifests/kube-vip-rbac.yaml
+    mode: "0600"
+
+- name: Render kube-vip DaemonSet manifest
+  ansible.builtin.template:
+    src: kube-vip.yaml.j2
+    dest: /var/lib/rancher/k3s/server/manifests/kube-vip.yaml
+    mode: "0600"
+
+- name: Wait for kube-vip to claim the VIP on :6443
+  ansible.builtin.wait_for:
+    host: "{{ k3s_kube_vip_address }}"
+    port: 6443
+    timeout: 120

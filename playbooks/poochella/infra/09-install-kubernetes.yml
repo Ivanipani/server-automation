@@ -1,14 +1,53 @@
 ---
 # Forms a k3s embedded-etcd HA cluster from groups `kube_control_plane` and
 # `kube_workers`. The first CP runs `k3s server --cluster-init`; the others
-# join via `--server https://<first-cp>:6443`. Idempotent — re-running on a
-# healthy cluster is a no-op; appending a worker joins it on the next run.
+# join via `--server <k3s_api_endpoint>`. When kube-vip is enabled, the VIP
+# is brought up on the first CP after init, fronted by an OPNsense dnsmasq
+# A record (k3s_api_dns_name → VIP), so subsequent joiners can use a stable
+# DNS name as their apiserver endpoint. Idempotent — re-running on a healthy
+# cluster is a no-op; appending a worker joins it on the next run.
 #
 # Pre-conditions:
 #   - kube VMs provisioned (`tofu apply`) and reachable as the `ansible` user
 #   - vault_k3s_cluster_token set in group_vars/all/vault.yml
 #   - first-CP hostname resolves on the LAN (dnsmasq dynamic DNS handles this
 #     once the VM has DHCP'd at least once)
+#   - k3s_kube_vip_address (in group_vars/kubernetes.yml) is a free address
+#     on the same L2 segment as the control planes when kube-vip is enabled
+
+- name: Register apiserver DNS A record on OPNsense
+  hosts: router
+  gather_facts: false
+  connection: local
+  module_defaults:
+    group/oxlorg.opnsense.dnsmasq:
+      firewall: "{{ ansible_host }}"
+      api_key: "{{ opnsense_api_key }}"
+      api_secret: "{{ opnsense_api_secret }}"
+      ssl_verify: false
+  vars:
+    # Re-resolve the kubernetes-group vars from the controller side so this
+    # play (which runs against `router`) still sees them.
+    k3s_api_dns_name: "{{ hostvars[groups['kube_control_plane'][0]].k3s_api_dns_name | default('') }}"
+    k3s_kube_vip_address: "{{ hostvars[groups['kube_control_plane'][0]].k3s_kube_vip_address | default('') }}"
+    k3s_dhcp_domain: "{{ hostvars[groups['kube_control_plane'][0]].dnsmasq_dhcp_domain | default('lan') }}"
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  tasks:
+    - name: Create dnsmasq A record (DNS-only, no DHCP)
+      oxlorg.opnsense.dnsmasq_host:
+        description: "kube-apiserver-vip"
+        # No-MAC entries become a literal `host-record=<host>,<ip>` line
+        # in dnsmasq's config — dnsmasq does NOT auto-append a domain to
+        # that field (the FQDN-assembly only happens for DHCP-bound
+        # entries). So pass the full FQDN in `host` and skip `domain`,
+        # which the module's validator would otherwise reject for
+        # single-label values like `lan`.
+        host: "{{ k3s_api_dns_name }}"
+        ip: ["{{ k3s_kube_vip_address }}"]
+        state: present
+      when:
+        - k3s_api_dns_name | length > 0
+        - k3s_kube_vip_address | length > 0
 
 - name: Initialize k3s on first control plane
   hosts: kube_control_plane
@@ -18,6 +57,17 @@
         name: k3s
         tasks_from: server_init.yml
       when: inventory_hostname == groups['kube_control_plane'][0]
+
+- name: Deploy kube-vip on first control plane
+  hosts: kube_control_plane
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: k3s
+        tasks_from: kube_vip.yml
+      when:
+        - k3s_kube_vip_enabled | bool
+        - inventory_hostname == groups['kube_control_plane'][0]
 
 - name: Join remaining control planes
   hosts: kube_control_plane
@@ -36,3 +86,11 @@
     - ansible.builtin.import_role:
         name: k3s
         tasks_from: agent.yml
+
+- name: Fetch kubeconfig to controller
+  hosts: kube_control_plane[0]
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: k3s
+        tasks_from: fetch_kubeconfig.yml

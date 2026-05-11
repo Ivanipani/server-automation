@@ -6,16 +6,27 @@ k3s_version: "v1.31.4+k3s1"
 k3s_install_script_url: "https://get.k3s.io"
 k3s_install_script_path: /usr/local/bin/k3s-install.sh
 
-# Endpoint joiners (CPs and agents) use to reach the cluster. Defaults to
-# the first host in `kube_control_plane`, mirroring the proxmox cluster
-# pattern in 02b-cluster-hypervisor.yml.
-k3s_api_endpoint: "https://{{ hostvars[groups['kube_control_plane'][0]].ansible_host }}:6443"
+# Endpoint joiners (CPs and agents) use to reach the cluster. Preference
+# order: DNS name → kube-vip VIP → first CP's ansible_host. Joining via
+# the DNS name keeps joiner configs survivable across VIP renumbers.
+k3s_api_endpoint: >-
+  https://{{ k3s_api_dns_name
+              if k3s_api_dns_name
+              else (k3s_kube_vip_address
+                     if (k3s_kube_vip_enabled and k3s_kube_vip_address)
+                     else hostvars[groups['kube_control_plane'][0]].ansible_host) }}:6443
+
+# Human-friendly DNS name for the apiserver, served by OPNsense dnsmasq
+# as an A record pointing at k3s_kube_vip_address. Empty → no DNS name
+# is registered and the raw VIP/IP is used everywhere.
+k3s_api_dns_name: ""
 
 # Shared cluster join token. MUST be overridden via group_vars + vault.
 k3s_cluster_token: ""
 
 # Extra TLS SANs to add to the server cert. The node's own inventory name
-# and ansible_host are appended automatically at run time.
+# and ansible_host are appended automatically at run time. The kube-vip
+# address and the API DNS name are also appended automatically when set.
 k3s_tls_sans: []
 
 # Bundled components to disable (e.g. ['traefik', 'servicelb']). Empty
@@ -25,3 +36,17 @@ k3s_disable_components: []
 # kubeconfig file mode on control planes. 0644 makes it readable by the
 # `ansible` user without sudo, which is convenient for fetch-back patterns.
 k3s_kubeconfig_mode: "0644"
+
+# kube-vip — a floating L2 (ARP) VIP across the control planes, used as a
+# stable apiserver endpoint for `kubectl` and for joiners. Disabled by
+# default; flip on in group_vars/kubernetes.yml and set the address.
+k3s_kube_vip_enabled: false
+k3s_kube_vip_version: "v0.8.7"
+k3s_kube_vip_address: ""                # e.g. "10.1.1.50"
+k3s_kube_vip_interface: ""              # blank → auto-detect via ansible_default_ipv4
+k3s_kube_vip_rbac_url: "https://kube-vip.io/manifests/rbac.yaml"
+
+# Local destination for the rewritten kubeconfig. Empty → fetch step is a
+# no-op. Set to e.g. "{{ playbook_dir }}/../../../kubeconfig" or
+# "~/.kube/config-poochella" to enable.
+k3s_kubeconfig_local_path: ""

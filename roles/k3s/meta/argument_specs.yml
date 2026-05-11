@@ -1,5 +1,5 @@
 ---
-# Three explicit entry points — the role is only ever invoked via
+# Five explicit entry points — the role is only ever invoked via
 # `import_role` + `tasks_from:`, mirroring the hypervisor cluster pattern.
 # Each entry point validates the same option set; YAML anchors keep it DRY.
 
@@ -33,6 +33,27 @@
   k3s_kubeconfig_mode:
     type: str
     default: "0644"
+  k3s_kube_vip_enabled:
+    type: bool
+    default: false
+  k3s_kube_vip_version:
+    type: str
+    default: "v0.8.7"
+  k3s_kube_vip_address:
+    type: str
+    default: ""
+  k3s_kube_vip_interface:
+    type: str
+    default: ""
+  k3s_kube_vip_rbac_url:
+    type: str
+    default: "https://kube-vip.io/manifests/rbac.yaml"
+  k3s_kubeconfig_local_path:
+    type: str
+    default: ""
+  k3s_api_dns_name:
+    type: str
+    default: ""
 
 argument_specs:
   server_init:
@@ -49,6 +70,18 @@ argument_specs:
 
   agent:
     short_description: Install and join a k3s agent (worker) to the cluster
+    author:
+      - Ivan Perdomo
+    options: *k3s_options
+
+  kube_vip:
+    short_description: Deploy kube-vip as an HA floating VIP for the apiserver
+    author:
+      - Ivan Perdomo
+    options: *k3s_options
+
+  fetch_kubeconfig:
+    short_description: Fetch the cluster kubeconfig and rewrite the server URL for external use
     author:
       - Ivan Perdomo
     options: *k3s_options

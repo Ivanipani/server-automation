@@ -10,22 +10,16 @@
     k3s_install_exec: >-
       server --server {{ k3s_api_endpoint }}
       --write-kubeconfig-mode {{ k3s_kubeconfig_mode }}
-      {% for san in (k3s_tls_sans + [inventory_hostname, ansible_host]) | unique %}
+      {% set vip_san = [k3s_kube_vip_address] if (k3s_kube_vip_enabled and k3s_kube_vip_address) else [] %}
+      {% set dns_san = [k3s_api_dns_name] if k3s_api_dns_name else [] %}
+      {% for san in (k3s_tls_sans + [inventory_hostname, ansible_host] + vip_san + dns_san) | unique %}
       --tls-san {{ san }}
       {% endfor %}
       {% for c in k3s_disable_components %}
       --disable {{ c }}
       {% endfor %}
 
-- name: Install / upgrade k3s server (joining existing cluster)
-  ansible.builtin.command: "{{ k3s_install_script_path }}"
-  environment:
-    INSTALL_K3S_VERSION: "{{ k3s_version }}"
-    INSTALL_K3S_EXEC: "{{ k3s_install_exec | regex_replace('\\s+', ' ') | trim }}"
-    K3S_TOKEN: "{{ k3s_cluster_token }}"
-  when: k3s_needs_install
-  changed_when: true
-  notify: restart k3s
+- ansible.builtin.include_tasks: _install_server.yml
 
 - name: Ensure k3s service is enabled and started
   ansible.builtin.service:
