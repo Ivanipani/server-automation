@@ -1,0 +1,27 @@
+---
+# k3s version to install (passed to the installer via INSTALL_K3S_VERSION).
+k3s_version: "v1.31.4+k3s1"
+
+# Upstream installer. Pinned URL so air-gapped overrides are easy.
+k3s_install_script_url: "https://get.k3s.io"
+k3s_install_script_path: /usr/local/bin/k3s-install.sh
+
+# Endpoint joiners (CPs and agents) use to reach the cluster. Defaults to
+# the first host in `kube_control_plane`, mirroring the proxmox cluster
+# pattern in 02b-cluster-hypervisor.yml.
+k3s_api_endpoint: "https://{{ hostvars[groups['kube_control_plane'][0]].ansible_host }}:6443"
+
+# Shared cluster join token. MUST be overridden via group_vars + vault.
+k3s_cluster_token: ""
+
+# Extra TLS SANs to add to the server cert. The node's own inventory name
+# and ansible_host are appended automatically at run time.
+k3s_tls_sans: []
+
+# Bundled components to disable (e.g. ['traefik', 'servicelb']). Empty
+# default keeps the k3s defaults (Traefik enabled).
+k3s_disable_components: []
+
+# kubeconfig file mode on control planes. 0644 makes it readable by the
+# `ansible` user without sudo, which is convenient for fetch-back patterns.
+k3s_kubeconfig_mode: "0644"

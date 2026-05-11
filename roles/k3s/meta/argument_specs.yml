@@ -1,0 +1,54 @@
+---
+# Three explicit entry points — the role is only ever invoked via
+# `import_role` + `tasks_from:`, mirroring the hypervisor cluster pattern.
+# Each entry point validates the same option set; YAML anchors keep it DRY.
+
+# Re-usable option set. Anchored on a hidden key so it can be merged into
+# each entry point without YAML duplicate-key warnings.
+.k3s_options: &k3s_options
+  k3s_version:
+    type: str
+    required: true
+  k3s_api_endpoint:
+    type: str
+    required: true
+  k3s_cluster_token:
+    type: str
+    required: true
+    no_log: true
+  k3s_tls_sans:
+    type: list
+    elements: str
+    default: []
+  k3s_disable_components:
+    type: list
+    elements: str
+    default: []
+  k3s_install_script_url:
+    type: str
+    default: "https://get.k3s.io"
+  k3s_install_script_path:
+    type: str
+    default: /usr/local/bin/k3s-install.sh
+  k3s_kubeconfig_mode:
+    type: str
+    default: "0644"
+
+argument_specs:
+  server_init:
+    short_description: Bootstrap the embedded-etcd k3s cluster on the first control plane
+    author:
+      - Ivan Perdomo
+    options: *k3s_options
+
+  server_join:
+    short_description: Join an additional control plane to an existing k3s cluster
+    author:
+      - Ivan Perdomo
+    options: *k3s_options
+
+  agent:
+    short_description: Install and join a k3s agent (worker) to the cluster
+    author:
+      - Ivan Perdomo
+    options: *k3s_options

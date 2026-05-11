@@ -1,0 +1,38 @@
+---
+# Forms a k3s embedded-etcd HA cluster from groups `kube_control_plane` and
+# `kube_workers`. The first CP runs `k3s server --cluster-init`; the others
+# join via `--server https://<first-cp>:6443`. Idempotent — re-running on a
+# healthy cluster is a no-op; appending a worker joins it on the next run.
+#
+# Pre-conditions:
+#   - kube VMs provisioned (`tofu apply`) and reachable as the `ansible` user
+#   - vault_k3s_cluster_token set in group_vars/all/vault.yml
+#   - first-CP hostname resolves on the LAN (dnsmasq dynamic DNS handles this
+#     once the VM has DHCP'd at least once)
+
+- name: Initialize k3s on first control plane
+  hosts: kube_control_plane
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: k3s
+        tasks_from: server_init.yml
+      when: inventory_hostname == groups['kube_control_plane'][0]
+
+- name: Join remaining control planes
+  hosts: kube_control_plane
+  become: true
+  serial: 1
+  tasks:
+    - ansible.builtin.import_role:
+        name: k3s
+        tasks_from: server_join.yml
+      when: inventory_hostname != groups['kube_control_plane'][0]
+
+- name: Install k3s agent on workers
+  hosts: kube_workers
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: k3s
+        tasks_from: agent.yml

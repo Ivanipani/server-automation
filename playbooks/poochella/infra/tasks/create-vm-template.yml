@@ -63,6 +63,14 @@
           - "/etc/sudoers.d/90-ansible:ansible ALL=(ALL) NOPASSWD: ALL\n"
           - --chmod
           - "0440:/etc/sudoers.d/90-ansible"
+          # cc_set_hostname runs after networking is already up, so the first
+          # DHCPREQUEST goes out without option 12 and OPNsense dnsmasq has
+          # nothing to register. Renewing the lease in runcmd (cloud-final
+          # stage) re-sends the request once /etc/hostname is in place.
+          - --write
+          - |
+            /etc/cloud/cloud.cfg.d/99-renew-dhcp-after-hostname.cfg:runcmd:
+              - [sh, -c, "if systemctl is-active --quiet systemd-networkd; then networkctl renew --all || true; elif pgrep -x dhclient >/dev/null; then dhclient -r || true; dhclient || true; fi"]
           - --run-command
           - >-
             sed -ri

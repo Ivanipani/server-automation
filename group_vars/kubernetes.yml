@@ -1,0 +1,8 @@
+---
+# Cluster-wide vars for the k3s role.
+#
+# k3s_cluster_token is wired through group_vars/all/vars.yml (vault
+# indirection). k3s_api_endpoint defaults from the role and resolves to
+# https://<first kube_control_plane host>:6443.
+
+k3s_version: "v1.31.4+k3s1"

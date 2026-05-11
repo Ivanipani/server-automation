@@ -12,3 +12,4 @@
 - import_playbook: 06-bootstrap-ansible-global.yml
 - import_playbook: 07-firewall.yml
 - import_playbook: 08-tailscale.yml
+- import_playbook: 09-install-kubernetes.yml

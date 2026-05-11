@@ -1,0 +1,21 @@
+---
+# Install/run k3s as an agent (worker). Joins via K3S_URL + K3S_TOKEN.
+
+- ansible.builtin.include_tasks: preflight.yml
+
+- name: Install / upgrade k3s agent
+  ansible.builtin.command: "{{ k3s_install_script_path }}"
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: "agent"
+    K3S_URL: "{{ k3s_api_endpoint }}"
+    K3S_TOKEN: "{{ k3s_cluster_token }}"
+  when: k3s_needs_install
+  changed_when: true
+  notify: restart k3s-agent
+
+- name: Ensure k3s-agent service is enabled and started
+  ansible.builtin.service:
+    name: k3s-agent
+    state: started
+    enabled: true

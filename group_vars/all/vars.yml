@@ -15,6 +15,7 @@ github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCp
 opnsense_api_key: "{{ vault_opnsense_api_key }}"
 opnsense_api_secret: "{{ vault_opnsense_api_secret }}"
 proxmox_api_token: "{{ vault_proxmox_api_token }}"
+k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
 
 proxmox_control_nodes:
   - hostname: pve-home-01

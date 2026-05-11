@@ -52,6 +52,26 @@ virtual-machines:
       ansible_host: devbox01.lan
   children:
     databases:
+    kubernetes:
+
+kubernetes:
+  children:
+    kube_control_plane:
+      hosts:
+        kube-ctl-01:
+          ansible_host: kube-ctl-01.lan
+        kube-ctl-02:
+          ansible_host: kube-ctl-02.lan
+        kube-ctl-03:
+          ansible_host: kube-ctl-03.lan
+    kube_workers:
+      hosts:
+        kube-worker-01:
+          ansible_host: kube-worker-01.lan
+        kube-worker-02:
+          ansible_host: kube-worker-02.lan
+        kube-worker-03:
+          ansible_host: kube-worker-03.lan
 
 containers:
   children:

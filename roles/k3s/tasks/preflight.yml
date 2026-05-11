@@ -1,0 +1,63 @@
+---
+# Shared preflight for every k3s entry point. Included by server_init,
+# server_join, and agent — never invoked directly.
+
+- name: Fail if k3s_cluster_token is empty
+  ansible.builtin.assert:
+    that:
+      - k3s_cluster_token | length >= 16
+    fail_msg: >-
+      k3s_cluster_token must be ≥16 chars. Set vault_k3s_cluster_token in
+      group_vars/all/vault.yml (e.g. `openssl rand -hex 32`).
+    quiet: true
+
+- name: Ensure required kernel modules are loaded
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+    persistent: present
+  loop:
+    - br_netfilter
+    - overlay
+
+- name: Persist sysctl settings required by Kubernetes
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+  loop:
+    - { name: net.bridge.bridge-nf-call-iptables, value: "1" }
+    - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+    - { name: net.ipv4.ip_forward, value: "1" }
+  loop_control:
+    label: "{{ item.name }}={{ item.value }}"
+
+- name: Disable swap at runtime
+  ansible.builtin.command: swapoff -a
+  when: ansible_swaptotal_mb | default(0) | int > 0
+  changed_when: true
+
+- name: Remove swap entries from /etc/fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+- name: Download the k3s install script
+  ansible.builtin.get_url:
+    url: "{{ k3s_install_script_url }}"
+    dest: "{{ k3s_install_script_path }}"
+    mode: "0755"
+
+- name: Detect currently installed k3s version
+  ansible.builtin.command: /usr/local/bin/k3s --version
+  register: k3s_installed_version
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Decide whether install/upgrade is needed
+  ansible.builtin.set_fact:
+    k3s_needs_install: "{{ k3s_version not in (k3s_installed_version.stdout | default('')) }}"

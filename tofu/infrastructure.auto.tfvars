@@ -23,7 +23,7 @@ vms = {
   }
 
   # ── Kubernetes control plane (1 per PVE host for HA) ──────────
-  k8s-cp-01 = {
+  k8s-ctl-01 = {
     hostname  = "kube-ctl-01"
     cores     = 2
     memory    = 4096
@@ -31,7 +31,7 @@ vms = {
     tags      = ["kube", "control-plane"]
     # node      = "pve-home-01"
   }
-  k8s-cp-02 = {
+  k8s-ctl-02 = {
     hostname  = "kube-ctl-02"
     cores     = 2
     memory    = 4096
@@ -39,7 +39,7 @@ vms = {
     tags      = ["kube", "control-plane"]
     # node      = "pve-home-02"
   }
-  k8s-cp-03 = {
+  k8s-ctl-03 = {
     hostname  = "kube-ctl-03"
     cores     = 2
     memory    = 4096
@@ -49,7 +49,7 @@ vms = {
   }
 
   # ── Kubernetes workers (1 per PVE host) ───────────────────────
-  k8s-worker-01 = {
+  kube-worker-01 = {
     hostname  = "kube-worker-01"
     cores     = 4
     memory    = 8192
@@ -57,7 +57,7 @@ vms = {
     tags      = ["kube", "worker"]
     # node      = "pve-home-01"
   }
-  k8s-worker-02 = {
+  kube-worker-02 = {
     hostname  = "kube-worker-02"
     cores     = 4
     memory    = 8192
@@ -65,7 +65,7 @@ vms = {
     tags      = ["kube", "worker"]
     # node      = "pve-home-02"
   }
-  k8s-worker-03 = {
+  kube-worker-03 = {
     hostname  = "kube-worker-03"
     cores     = 4
     memory    = 8192
