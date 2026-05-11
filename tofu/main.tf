@@ -25,19 +25,20 @@ resource "proxmox_virtual_environment_vm" "vm" {
     datastore_id = "vms" # Ceph RBD; cluster-shared so VMs can live-migrate
   }
 
+  # The cloud-init drive is attached because this block is present. VM `name`
+  # propagates to cloud-init as the hostname (no explicit `hostname` field
+  # exists on `initialization` in bpg/proxmox v0.106). The `ansible` user is
+  # baked into the template by 04-prepare-templates.yml, so no `user_account`
+  # block is needed. DNS server + search domain reach guests via DHCP options
+  # set on the OPNsense dnsmasq side — keep DNS centrally managed there.
   initialization {
-    datastore_id = "vms" # cloud-init drive on Ceph too
+    datastore_id = "vms"
 
     ip_config {
       ipv4 {
         address = each.value.ip_address
         gateway = each.value.ip_address != "dhcp" ? each.value.gateway : null
       }
-    }
-
-    user_account {
-      username = "temp"
-      keys     = [var.ssh_public_key]
     }
   }
 

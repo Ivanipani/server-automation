@@ -14,6 +14,10 @@ dnsmasq_dhcp_domain: lan
 dnsmasq_dhcp_authoritative: true
 dnsmasq_dhcp_fqdn: true
 dnsmasq_register_static_dns: true
+# When true, dnsmasq adds DHCP-leased clients to its DNS records as
+# <hostname>.<dhcp_dhcp_domain>. Needed for VMs/CTs that come up on DHCP to be
+# resolvable by name.
+dnsmasq_register_dynamic_dns: false
 dnsmasq_dhcp_lease_max: 1000
 
 # DHCP pool. Set to {} to skip range management.

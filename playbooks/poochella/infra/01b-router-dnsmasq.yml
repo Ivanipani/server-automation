@@ -28,6 +28,9 @@
       ssl_verify: false
   vars:
     dnsmasq_static_leases: "{{ proxmox_control_nodes + switch_nodes }}"
+    # Auto-register DHCP-leased VMs/CTs as <hostname>.lan in DNS so cloned
+    # nodes are reachable by name without static reservations.
+    dnsmasq_register_dynamic_dns: true
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   roles:
     - role: opnsense-dnsmasq

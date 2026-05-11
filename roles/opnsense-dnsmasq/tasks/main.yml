@@ -19,6 +19,7 @@
     dhcp_fqdn: "{{ dnsmasq_dhcp_fqdn }}"
     dhcp_domain: "{{ dnsmasq_dhcp_domain }}"
     dhcp_lease_max: "{{ dnsmasq_dhcp_lease_max }}"
+    regdhcp: "{{ dnsmasq_register_dynamic_dns }}"
     regdhcpstatic: "{{ dnsmasq_register_static_dns }}"
 
 - name: Configure DHCP range

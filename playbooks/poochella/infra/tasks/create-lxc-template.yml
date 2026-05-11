@@ -1,6 +1,9 @@
 ---
-# Creates a single LXC template container if it doesn't already exist
-# Required vars: lxc_template (dict with id, hostname, image), lxc_packages
+# Creates a single LXC template container if it doesn't already exist.
+# Required vars:
+#   lxc_template    – dict with id, hostname, image
+#   lxc_packages    – space-separated package list for apt-get install
+#   ansible_pubkey  – contents of ~/.ssh/ansible.pub on the controller
 
 - name: "Check if LXC template {{ lxc_template.id }} exists"
   ansible.builtin.command: "pct status {{ lxc_template.id }}"
@@ -44,12 +47,31 @@
       ansible.builtin.command: "pct exec {{ lxc_template.id }} -- apt-get install -y {{ lxc_packages }}"
       changed_when: true
 
-    - name: "Inject SSH public key into container {{ lxc_template.id }}"
+    - name: "Inject SSH public key for root in container {{ lxc_template.id }}"
       ansible.builtin.shell: |
         pct exec {{ lxc_template.id }} -- mkdir -p /root/.ssh
         pct exec {{ lxc_template.id }} -- chmod 700 /root/.ssh
-        pct exec {{ lxc_template.id }} -- sh -c 'echo "{{ ssh_public_key }}" > /root/.ssh/authorized_keys'
+        pct exec {{ lxc_template.id }} -- sh -c 'echo "{{ ansible_pubkey }}" > /root/.ssh/authorized_keys'
         pct exec {{ lxc_template.id }} -- chmod 600 /root/.ssh/authorized_keys
+      changed_when: true
+
+    - name: "Create ansible user in container {{ lxc_template.id }}"
+      ansible.builtin.command: "pct exec {{ lxc_template.id }} -- useradd -m -s /bin/bash -G sudo ansible"
+      changed_when: true
+
+    - name: "Inject SSH public key for ansible in container {{ lxc_template.id }}"
+      ansible.builtin.shell: |
+        pct exec {{ lxc_template.id }} -- mkdir -p /home/ansible/.ssh
+        pct exec {{ lxc_template.id }} -- chmod 700 /home/ansible/.ssh
+        pct exec {{ lxc_template.id }} -- sh -c 'echo "{{ ansible_pubkey }}" > /home/ansible/.ssh/authorized_keys'
+        pct exec {{ lxc_template.id }} -- chmod 600 /home/ansible/.ssh/authorized_keys
+        pct exec {{ lxc_template.id }} -- chown -R ansible:ansible /home/ansible/.ssh
+      changed_when: true
+
+    - name: "Grant passwordless sudo to ansible in container {{ lxc_template.id }}"
+      ansible.builtin.shell: |
+        pct exec {{ lxc_template.id }} -- sh -c 'echo "ansible ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/90-ansible'
+        pct exec {{ lxc_template.id }} -- chmod 0440 /etc/sudoers.d/90-ansible
       changed_when: true
 
     - name: "Lock root password in container {{ lxc_template.id }}"
@@ -64,6 +86,17 @@
       loop:
         - "pct exec {{ lxc_template.id }} -- sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config"
         - "pct exec {{ lxc_template.id }} -- sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config"
+      changed_when: true
+
+    # Reset host identity so every clone gets unique DHCP client-id + SSH host
+    # keys. systemd-networkd derives the DHCP client-id from /etc/machine-id,
+    # so without this every clone presents the same id to dnsmasq and gets the
+    # same lease.
+    - name: "Reset host identity in container {{ lxc_template.id }}"
+      ansible.builtin.shell: |
+        pct exec {{ lxc_template.id }} -- truncate -s 0 /etc/machine-id
+        pct exec {{ lxc_template.id }} -- sh -c '[ -L /var/lib/dbus/machine-id ] || truncate -s 0 /var/lib/dbus/machine-id'
+        pct exec {{ lxc_template.id }} -- sh -c 'rm -f /etc/ssh/ssh_host_*'
       changed_when: true
 
     - name: "Stop container {{ lxc_template.id }}"

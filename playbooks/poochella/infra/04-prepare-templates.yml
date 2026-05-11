@@ -1,6 +1,23 @@
 ---
-# Phase 0: Ensure all Proxmox templates exist before Tofu provisioning
-# Idempotent — safe to re-run
+# Phase 0: Ensure all Proxmox templates exist before Tofu provisioning.
+# Idempotent — safe to re-run.
+#
+# Templates bake in the `ansible` user (passwordless sudo + SSH key from
+# ~/.ssh/ansible.pub on the controller) and reset machine-id / SSH host keys
+# so every clone gets a unique DHCP client-id and host identity.
+#
+# Flags:
+#   build_lxc_templates      – run the LXC template build phase.
+#   build_vm_templates       – run the VM template build phase.
+#   purge_existing_templates – destroy existing VM (qm) and LXC (pct)
+#                              templates before recreating them. Without this,
+#                              the per-template status checks short-circuit
+#                              and existing templates are left untouched.
+#   purge_cached_images      – wipe cached cloud images on Ceph so the next
+#                              run re-downloads fresh upstream and re-bakes.
+#
+# After re-baking, re-provision any existing clones via
+# 05-provision-infrastructure.yml.
 
 - name: Prepare Proxmox templates
   hosts: pve-home-01
@@ -25,43 +42,105 @@
         image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
         image_file: noble-server-cloudimg-amd64.img
 
-    ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
+    ansible_pubkey: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
     lxc_packages: openssh-server curl wget sudo rsync htop
     vm_packages: qemu-guest-agent,curl,wget,sudo,rsync,htop
+
+    # Build phases
+    build_lxc_templates: false
+    build_vm_templates: true
+    # Destroy existing VM/LXC templates before recreating them.
+    purge_existing_templates: true
+    # Wipe the cached customized cloud images so the next run re-bakes from scratch.
+    purge_cached_images: false
+
+  pre_tasks:
+    - name: Ensure ansible SSH keypair exists on controller
+      ansible.builtin.command:
+        cmd: ssh-keygen -t ed25519 -f ~/.ssh/ansible -N ""
+        creates: ~/.ssh/ansible
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Destroy existing VM templates
+      ansible.builtin.command: "qm destroy {{ item.id }} --purge"
+      loop: "{{ vm_templates }}"
+      loop_control:
+        label: "{{ item.id }}"
+      register: vm_destroy
+      changed_when: vm_destroy.rc == 0
+      failed_when:
+        - vm_destroy.rc != 0
+        - "'does not exist' not in vm_destroy.stderr"
+      when:
+        - build_vm_templates | bool
+        - purge_existing_templates | bool
+
+    - name: Destroy existing LXC templates
+      ansible.builtin.command: "pct destroy {{ item.id }} --purge"
+      loop: "{{ lxc_templates }}"
+      loop_control:
+        label: "{{ item.id }}"
+      register: lxc_destroy
+      changed_when: lxc_destroy.rc == 0
+      failed_when:
+        - lxc_destroy.rc != 0
+        - "'does not exist' not in lxc_destroy.stderr"
+      when:
+        - build_lxc_templates | bool
+        - purge_existing_templates | bool
+
+    - name: Purge cached VM cloud images (ISO storage)
+      ansible.builtin.file:
+        path: "/var/lib/vz/template/iso/{{ item.image_file }}.iso"
+        state: absent
+      loop: "{{ vm_templates }}"
+      loop_control:
+        label: "{{ item.image_file }}"
+      when:
+        - build_vm_templates | bool
+        - purge_cached_images | bool
 
   tasks:
     # ── LXC templates ──────────────────────────────────────────────
 
-    - name: Update PVE appliance catalog
-      ansible.builtin.command: pveam update
-      changed_when: true
+    - name: Build LXC templates
+      when: build_lxc_templates | bool
+      block:
+        - name: Update PVE appliance catalog
+          ansible.builtin.command: pveam update
+          changed_when: true
 
-    - name: Check available LXC images
-      ansible.builtin.command: pveam list local
-      register: pveam_list
-      changed_when: false
+        - name: Check available LXC images
+          ansible.builtin.command: pveam list local
+          register: pveam_list
+          changed_when: false
 
-    - name: Download LXC base images
-      ansible.builtin.command: "pveam download local {{ item.image }}"
-      loop: "{{ lxc_templates }}"
-      when: item.image not in pveam_list.stdout
-      changed_when: true
+        - name: Download LXC base images
+          ansible.builtin.command: "pveam download local {{ item.image }}"
+          loop: "{{ lxc_templates }}"
+          when: item.image not in pveam_list.stdout
+          changed_when: true
 
-    - name: Create LXC templates
-      ansible.builtin.include_tasks: tasks/create-lxc-template.yml
-      loop: "{{ lxc_templates }}"
-      loop_control:
-        loop_var: lxc_template
+        - name: Create LXC templates
+          ansible.builtin.include_tasks: tasks/create-lxc-template.yml
+          loop: "{{ lxc_templates }}"
+          loop_control:
+            loop_var: lxc_template
 
     # ── VM templates ───────────────────────────────────────────────
 
-    - name: Ensure libguestfs-tools is installed
-      ansible.builtin.apt:
-        name: libguestfs-tools
-        state: present
+    - name: Build VM templates
+      when: build_vm_templates | bool
+      block:
+        - name: Ensure libguestfs-tools is installed
+          ansible.builtin.apt:
+            name: libguestfs-tools
+            state: present
 
-    - name: Create VM templates
-      ansible.builtin.include_tasks: tasks/create-vm-template.yml
-      loop: "{{ vm_templates }}"
-      loop_control:
-        loop_var: vm_template
+        - name: Create VM templates
+          ansible.builtin.include_tasks: tasks/create-vm-template.yml
+          loop: "{{ vm_templates }}"
+          loop_control:
+            loop_var: vm_template

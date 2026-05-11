@@ -1,6 +1,9 @@
 ---
-# Creates a single VM template if it doesn't already exist
-# Required vars: vm_template (dict with id, name, image_url, image_file), vm_packages
+# Creates a single VM template if it doesn't already exist.
+# Required vars:
+#   vm_template      – dict with id, name, image_url, image_file
+#   vm_packages      – comma-separated package list for virt-customize --install
+#   ansible_pubkey   – contents of ~/.ssh/ansible.pub on the controller
 
 - name: "Check if VM template {{ vm_template.id }} exists"
   ansible.builtin.command: "qm status {{ vm_template.id }}"
@@ -36,10 +39,54 @@
         mode: "0644"
       when: not image_check.results[0].stat.exists and not image_check.results[1].stat.exists
 
+    - name: "Stage ansible SSH public key on PVE host"
+      ansible.builtin.copy:
+        content: "{{ ansible_pubkey }}"
+        dest: /tmp/ansible.pub
+        mode: "0644"
+
+    # virt-customize flags execute in order: useradd must precede --ssh-inject.
+    # Single invocation so the libguestfs appliance only boots once.
     - name: "Customize cloud image for VM {{ vm_template.id }}"
-      ansible.builtin.command: >
-        virt-customize -a /tmp/{{ vm_template.image_file }}
-        --install {{ vm_packages }}
+      ansible.builtin.command:
+        argv:
+          - virt-customize
+          - -a
+          - "/tmp/{{ vm_template.image_file }}"
+          - --install
+          - "{{ vm_packages }}"
+          - --run-command
+          - id -u ansible >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo ansible
+          - --ssh-inject
+          - ansible:file:/tmp/ansible.pub
+          - --write
+          - "/etc/sudoers.d/90-ansible:ansible ALL=(ALL) NOPASSWD: ALL\n"
+          - --chmod
+          - "0440:/etc/sudoers.d/90-ansible"
+          - --run-command
+          - >-
+            sed -ri
+            -e 's/^#?PasswordAuthentication.*/PasswordAuthentication no/'
+            -e 's/^#?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/'
+            /etc/ssh/sshd_config
+      changed_when: true
+
+    # Sysprep AFTER customize so the customize log lines get cleaned too.
+    # `machine-id` reset is the load-bearing fix for the duplicate-DHCP-lease
+    # bug. The explicit `--delete /var/lib/cloud/instances` drops cloud-init's
+    # instance cache so first boot runs against the new instance-id (the
+    # `cloud-init` operation only exists in libguestfs ≥ 1.50; use --delete
+    # for portability across PVE versions).
+    - name: "Sysprep cloud image for VM {{ vm_template.id }}"
+      ansible.builtin.command:
+        argv:
+          - virt-sysprep
+          - -a
+          - "/tmp/{{ vm_template.image_file }}"
+          - --operations
+          - machine-id,ssh-hostkeys,bash-history,logfiles,udev-persistent-net,net-hostname
+          - --delete
+          - /var/lib/cloud/instances
       changed_when: true
 
     - name: "Create VM {{ vm_template.id }}"
@@ -65,7 +112,7 @@
         - "qm set {{ vm_template.id }} --virtio0 vms:vm-{{ vm_template.id }}-disk-0,cache=writeback,iothread=1"
         - "qm set {{ vm_template.id }} --boot order=virtio0"
         - "qm set {{ vm_template.id }} --agent enabled=1"
-        # - "qm set {{ vm_template.id }} --ide2 vms:cloudinit"
+        - "qm set {{ vm_template.id }} --ide2 vms:cloudinit"
       changed_when: true
 
     - name: "Convert VM {{ vm_template.id }} to template"
