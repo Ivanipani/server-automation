@@ -3,8 +3,12 @@ resource "proxmox_virtual_environment_vm" "vm" {
 
   name        = each.value.hostname
   description = each.key
-  node_name   = each.value.node
-  tags        = each.value.tags
+  # Every VM is cloned on the template node. Final placement is handled by
+  # the HA resources below — Proxmox HA migrates the VM to its preferred
+  # node after creation, and `lifecycle.ignore_changes = [node_name]` keeps
+  # Tofu from fighting that migration on subsequent plans.
+  node_name = local.template_vm_node
+  tags      = each.value.tags
 
   clone {
     vm_id = each.value.template_id != null ? each.value.template_id : local.template_vm_id
@@ -48,8 +52,42 @@ resource "proxmox_virtual_environment_vm" "vm" {
   }
 
   lifecycle {
-    ignore_changes = [disk]
+    ignore_changes = [disk, node_name]
   }
+}
+
+# Per-VM HA enrollment. PVE 9.x replaced HA groups with HA rules, so the
+# `group` field on this resource is no longer used — node placement is
+# expressed exclusively via the `proxmox_harule` below, which requires
+# the resources to be HA-managed first.
+resource "proxmox_haresource" "vm" {
+  for_each = local.vms_from_inventory
+
+  resource_id = "vm:${proxmox_virtual_environment_vm.vm[each.key].vm_id}"
+  state       = "started"
+  comment     = "Managed by Tofu"
+}
+
+# One node-affinity rule per preferred node. `strict = false` allows
+# fail-over to other cluster nodes if the preferred one is unavailable;
+# the priority-2 entry pulls the VM back when the preferred node returns.
+# The `resources` set references proxmox_haresource.vm so the rule waits
+# for HA enrollment before being created.
+resource "proxmox_harule" "pin" {
+  for_each = toset([for h in local.vms_from_inventory : h.node])
+
+  rule = "pin-${each.value}"
+  type = "node-affinity"
+  resources = toset([
+    for name, h in local.vms_from_inventory :
+    proxmox_haresource.vm[name].resource_id
+    if h.node == each.value
+  ])
+  nodes = {
+    (each.value) = 2
+  }
+  strict  = false
+  comment = "Managed by Tofu - prefers ${each.value}"
 }
 
 # resource "proxmox_virtual_environment_container" "ct" {

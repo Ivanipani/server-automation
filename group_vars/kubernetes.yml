@@ -3,7 +3,7 @@
 #
 # k3s_cluster_token is wired through group_vars/all/vars.yml (vault
 # indirection). k3s_api_endpoint defaults from the role and resolves to
-# the DNS name (when set) → kube-vip VIP → first kube_control_plane host.
+# the kube-vip VIP, falling back to the first kube_control_plane host.
 
 k3s_version: "v1.31.4+k3s1"
 
@@ -12,12 +12,6 @@ k3s_version: "v1.31.4+k3s1"
 # as the join endpoint for the other CPs and workers.
 k3s_kube_vip_enabled: true
 k3s_kube_vip_address: "10.1.1.50"
-
-# Human-friendly DNS name fronting the VIP. The kube_api_dns play in
-# 09-install-kubernetes.yml registers this as an A record on OPNsense
-# dnsmasq pointing at k3s_kube_vip_address. Used by kubeconfig and by
-# the joiners' --server endpoint.
-k3s_api_dns_name: "kube-api.lan"
 
 # Fetch kubeconfig back to the controller after the cluster is up so you
 # can `export KUBECONFIG=$(pwd)/kubeconfig && kubectl get nodes` from

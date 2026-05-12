@@ -69,12 +69,11 @@ All VM disks use the cluster-shared `vms` Ceph RBD datastore so live-migration w
 ### k3s + kube-vip
 
 `playbooks/poochella/infra/09-install-kubernetes.yml` builds an embedded-etcd HA cluster:
-1. **Registers a dnsmasq A record on OPNsense** (`k3s_api_dns_name` → `k3s_kube_vip_address`) — the entry has no MAC, so the module emits a literal `host-record=` line; the playbook passes the full FQDN in `host` and omits `domain` to dodge the module's single-label validator
-2. First CP runs `k3s server --cluster-init`; kube-vip is then deployed only on that node to bring up the L2 VIP
-3. Remaining CPs join `serial: 1` via the DNS-name endpoint; workers join after
-4. kubeconfig is fetched back to `{{ playbook_dir }}/../../../kubeconfig` (repo root) — `export KUBECONFIG=$(pwd)/kubeconfig` to use it
+1. First CP runs `k3s server --cluster-init`; kube-vip is then deployed only on that node to bring up the L2 VIP at `k3s_kube_vip_address` (currently `10.1.1.50`)
+2. Remaining CPs join `serial: 1` via `https://<VIP>:6443`; workers join after
+3. kubeconfig is fetched back to `{{ playbook_dir }}/../../../kubeconfig` (repo root) with its `server:` URL rewritten to the VIP — `export KUBECONFIG=$(pwd)/kubeconfig` to use it
 
-The VIP must be a free address on the same L2 segment as the control planes. Config lives in `group_vars/kubernetes.yml`.
+The VIP must be a free address on the same L2 segment as the control planes. Config lives in `group_vars/kubernetes.yml`. The role still supports an optional `k3s_api_dns_name` (DNS sugar in front of the VIP) but poochella doesn't set it — joiners and external kubectl hit the VIP IP directly, removing the runtime dependency on OPNsense DNS.
 
 ### Roles
 

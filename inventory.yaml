@@ -29,6 +29,12 @@ all:
     # Per-VM override: set `vm.template_id` on a host below.
     template_vm_id: 9001
     template_ct_id: 9101
+    # Node where the templates live (templates are node-local in PVE even
+    # when their disks sit on shared Ceph). Tofu passes this as
+    # `clone.node_name` so cross-node clones know where to find the source.
+    # Must match the `hosts:` line in 04-prepare-templates.yml.
+    template_vm_node: pve-home-01
+    template_ct_node: pve-home-01
 
 router:
   hosts:

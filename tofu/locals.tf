@@ -18,6 +18,8 @@ locals {
   proxmox_endpoint = local.inventory.all.vars.proxmox_endpoint
   template_vm_id   = local.inventory.all.vars.template_vm_id
   template_ct_id   = local.inventory.all.vars.template_ct_id
+  template_vm_node = local.inventory.all.vars.template_vm_node
+  template_ct_node = local.inventory.all.vars.template_ct_node
 
   # Top-level groups (router, baremetal, switches, virtual-machines, kubernetes, ...)
   _groups_l1 = { for k, v in local.inventory : k => v if k != "all" && can(v) && v != null }
