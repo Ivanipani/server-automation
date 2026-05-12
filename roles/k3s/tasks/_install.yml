@@ -1,0 +1,68 @@
+---
+# Shared install/upgrade logic for both server and agent entry points.
+# Re-runs the install script when EITHER the binary version OR the
+# rendered INSTALL_K3S_EXEC differs from what's persisted in the
+# systemd unit. When args drifted on a server, also wipes
+# dynamic-cert.json so the serving cert is regenerated with the current
+# --tls-san list on next k3s startup.
+#
+# Caller pre-conditions:
+#   - preflight.yml has run (sets k3s_needs_install)
+#   - k3s_install_exec is set to the desired argv string (starts with
+#     "agent" for workers, "server …" otherwise)
+
+- name: Derive systemd unit name from install_exec mode
+  ansible.builtin.set_fact:
+    k3s_systemd_unit: >-
+      {{ 'k3s-agent.service'
+         if (k3s_install_exec | regex_replace('\s+', ' ') | trim).startswith('agent')
+         else 'k3s.service' }}
+
+- name: Read current k3s ExecStart line (folding \-continuations)
+  # systemd splits ExecStart across multiple lines with trailing backslashes,
+  # so a plain grep on '^ExecStart=' only catches the first line. The sed
+  # loop joins continuations into a single physical line before the grep.
+  ansible.builtin.shell: |
+    sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\\\n[[:space:]]*/ /g' \
+      /etc/systemd/system/{{ k3s_systemd_unit | trim }} 2>/dev/null \
+      | grep -E '^ExecStart=' || true
+  args:
+    executable: /bin/bash
+  register: k3s_current_execstart
+  changed_when: false
+  check_mode: false
+
+- name: Detect args drift in INSTALL_K3S_EXEC
+  # Normalize both sides before substring-checking:
+  #   - the folded ExecStart has double spaces at every continuation join
+  #   - the k3s installer single-quotes every arg after the verb when it
+  #     writes the unit ('--cluster-init' '--tls-san' '10.1.1.50' ...),
+  #     but our rendered k3s_install_exec uses bare args.
+  ansible.builtin.set_fact:
+    k3s_args_drifted: >-
+      {{ (k3s_install_exec | regex_replace('\s+', ' ') | trim)
+         not in
+         ((k3s_current_execstart.stdout | default(''))
+            | regex_replace("'", "")
+            | regex_replace('\s+', ' ')
+            | trim) }}
+
+- name: Force serving cert regen when SANs/args drifted
+  ansible.builtin.file:
+    path: /var/lib/rancher/k3s/server/tls/dynamic-cert.json
+    state: absent
+  when:
+    - k3s_args_drifted
+    - (k3s_systemd_unit | trim) == 'k3s.service'
+
+- name: Install / upgrade k3s
+  ansible.builtin.command: "{{ k3s_install_script_path }}"
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: "{{ k3s_install_exec | regex_replace('\\s+', ' ') | trim }}"
+    INSTALL_K3S_FORCE_RESTART: "true"
+    K3S_TOKEN: "{{ k3s_cluster_token }}"
+    K3S_URL: "{{ k3s_api_endpoint if (k3s_systemd_unit | trim) == 'k3s-agent.service' else '' }}"
+  when: k3s_needs_install or k3s_args_drifted
+  changed_when: true
+  notify: "{{ 'restart k3s-agent' if (k3s_systemd_unit | trim) == 'k3s-agent.service' else 'restart k3s' }}"

@@ -15,5 +15,9 @@ k3s_kube_vip_address: "10.1.1.50"
 
 # Fetch kubeconfig back to the controller after the cluster is up so you
 # can `export KUBECONFIG=$(pwd)/kubeconfig && kubectl get nodes` from
-# the repo root. Path is relative to the controller (your laptop).
+# the repo root. Path is relative to the controller (your laptop). The
 k3s_kubeconfig_local_path: "{{ playbook_dir }}/../../../kubeconfig"
+
+# cluster/context/user identifiers in the local copy are renamed to
+# k3s_cluster_name (k3s hard-codes "default" on the server side).
+k3s_cluster_name: "doghouse"

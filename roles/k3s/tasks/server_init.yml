@@ -10,15 +10,14 @@
       server --cluster-init
       --write-kubeconfig-mode {{ k3s_kubeconfig_mode }}
       {% set vip_san = [k3s_kube_vip_address] if (k3s_kube_vip_enabled and k3s_kube_vip_address) else [] %}
-      {% set dns_san = [k3s_api_dns_name] if k3s_api_dns_name else [] %}
-      {% for san in (k3s_tls_sans + [inventory_hostname, ansible_host] + vip_san + dns_san) | unique %}
+      {% for san in (k3s_tls_sans + [inventory_hostname, ansible_host] + vip_san ) | unique %}
       --tls-san {{ san }}
       {% endfor %}
       {% for c in k3s_disable_components %}
       --disable {{ c }}
       {% endfor %}
 
-- ansible.builtin.include_tasks: _install_server.yml
+- ansible.builtin.include_tasks: _install.yml
 
 - name: Ensure k3s service is enabled and started
   ansible.builtin.service:

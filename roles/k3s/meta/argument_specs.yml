@@ -51,9 +51,9 @@
   k3s_kubeconfig_local_path:
     type: str
     default: ""
-  k3s_api_dns_name:
+  k3s_cluster_name:
     type: str
-    default: ""
+    default: "default"
 
 argument_specs:
   server_init:
