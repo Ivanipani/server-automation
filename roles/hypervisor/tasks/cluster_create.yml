@@ -1,6 +1,7 @@
 ---
-# Creates the Proxmox cluster on the master node (proxmox_control_nodes[0]).
-# Idempotent: skipped when /etc/pve/corosync.conf already exists.
+# Creates the Proxmox cluster on the master node (first host in the
+# `baremetal` group, sorted). Idempotent: skipped when
+# /etc/pve/corosync.conf already exists.
 
 - name: Check for existing corosync.conf
   ansible.builtin.stat:

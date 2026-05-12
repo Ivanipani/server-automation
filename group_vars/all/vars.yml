@@ -16,23 +16,3 @@ opnsense_api_key: "{{ vault_opnsense_api_key }}"
 opnsense_api_secret: "{{ vault_opnsense_api_secret }}"
 proxmox_api_token: "{{ vault_proxmox_api_token }}"
 k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
-
-proxmox_control_nodes:
-  - hostname: pve-home-01
-    address: 10.1.1.105
-    mac: "18:60:24:dc:b7:32"
-  - hostname: pve-home-02
-    address: 10.1.1.106
-    mac: "b0:0c:d1:6f:a6:7d"
-  - hostname: pve-home-03
-    address: 10.1.1.107
-    mac: "e4:e7:49:47:dc:bf"
-
-router_nodes:
-  - hostname: heimdall
-    address: 10.1.1.1
-
-switch_nodes:
-  - hostname: router-01
-    address: 10.1.1.102
-    mac: "04:f4:1c:82:e0:ff"

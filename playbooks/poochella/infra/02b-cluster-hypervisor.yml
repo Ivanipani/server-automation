@@ -1,9 +1,9 @@
 ---
 # Forms a Proxmox VE cluster from group `baremetal`.
-# proxmox_control_nodes[0] runs `pvecm create`; remaining nodes join via
+# The first host (sorted) runs `pvecm create`; remaining nodes join via
 # `pvecm add <master> --use_ssh 1`. Idempotent — re-running on a healthy
-# cluster is a no-op; appending a node to proxmox_control_nodes joins it
-# on the next run.
+# cluster is a no-op; appending a host to the `baremetal` group in
+# inventory.yaml joins it on the next run.
 #
 # Pre-condition: 02-bootstrap-hypervisor.yml has run (the `ansible` user
 # with sudo NOPASSWD exists on each host). Joiners must be fresh PVE
@@ -25,7 +25,7 @@
     - ansible.builtin.import_role:
         name: hypervisor
         tasks_from: cluster_create.yml
-      when: inventory_hostname == proxmox_control_nodes[0].hostname
+      when: inventory_hostname == (groups['baremetal'] | sort)[0]
 
 - name: Join remaining nodes to cluster
   hosts: baremetal
@@ -35,4 +35,4 @@
     - ansible.builtin.import_role:
         name: hypervisor
         tasks_from: cluster_join.yml
-      when: inventory_hostname != proxmox_control_nodes[0].hostname
+      when: inventory_hostname != (groups['baremetal'] | sort)[0]

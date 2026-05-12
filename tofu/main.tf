@@ -1,13 +1,13 @@
 resource "proxmox_virtual_environment_vm" "vm" {
-  for_each = var.vms
+  for_each = local.vms_from_inventory
 
   name        = each.value.hostname
   description = each.key
-  node_name   = each.value.node != null ? each.value.node : var.proxmox_node
+  node_name   = each.value.node
   tags        = each.value.tags
 
   clone {
-    vm_id = each.value.template_id != null ? each.value.template_id : var.template_vm_id
+    vm_id = each.value.template_id != null ? each.value.template_id : local.template_vm_id
     full  = true
   }
 
@@ -43,7 +43,8 @@ resource "proxmox_virtual_environment_vm" "vm" {
   }
 
   network_device {
-    bridge = "vmbr0"
+    bridge      = "vmbr0"
+    mac_address = each.value.mac_address
   }
 
   lifecycle {
@@ -51,55 +52,55 @@ resource "proxmox_virtual_environment_vm" "vm" {
   }
 }
 
-resource "proxmox_virtual_environment_container" "ct" {
-  for_each = var.containers
-
-  node_name    = var.proxmox_node
-  tags         = each.value.tags
-  unprivileged = each.value.unprivileged
-
-  initialization {
-    hostname = each.value.hostname
-
-    ip_config {
-      ipv4 {
-        address = each.value.ip_address
-        gateway = each.value.ip_address != "dhcp" ? each.value.gateway : null
-      }
-    }
-
-  }
-
-  console {
-    enabled   = true
-    tty_count = 2
-    type      = "tty"
-  }
-
-  cpu {
-    cores = each.value.cores
-  }
-
-  memory {
-    dedicated = each.value.memory
-    swap      = each.value.swap
-  }
-
-  disk {
-    datastore_id = "local-zfs"
-    size         = each.value.disk_size
-  }
-
-  network_interface {
-    name   = "eth0"
-    bridge = "vmbr0"
-  }
-
-  clone {
-    vm_id = var.template_ct_id
-  }
-
-  features {
-    nesting = true
-  }
-}
+# resource "proxmox_virtual_environment_container" "ct" {
+#   for_each = var.containers
+#
+#   node_name    = var.proxmox_node
+#   tags         = each.value.tags
+#   unprivileged = each.value.unprivileged
+#
+#   initialization {
+#     hostname = each.value.hostname
+#
+#     ip_config {
+#       ipv4 {
+#         address = each.value.ip_address
+#         gateway = each.value.ip_address != "dhcp" ? each.value.gateway : null
+#       }
+#     }
+#
+#   }
+#
+#   console {
+#     enabled   = true
+#     tty_count = 2
+#     type      = "tty"
+#   }
+#
+#   cpu {
+#     cores = each.value.cores
+#   }
+#
+#   memory {
+#     dedicated = each.value.memory
+#     swap      = each.value.swap
+#   }
+#
+#   disk {
+#     datastore_id = "local-zfs"
+#     size         = each.value.disk_size
+#   }
+#
+#   network_interface {
+#     name   = "eth0"
+#     bridge = "vmbr0"
+#   }
+#
+#   clone {
+#     vm_id = local.template_ct_id
+#   }
+#
+#   features {
+#     nesting = true
+#   }
+# }

@@ -75,10 +75,10 @@ install:
     ansible-galaxy install -r requirements.yml
 
 
-# symlink servers.yml into $HOME. Allows other projects to use this inventory as the source of truth
-symlink-servers:
+# symlink inventory.yaml into $HOME. Allows other projects to use this inventory as the source of truth
+symlink-inventory:
   mkdir -p "$HOME/.ansible/inventory"
-  ln -sf {{pwd}}/servers.yml "$HOME/.ansible/inventory/servers.yml"
+  ln -sf {{pwd}}/inventory.yaml "$HOME/.ansible/inventory/inventory.yaml"
 
 
 # Run a playbook
@@ -98,7 +98,7 @@ test: check
         echo "No tags selected."
         exit 0
     fi
-    ansible-playbook -i servers.yml test/test.yml --tags "$tags"
+    ansible-playbook -i inventory.yaml test/test.yml --tags "$tags"
 
 tofu-validate:
     cd tofu && tofu validate

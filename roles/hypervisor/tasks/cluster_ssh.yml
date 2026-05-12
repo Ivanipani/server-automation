@@ -39,8 +39,8 @@
     path: /etc/hosts
     marker: "# {mark} ANSIBLE MANAGED: pve-cluster"
     block: |
-      {% for node in proxmox_control_nodes %}
-      {{ node.address }} {{ node.hostname }}
+      {% for h in (groups['baremetal'] | sort) %}
+      {{ hostvars[h].ip_address }} {{ h }}
       {% endfor %}
 
 - name: Configure root SSH client for cluster peers
@@ -52,8 +52,8 @@
     mode: "0600"
     marker: "# {mark} ANSIBLE MANAGED: pve-cluster"
     block: |
-      {% for node in proxmox_control_nodes %}
-      Host {{ node.hostname }} {{ node.address }}
+      {% for h in (groups['baremetal'] | sort) %}
+      Host {{ h }} {{ hostvars[h].ip_address }}
           StrictHostKeyChecking accept-new
           UserKnownHostsFile /root/.ssh/known_hosts
       {% endfor %}

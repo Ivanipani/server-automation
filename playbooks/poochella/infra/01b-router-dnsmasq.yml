@@ -27,10 +27,28 @@
       api_secret: "{{ opnsense_api_secret }}"
       ssl_verify: false
   vars:
-    dnsmasq_static_leases: "{{ proxmox_control_nodes + switch_nodes }}"
     # Auto-register DHCP-leased VMs/CTs as <hostname>.lan in DNS so cloned
     # nodes are reachable by name without static reservations.
     dnsmasq_register_dynamic_dns: true
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  pre_tasks:
+    # Build the static-lease list from inventory hostvars: every host with
+    # both `mac_address` and `ip_address` defined gets a reservation,
+    # unless it has `static_ip: true` (router itself).
+    - name: Build static-lease list from inventory hostvars
+      ansible.builtin.set_fact:
+        dnsmasq_static_leases: >-
+          {{
+            dnsmasq_static_leases | default([]) + [{
+              'hostname': item,
+              'address': hostvars[item].ip_address,
+              'mac': hostvars[item].mac_address
+            }]
+          }}
+      loop: "{{ groups['all'] | sort }}"
+      when:
+        - hostvars[item].mac_address is defined
+        - hostvars[item].ip_address is defined
+        - not (hostvars[item].static_ip | default(false))
   roles:
     - role: opnsense-dnsmasq
