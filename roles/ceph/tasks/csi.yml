@@ -1,0 +1,46 @@
+---
+# Export the bits ceph-csi needs to bind to the cluster:
+#   - cluster fsid
+#   - mon endpoints (IP:6789 list)
+#   - keyring for client.{{ ceph_csi_user }} (created if missing)
+#
+# Facts published onto hostvars['localhost'] so the next play
+# (which targets localhost) can read them without touching disk:
+#   ceph_csi_fsid, ceph_csi_mon_endpoints, ceph_csi_user_key
+#
+# Pre-conditions:
+#   - cluster.yml has run; mons quorate and kube-rbd pool exists.
+
+- name: Read cluster fsid
+  ansible.builtin.command: ceph fsid
+  register: ceph_fsid_out
+  changed_when: false
+
+- name: Read mon dump for endpoint list
+  ansible.builtin.command: ceph mon dump -f json
+  register: ceph_mon_dump
+  changed_when: false
+
+- name: Create-or-get the ceph-csi user
+  ansible.builtin.command: >-
+    ceph auth get-or-create client.{{ ceph_csi_user }}
+    mon 'profile rbd'
+    osd 'profile rbd pool={{ ceph_pool_kube_rbd.name }}'
+    mgr 'profile rbd pool={{ ceph_pool_kube_rbd.name }}'
+  register: ceph_csi_auth_out
+  changed_when: false                         # get-or-create is idempotent
+
+- name: Publish ceph-csi facts onto localhost
+  ansible.builtin.set_fact:
+    ceph_csi_fsid: "{{ ceph_fsid_out.stdout | trim }}"
+    ceph_csi_mon_endpoints: >-
+      {{ (ceph_mon_dump.stdout | from_json).mons
+         | map(attribute='public_addr')
+         | map('regex_replace', '/.*$', '')
+         | list }}
+    ceph_csi_user_key: "{{ ceph_csi_auth_out.stdout | regex_search('key\\s*=\\s*(\\S+)', '\\1') | first }}"
+    ceph_csi_rbd_pool_name: "{{ ceph_pool_kube_rbd.name }}"
+    ceph_csi_user_name: "{{ ceph_csi_user }}"
+  delegate_to: localhost
+  delegate_facts: true
+  run_once: true

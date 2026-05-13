@@ -1,0 +1,20 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ ceph_csi_storage_class_name }}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "{{ ceph_csi_storage_class_default | string | lower }}"
+provisioner: rbd.csi.ceph.com
+parameters:
+  clusterID: {{ ceph_csi_fsid }}
+  pool: {{ ceph_csi_rbd_pool_name }}
+  imageFeatures: {{ ceph_csi_image_features }}
+  csi.storage.k8s.io/provisioner-secret-name: {{ ceph_csi_secret_name }}
+  csi.storage.k8s.io/provisioner-secret-namespace: {{ ceph_csi_namespace }}
+  csi.storage.k8s.io/controller-expand-secret-name: {{ ceph_csi_secret_name }}
+  csi.storage.k8s.io/controller-expand-secret-namespace: {{ ceph_csi_namespace }}
+  csi.storage.k8s.io/node-stage-secret-name: {{ ceph_csi_secret_name }}
+  csi.storage.k8s.io/node-stage-secret-namespace: {{ ceph_csi_namespace }}
+  csi.storage.k8s.io/fstype: ext4
+reclaimPolicy: {{ ceph_csi_reclaim_policy }}
+allowVolumeExpansion: {{ ceph_csi_allow_volume_expansion | string | lower }}

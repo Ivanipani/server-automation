@@ -22,7 +22,7 @@ check:
     echo "Checking control node dependencies..."
 
     # Check required CLI tools
-    for cmd in ansible ansible-playbook ansible-vault ssh fzf; do
+    for cmd in ansible ansible-playbook ansible-vault ssh fzf helm; do
         if which "$cmd" > /dev/null 2>&1; then
             echo "  ✓ $cmd"
         else
@@ -37,7 +37,7 @@ check:
         echo "  ✗ Could not determine ansible's Python interpreter"
         errors=$((errors + 1))
     else
-        for pkg in passlib; do
+        for pkg in passlib kubernetes; do
             if "$ansible_python" -c "import $pkg" 2>/dev/null; then
                 echo "  ✓ Python package: $pkg"
             else
@@ -48,7 +48,7 @@ check:
     fi
 
     # Check required Ansible collections
-    for collection in community.general community.postgresql ansible.posix oxlorg.opnsense; do
+    for collection in community.general community.postgresql ansible.posix kubernetes.core oxlorg.opnsense; do
         if ansible-galaxy collection list "$collection" 2>/dev/null | grep -q "$collection"; then
             echo "  ✓ Ansible collection: $collection"
         else
@@ -70,7 +70,7 @@ check:
 # Install all dependencies needed for this project
 install:
     echo "Installing ansible..."
-    uv tool install ansible-core --with passlib --with httpx --force
+    uv tool install ansible-core --with passlib --with httpx --with kubernetes --force
     echo "Installing required ansible collections..."
     ansible-galaxy install -r requirements.yml
 
@@ -156,9 +156,10 @@ do-hypervisor-init:
 do-cluster-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02b-cluster-hypervisor.yml
 
-# Partition the boot disk into ceph-osd + longhorn partitions.
-# DESTRUCTIVE on first run — requires `confirm_carve_data_disk: true`
-# in group_vars/baremetal.yml AND PVE installed with `lvm.hdsize = 100`.
+# Carve the boot disk into a single ceph-osd partition spanning the
+# unallocated tail. DESTRUCTIVE on first run — requires
+# `confirm_carve_data_disk: true` in group_vars/baremetal.yml AND PVE
+# installed with `lvm.hdsize = 100`.
 do-partition-disks:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03-partition-disks.yml
 
@@ -166,6 +167,11 @@ do-partition-disks:
 # to have been run first.
 do-ceph-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03b-install-ceph.yml
+
+# Install ceph-csi-rbd against the cluster (Helm release + StorageClass).
+# Requires k3s cluster up and kubeconfig present at repo root.
+do-ceph-csi:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/10-install-ceph-csi.yml
 
 # Configure OPNsense dnsmasq static leases for baremetal
 do-router-dhcp:

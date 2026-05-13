@@ -75,10 +75,29 @@
   changed_when: true                          # pvesm set is idempotent at config-file level
   run_once: true
 
+# ─────────────────────── RBD pool: kube-rbd (run-once) ─────────
+- name: Create RBD pool for Kubernetes (ceph-csi)
+  ansible.builtin.command: >-
+    pveceph pool create {{ ceph_pool_kube_rbd.name }}
+    --size 3
+    --min_size 2
+    --pg_num {{ ceph_pool_kube_rbd.pg_num }}
+    --pg_autoscale_mode on
+    --target_size_ratio {{ ceph_pool_kube_rbd.target_size_ratio }}
+  changed_when: true
+  run_once: true
+  when: ceph_pool_kube_rbd.name not in ceph_pools.stdout_lines
+
+- name: Initialize RBD application metadata on the kube-rbd pool
+  ansible.builtin.command: "rbd pool init {{ ceph_pool_kube_rbd.name }}"
+  changed_when: false                         # idempotent; re-runs are no-ops
+  run_once: true
+
 - name: Storage bootstrap complete — next steps
   ansible.builtin.debug:
     msg: |
       Ceph cluster ready.
         - PVE storage: {{ ceph_pool_vms.name }} (RBD) registered for VM disks.
+        - K8s storage: {{ ceph_pool_kube_rbd.name }} (RBD) ready for ceph-csi.
         - RGW (S3) endpoint: http://{{ inventory_hostname_short }}:{{ ceph_rgw_port }}/
   run_once: true

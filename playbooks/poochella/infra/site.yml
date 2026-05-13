@@ -13,3 +13,4 @@
 - import_playbook: 07-firewall.yml
 - import_playbook: 08-tailscale.yml
 - import_playbook: 09-install-kubernetes.yml
+- import_playbook: 10-install-ceph-csi.yml

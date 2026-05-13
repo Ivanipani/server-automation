@@ -1,0 +1,10 @@
+---
+# ceph-csi role dispatcher — orchestration is in 10-install-ceph-csi.yml,
+# which imports tasks_from per play. This file exists for
+# `roles: [ceph-csi]` entry-point compatibility.
+
+- name: ceph-csi role default entry-point is unused — see 10-install-ceph-csi.yml
+  ansible.builtin.debug:
+    msg: >-
+      Use `tasks_from:` to invoke specific stages (install).
+  run_once: true

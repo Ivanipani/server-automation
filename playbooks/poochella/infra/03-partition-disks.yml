@@ -1,7 +1,7 @@
 ---
-# Partition the boot disk on each baremetal node into ceph-osd +
-# longhorn partitions. Storage engines (Ceph, Longhorn) are installed
-# by separate playbooks that consume these partitions.
+# Partition the boot disk on each baremetal node into a single
+# ceph-osd partition spanning the unallocated tail. The Ceph install
+# (03b-install-ceph.yml) consumes that partition as the OSD device.
 #
 # DESTRUCTIVE on first run: partitions unallocated space at the end of
 # each node's boot disk. Refuses to run unless `confirm_carve_data_disk:
@@ -23,7 +23,7 @@
         name: hypervisor-disks
         tasks_from: preflight.yml
 
-- name: Carve ceph-osd + longhorn partitions on the boot disk
+- name: Carve ceph-osd partition on the boot disk
   hosts: baremetal
   become: true
   tasks:

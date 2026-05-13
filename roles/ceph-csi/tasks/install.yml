@@ -1,0 +1,111 @@
+---
+# Install ceph-csi-rbd against the existing k3s cluster from localhost.
+#
+# Required facts (published by `roles/ceph` tasks_from `csi.yml` in a
+# prior play): ceph_csi_fsid, ceph_csi_mon_endpoints, ceph_csi_user_key,
+# ceph_csi_rbd_pool_name, ceph_csi_user_name.
+
+- name: Assert ceph-csi facts are populated
+  ansible.builtin.assert:
+    that:
+      - ceph_csi_fsid is defined and ceph_csi_fsid | length > 0
+      - ceph_csi_mon_endpoints is defined and ceph_csi_mon_endpoints | length > 0
+      - ceph_csi_user_key is defined and ceph_csi_user_key | length > 0
+      - ceph_csi_rbd_pool_name is defined and ceph_csi_rbd_pool_name | length > 0
+      - ceph_csi_user_name is defined and ceph_csi_user_name | length > 0
+    fail_msg: >-
+      ceph-csi facts missing. Did the `Capture ceph-csi facts from the
+      cluster` play (importing roles/ceph tasks_from csi.yml) run first?
+
+- name: Assert helm CLI is available on the controller
+  ansible.builtin.command: helm version --short
+  register: helm_version
+  changed_when: false
+  failed_when: helm_version.rc != 0
+
+- name: Assert kubeconfig is readable
+  ansible.builtin.stat:
+    path: "{{ ceph_csi_kubeconfig }}"
+  register: kubeconfig_stat
+  failed_when: not kubeconfig_stat.stat.exists
+
+- name: Add the ceph-csi Helm repo
+  kubernetes.core.helm_repository:
+    name: "{{ ceph_csi_helm_repo_name }}"
+    repo_url: "{{ ceph_csi_helm_repo_url }}"
+
+- name: Ensure the ceph-csi namespace exists
+  kubernetes.core.k8s:
+    kubeconfig: "{{ ceph_csi_kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ ceph_csi_namespace }}"
+
+- name: Apply the ceph-csi RBD credentials Secret
+  kubernetes.core.k8s:
+    kubeconfig: "{{ ceph_csi_kubeconfig }}"
+    state: present
+    definition: "{{ lookup('template', 'csi-secret.yaml.j2') | from_yaml }}"
+
+- name: Install/upgrade the ceph-csi-rbd Helm release
+  kubernetes.core.helm:
+    kubeconfig: "{{ ceph_csi_kubeconfig }}"
+    name: "{{ ceph_csi_release_name }}"
+    chart_ref: "{{ ceph_csi_helm_chart_ref }}"
+    chart_version: "{{ ceph_csi_helm_chart_version }}"
+    release_namespace: "{{ ceph_csi_namespace }}"
+    create_namespace: false
+    values: "{{ lookup('template', 'values-rbd.yaml.j2') | from_yaml }}"
+    wait: true
+
+- name: Apply the ceph-rbd StorageClass
+  kubernetes.core.k8s:
+    kubeconfig: "{{ ceph_csi_kubeconfig }}"
+    state: present
+    definition: "{{ lookup('template', 'storage-class-rbd.yaml.j2') | from_yaml }}"
+
+- name: Wait for ceph-csi-rbd provisioner Deployment to be Ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ ceph_csi_kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ ceph_csi_namespace }}"
+    label_selectors:
+      - "app=ceph-csi-rbd"
+      - "component=provisioner"
+  register: csi_provisioner
+  retries: 30
+  delay: 2
+  until: >
+    csi_provisioner.resources | length > 0 and
+    (csi_provisioner.resources
+     | map(attribute='status.readyReplicas', default=0)
+     | map('int') | min) >= 1
+
+- name: Wait for ceph-csi-rbd nodeplugin DaemonSet to be Ready
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ ceph_csi_kubeconfig }}"
+    api_version: apps/v1
+    kind: DaemonSet
+    namespace: "{{ ceph_csi_namespace }}"
+    label_selectors:
+      - "app=ceph-csi-rbd"
+      - "component=nodeplugin"
+  register: csi_nodeplugin
+  retries: 30
+  delay: 2
+  until: >
+    csi_nodeplugin.resources | length > 0 and
+    (csi_nodeplugin.resources[0].status.numberReady | default(0) | int) >=
+    (csi_nodeplugin.resources[0].status.desiredNumberScheduled | default(1) | int)
+
+- name: ceph-csi-rbd ready — summary
+  ansible.builtin.debug:
+    msg: |
+      ceph-csi-rbd installed.
+        - Namespace: {{ ceph_csi_namespace }}
+        - StorageClass: {{ ceph_csi_storage_class_name }}{% if ceph_csi_storage_class_default %} (cluster default){% endif %}
+        - RBD pool: {{ ceph_csi_rbd_pool_name }} (user: client.{{ ceph_csi_user_name }})

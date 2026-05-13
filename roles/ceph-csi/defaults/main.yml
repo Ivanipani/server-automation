@@ -1,0 +1,24 @@
+---
+# ceph-csi-rbd installation on the k3s cluster.
+# Runs from localhost (the user's laptop) using local helm + kubeconfig.
+# Consumes facts published by `roles/ceph` tasks_from `csi.yml`:
+#   ceph_csi_fsid, ceph_csi_mon_endpoints, ceph_csi_user_key,
+#   ceph_csi_rbd_pool_name, ceph_csi_user_name.
+
+ceph_csi_namespace: ceph-csi
+ceph_csi_storage_class_name: ceph-rbd
+ceph_csi_storage_class_default: true            # mark as cluster-default SC
+ceph_csi_reclaim_policy: Delete
+ceph_csi_allow_volume_expansion: true
+ceph_csi_image_features: layering               # safe default for k3s kernel
+ceph_csi_secret_name: ceph-csi-rbd-secret
+ceph_csi_release_name: ceph-csi-rbd
+
+ceph_csi_helm_repo_name: ceph-csi
+ceph_csi_helm_repo_url: https://ceph.github.io/csi-charts
+ceph_csi_helm_chart_ref: ceph-csi/ceph-csi-rbd
+ceph_csi_helm_chart_version: "3.13.0"
+
+# Local kubeconfig used to reach the k3s cluster. Defaults to the
+# repo-root path the k3s role drops it at.
+ceph_csi_kubeconfig: "{{ playbook_dir }}/../../../kubeconfig"

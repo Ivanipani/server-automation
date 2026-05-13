@@ -1,0 +1,29 @@
+---
+# Install ceph-csi-rbd against the existing Ceph cluster.
+#
+# 1. (baremetal) Capture fsid + mon endpoints + create the
+#    client.{{ ceph_csi_user }} user, publish as facts on localhost.
+# 2. (localhost) Helm install ceph-csi-rbd + Secret + StorageClass
+#    using the laptop's helm CLI and kubeconfig.
+#
+# Pre-conditions:
+#   - 03b-install-ceph.yml completed (kube-rbd pool exists)
+#   - 09-install-kubernetes.yml completed (kubeconfig at repo root)
+#   - Laptop has helm CLI + `kubernetes` python lib (see `just check`)
+
+- name: Capture ceph-csi facts from the cluster
+  hosts: baremetal[0]
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: csi.yml
+
+- name: Install ceph-csi-rbd on k3s from the laptop
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph-csi
+        tasks_from: install.yml

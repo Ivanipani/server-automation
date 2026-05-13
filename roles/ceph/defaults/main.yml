@@ -3,9 +3,10 @@
 # Disk partitioning is OWNED BY the `hypervisor-disks` role; this role
 # only consumes the `ceph-osd` GPT partition it produces.
 #
-# The role provides RBD storage for PVE guests and an RGW S3 endpoint.
-# It does NOT manage Kubernetes-facing storage (no ceph-csi pools,
-# users, or bundles) — keep K8s storage in a separate role/playbook.
+# Owns the Ceph data plane end-to-end: OSDs, the `vms` RBD pool
+# (PVE-facing), the `kube-rbd` RBD pool + `client.kubernetes` user
+# (consumed by `roles/ceph-csi`), and the RGW S3 endpoint. The
+# k8s-side Helm install lives in `roles/ceph-csi`.
 
 ceph_release: squid
 ceph_public_network: 10.1.1.0/24
@@ -20,6 +21,16 @@ ceph_pool_vms:
   pg_num: 32
   target_size_ratio: 0.6
   add_storages: true                          # registers as PVE RBD storage
+
+# ── Pool: Kubernetes (ceph-csi RBD) ────────────────────────────────────
+# No `add_storages` — this pool is for ceph-csi, NOT PVE.
+ceph_pool_kube_rbd:
+  name: kube-rbd
+  pg_num: 32
+  target_size_ratio: 0.2
+
+# Scoped ceph user that ceph-csi binds to (caps: rbd profile on kube-rbd).
+ceph_csi_user: kubernetes
 
 # ── RGW (S3 object storage) ────────────────────────────────────────────
 ceph_rgw_name: poochella

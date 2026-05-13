@@ -5,11 +5,12 @@ proxmox_cluster_name: usfa
 # Storage partitioning (consumed by 03-partition-disks.yml).
 # DESTRUCTIVE: setting `confirm_carve_data_disk: true` authorizes the
 # playbook to partition the unallocated space at the end of the boot
-# disk per the `hypervisor_disks_partitions` list (defaults to a
-# ceph-osd + longhorn pair, see roles/hypervisor-disks/defaults/main.yml).
-# Requires PVE installed with `lvm.hdsize = 100` so that ~900 GB is
-# unpartitioned and available. Only set this on a freshly-installed
-# node with no VMs/containers.
+# disk per the `hypervisor_disks_partitions` list (defaults to a single
+# ceph-osd partition spanning the unallocated tail, see
+# roles/hypervisor-disks/defaults/main.yml). Requires PVE installed
+# with `lvm.hdsize = 100` so that ~900 GB is unpartitioned and
+# available. Only set this on a freshly-installed node with no
+# VMs/containers.
 confirm_carve_data_disk: true
 ceph_public_network: 10.1.1.0/24
 

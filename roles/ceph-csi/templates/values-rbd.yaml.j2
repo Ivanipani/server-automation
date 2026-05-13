@@ -1,0 +1,16 @@
+csiConfig:
+  - clusterID: "{{ ceph_csi_fsid }}"
+    monitors:
+{% for m in ceph_csi_mon_endpoints %}
+      - "{{ m }}"
+{% endfor %}
+
+provisioner:
+  replicaCount: 2
+
+nodeplugin:
+  # k3s ≥ v0.10 uses the standard kubelet root path. Set explicitly
+  # for clarity even though it matches the chart default.
+  kubeletDir: /var/lib/kubelet
+
+selinuxMount: false
