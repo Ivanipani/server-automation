@@ -1,0 +1,107 @@
+---
+- name: Disable node_exporter
+  when: not node_exporter_enabled
+  block:
+    - name: Check if node_exporter unit exists
+      ansible.builtin.stat:
+        path: /etc/systemd/system/node_exporter.service
+      register: node_exporter_unit
+
+    - name: Stop and disable node_exporter
+      ansible.builtin.systemd_service:
+        name: node_exporter
+        state: stopped
+        enabled: false
+      when: node_exporter_unit.stat.exists
+
+- name: Install and enable node_exporter
+  when: node_exporter_enabled
+  block:
+    - name: Ensure node_exporter group exists
+      ansible.builtin.group:
+        name: "{{ node_exporter_group }}"
+        system: true
+        state: present
+
+    - name: Ensure node_exporter user exists
+      ansible.builtin.user:
+        name: "{{ node_exporter_user }}"
+        group: "{{ node_exporter_group }}"
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+        home: /nonexistent
+        state: present
+
+    - name: Check if node_exporter is already installed
+      ansible.builtin.stat:
+        path: "{{ node_exporter_bin }}"
+      register: node_exporter_check
+
+    - name: Check node_exporter version
+      ansible.builtin.command:
+        cmd: "{{ node_exporter_bin }} --version"
+      register: node_exporter_version_check
+      changed_when: false
+      failed_when: false
+      when: node_exporter_check.stat.exists
+
+    - name: Install node_exporter
+      when: >-
+        not node_exporter_check.stat.exists
+        or node_exporter_version not in (node_exporter_version_check.stdout | default(''))
+      block:
+        - name: Ensure node_exporter install dir exists
+          ansible.builtin.file:
+            path: "{{ node_exporter_install_dir }}"
+            state: directory
+            owner: "{{ node_exporter_user }}"
+            group: "{{ node_exporter_group }}"
+            mode: "0755"
+
+        - name: Download node_exporter release tarball
+          ansible.builtin.get_url:
+            url: "{{ node_exporter_url }}"
+            dest: /tmp/node_exporter.tgz
+            mode: "0644"
+
+        - name: Extract node_exporter tarball
+          ansible.builtin.unarchive:
+            src: /tmp/node_exporter.tgz
+            dest: "{{ node_exporter_install_dir }}"
+            remote_src: true
+            extra_opts: ["--strip-components=1"]
+            owner: "{{ node_exporter_user }}"
+            group: "{{ node_exporter_group }}"
+          notify: "restart node_exporter"
+
+        - name: Symlink node_exporter binary into /usr/local/bin
+          ansible.builtin.file:
+            src: "{{ node_exporter_bin }}"
+            dest: /usr/local/bin/node_exporter
+            state: link
+            force: true
+
+    - name: Ensure node_exporter textfile collector dir exists
+      ansible.builtin.file:
+        path: "{{ node_exporter_textfile_dir }}"
+        state: directory
+        owner: "{{ node_exporter_user }}"
+        group: "{{ node_exporter_group }}"
+        mode: "0755"
+
+    - name: Install node_exporter systemd unit
+      ansible.builtin.template:
+        src: node_exporter.service.j2
+        dest: /etc/systemd/system/node_exporter.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: "restart node_exporter"
+
+    - name: Enable and start node_exporter
+      ansible.builtin.systemd_service:
+        name: node_exporter
+        daemon_reload: true
+        state: started
+        enabled: true

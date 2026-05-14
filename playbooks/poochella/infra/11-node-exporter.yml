@@ -1,0 +1,6 @@
+---
+- name: Install Prometheus node_exporter on hypervisors
+  hosts: baremetal
+  become: true
+  roles:
+    - role: node-exporter

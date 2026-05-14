@@ -37,7 +37,7 @@ check:
         echo "  ✗ Could not determine ansible's Python interpreter"
         errors=$((errors + 1))
     else
-        for pkg in passlib kubernetes; do
+        for pkg in passlib ; do
             if "$ansible_python" -c "import $pkg" 2>/dev/null; then
                 echo "  ✓ Python package: $pkg"
             else
@@ -48,7 +48,7 @@ check:
     fi
 
     # Check required Ansible collections
-    for collection in community.general community.postgresql ansible.posix kubernetes.core oxlorg.opnsense; do
+    for collection in community.general community.postgresql ansible.posix oxlorg.opnsense; do
         if ansible-galaxy collection list "$collection" 2>/dev/null | grep -q "$collection"; then
             echo "  ✓ Ansible collection: $collection"
         else
@@ -70,7 +70,7 @@ check:
 # Install all dependencies needed for this project
 install:
     echo "Installing ansible..."
-    uv tool install ansible-core --with passlib --with httpx --with kubernetes --force
+    uv tool install ansible-core --with passlib --with httpx --force
     echo "Installing required ansible collections..."
     ansible-galaxy install -r requirements.yml
 
@@ -176,3 +176,7 @@ do-ceph-csi:
 # Configure OPNsense dnsmasq static leases for baremetal
 do-router-dhcp:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/01b-router-dnsmasq.yml
+
+# Install Prometheus node_exporter on Proxmox baremetal hosts
+do-node-exporter:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/11-node-exporter.yml

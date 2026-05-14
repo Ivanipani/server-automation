@@ -31,6 +31,15 @@
     # nodes are reachable by name without static reservations.
     dnsmasq_register_dynamic_dns: true
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    # DNS-only records. Wildcard *.doghouse.lan resolves to the MetalLB IP
+    # pinned for the Traefik ingress (see k3s HelmChartConfig override), so
+    # any Ingress host under doghouse.lan reaches the cluster's ingress.
+    dnsmasq_dns_records:
+      - host: ""
+        domain: doghouse.lan
+        ip: 10.1.1.250
+        local: true
+        description: lan-dns-doghouse-wildcard
   pre_tasks:
     # Build the static-lease list from inventory hostvars: every host with
     # both `mac_address` and `ip_address` defined gets a reservation,
