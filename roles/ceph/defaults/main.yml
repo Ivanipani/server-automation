@@ -38,3 +38,29 @@ ceph_rgw_port: 7480
 
 # ── Single-disk-on-everything mitigations ─────────────────────────────
 ceph_osd_memory_target: 2147483648            # 2 GiB (default 4 GiB pressures small hosts)
+
+# PG-per-OSD ceiling. Default 250 assumes many OSDs; with only 3 OSDs
+# the pg_autoscaler grows `vms` past it and silently blocks creating
+# further pools (kube-rbd). 500 gives the autoscaler headroom on a tiny
+# cluster; the real fix is more OSDs. Memory cost of more PGs/OSD is
+# offset by the osd_memory_target tuning above.
+ceph_mon_max_pg_per_osd: 500
+
+# Squid uses the mclock scheduler. `high_client_ops` deprioritizes
+# background work (recovery/backfill/scrub) in favour of client IO, so a
+# node rejoining (or an OSD coming back after a peer node's crash/reboot)
+# does not saturate the single shared 1GbE link and drag the healthy
+# nodes into token-timeout territory. Recovery still completes, just
+# without starving everything else. Profiles: balanced (default),
+# high_client_ops, high_recovery_ops.
+ceph_osd_mclock_profile: high_client_ops
+
+# ── ceph-osd@.service restart hardening ───────────────────────────────
+# A transient mon-unreachable window at OSD start (1GbE contention, or a
+# peer node in a reboot loop) must not permanently kill the OSD. With
+# the stock start-limit, osd.2 on pve-home-01 burned its restarts in
+# ~15 min and stayed down ~2 days (2026-05-15). 0 disables the
+# start-rate limiter (retry forever); RestartSec backs off between
+# attempts so a genuinely dead OSD loops slowly, not hot.
+ceph_osd_start_limit_interval_sec: 0
+ceph_osd_restart_sec: 60

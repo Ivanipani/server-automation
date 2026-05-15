@@ -33,6 +33,14 @@
         name: ceph
         tasks_from: cluster.yml
 
+- name: Harden ceph-osd@.service against transient mon-unreachable at start
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: ceph
+        tasks_from: osd_hardening.yml
+
 - name: Deploy RGW (S3 object storage) on first node
   hosts: baremetal[0]
   become: true

@@ -82,14 +82,46 @@
   register: ceph_mgr_dump
   changed_when: false
 
-- name: Compute set of existing mgr names
+- name: Compute set of running mgr names
   ansible.builtin.set_fact:
     existing_mgrs: >-
       {{ ([(ceph_mgr_dump.stdout | from_json).active_name | default('')]
           + ((ceph_mgr_dump.stdout | from_json).standbys | default([]) | map(attribute='name') | list))
          | reject('equalto', '') | list }}
 
+# `ceph mgr dump` only lists *running* mgrs (active + standbys). A mgr
+# that was created on this node but isn't running — daemon stopped, or
+# systemd gave up after the start-limit (the osd.2 failure mode) — is
+# absent from that map, so the running-map check alone re-runs
+# `pveceph mgr create` and fails with "manager directory already
+# exists". The on-disk data dir is the authoritative "this node has
+# been set up as a mgr" signal.
+- name: Check whether this node already has a mgr data directory
+  ansible.builtin.stat:
+    path: "/var/lib/ceph/mgr/ceph-{{ inventory_hostname_short }}"
+  register: mgr_data_dir
+
 - name: Create manager on this node
   ansible.builtin.command: pveceph mgr create
   changed_when: true
-  when: inventory_hostname_short not in existing_mgrs
+  when:
+    - inventory_hostname_short not in existing_mgrs
+    - not mgr_data_dir.stat.exists
+
+# Recover a created-but-not-running mgr (clears any systemd start-limit
+# first, mirroring the osd.2 recovery). Idempotent: a healthy running
+# mgr is left untouched.
+- name: Clear any systemd start-limit on a stopped mgr
+  ansible.builtin.command: "systemctl reset-failed ceph-mgr@{{ inventory_hostname_short }}.service"
+  changed_when: false
+  failed_when: false
+  when:
+    - mgr_data_dir.stat.exists
+    - inventory_hostname_short not in existing_mgrs
+
+- name: Ensure the mgr daemon is running and enabled
+  ansible.builtin.systemd_service:
+    name: "ceph-mgr@{{ inventory_hostname_short }}.service"
+    state: started
+    enabled: true
+  when: mgr_data_dir.stat.exists

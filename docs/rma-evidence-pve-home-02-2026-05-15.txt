@@ -1,0 +1,600 @@
+================================================================================
+POOCHELLA — SPONTANEOUS REBOOT EVIDENCE BUNDLE (refurbished HP ProDesk 600 G4 DM)
+Generated (UTC): 2026-05-15T17:51:27Z   |   All commands are READ-ONLY.
+Collector: /tmp/rma_collect.sh (documented in docs/poochella-stability-runbook.md App. B.3)
+================================================================================
+
+EXECUTIVE SUMMARY
+-----------------
+3x HP ProDesk 600 G4 DM (TAA), refurbished, IDENTICAL version-controlled config
+(Ansible/OpenTofu), kernel 6.17.2-1-pve, BIOS "HP Q22 Ver. 02.02.04" dated
+2018-08-06 (never updated, ~7 yr old), non-ECC DDR4.
+
+All three exhibit spontaneous UNCLEAN ("crash") reboots: a power-loss signature
+with no OS shutdown sequence, no kernel panic / OOM / machine-check / thermal
+event, and an empty firmware crash store (/sys/fs/pstore). wtmp history since
+2026-05-08:
+
+  NODE          UPTIME NOW                 UNCLEAN "crash" REBOOTS   PATTERN
+  pve-home-01   1d 19h (since 05-13 18:48)            3              05-08,05-10,05-12 then stable
+  pve-home-02   12 min                              711              crash-looping ~2-20 min, ONGOING 05-15
+  pve-home-03   12h (since 05-15 01:32)               4              05-08,05-10,05-12,05-13 then stable
+
+FINDINGS
+1. ALL THREE units spontaneously power-cycle. This is a BATCH / MODEL-WIDE
+   pattern across the refurbished units, NOT a single bad machine. (This
+   corrects the initial assumption that "only node 02 has problems" — 01 and
+   03 crash rarely enough to go unnoticed, but the logs prove they do too.)
+2. pve-home-02 is a SEVERE OUTLIER: 711 crashes vs 3-4 on its siblings, and is
+   actively crash-looping every few minutes right now. It has a unit-specific
+   acute fault ON TOP of the shared pattern -> clear RMA / replacement case.
+3. CORRELATED EVENT: pve-home-01 and pve-home-03 BOTH crashed within ~1 minute
+   of each other on Tue 2026-05-12 (~20:20-20:21). Independent per-unit
+   hardware faults do not synchronize. This points to a SHARED cause for the
+   background crashes: power delivery (UPS / PDU / outlet / circuit brownout)
+   or a common firmware/model defect. Investigate the shared power source.
+4. Common to all: a 2018 BIOS that was never updated, and non-ECC RAM (memory
+   faults are not self-reported). Recommend: BIOS update on all three +
+   memtest86+ per unit.
+
+RECOMMENDED ACTION SPLIT
+  A. pve-home-02: catastrophic unit-specific fault -> RMA / replace this unit.
+  B. Background batch crashes (01 & 03): check the shared power source first
+     (the near-simultaneous 05-12 crash is the key clue), then update the
+     7-year-old firmware on all units. May be a single environmental fix.
+
+Per-node raw captures follow (verbatim, read-only commands).
+
+
+
+################################################################################
+# RAW CAPTURE: pve-home-01
+################################################################################
+
+################################################################
+#  NODE: pve-home-01   (collected: 2026-05-15T13:49:54-04:00)
+################################################################
+
+========== STABILITY SUMMARY ==========
+uptime: up 1 day, 19 hours, 1 minute  (since 2026-05-13 18:48:04)
+unclean reboots in wtmp (last -x reboot | grep -c crash): 3
+boot epochs retained on disk (journalctl --list-boots): 5
+
+========== last -x reboot ==========
+reboot   system boot  6.17.2-1-pve     Wed May 13 18:48 - still running
+reboot   system boot  6.17.2-1-pve     Tue May 12 20:21 - crash 
+reboot   system boot  6.17.2-1-pve     Sun May 10 10:25 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May  8 18:38 - crash 
+
+wtmpdb begins Fri May  8 18:38:31 2026
+
+========== last -x shutdown  (clean shutdowns; expected NONE on a crashing unit) ==========
+
+wtmpdb begins Fri May  8 18:38:31 2026
+
+========== journalctl --list-boots ==========
+IDX BOOT ID                          FIRST ENTRY                 LAST ENTRY
+ -3 e39461ec7e3643cd8fa23a5b3353923d Fri 2026-05-08 18:38:36 EDT Sun 2026-05-10 01:04:27 EDT
+ -2 2b4982114c4345d6a9b90539e699a7a2 Sun 2026-05-10 10:25:20 EDT Tue 2026-05-12 20:20:46 EDT
+ -1 04b0a286c9f7497ab3835fc381678e34 Tue 2026-05-12 20:21:17 EDT Wed 2026-05-13 18:47:40 EDT
+  0 1675789e6360466490e28c48e23ccffe Wed 2026-05-13 18:48:10 EDT Fri 2026-05-15 13:49:54 EDT
+
+========== PREVIOUS BOOT (-b -1) LAST 40 LINES  (02: abrupt stop / 01,03: clean shutdown sequence) ==========
+May 13 18:47:26 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:26.942-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 2 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:27 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:27.907-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:27 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:27.907-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 2 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:28 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:28.887-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:28 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:28.887-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 2 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:28 pve-home-01 ceph-mon[1150]: 2026-05-13T18:47:28.984-0400 736053da96c0 -1 mon.pve-home-01@0(probing) e3 get_health_metrics reporting 26 slow ops, oldest is monmgrreport(gid 734118, 1 checks, 1 progress events)
+May 13 18:47:29 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:29.884-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:29 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:29.884-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 2 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:30 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:30.901-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:30 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:30.901-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 2 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:31 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:31.855-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:31 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:31.855-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 2 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:32 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:32.893-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:32 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:32.893-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 2 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:33 pve-home-01 pvestatd[1343]: got timeout
+May 13 18:47:33 pve-home-01 pvestatd[1343]: status update time (5.283 seconds)
+May 13 18:47:33 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:33.924-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:33 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:33.924-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 5 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:33 pve-home-01 ceph-mon[1150]: 2026-05-13T18:47:33.985-0400 736053da96c0 -1 mon.pve-home-01@0(probing) e3 get_health_metrics reporting 37 slow ops, oldest is monmgrreport(gid 734118, 1 checks, 1 progress events)
+May 13 18:47:34 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:34.949-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:34 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:34.949-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 5 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:35 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:35.968-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:35 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:35.968-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 5 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:36 pve-home-01 watchdog-mux[788]: client watchdog expired - disable watchdog updates
+May 13 18:47:36 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:36.973-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:36 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:36.974-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 5 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:37 pve-home-01 watchdog-mux[788]: exit watchdog-mux with active connections
+May 13 18:47:37 pve-home-01 systemd-journald[354]: Received client request to sync journal.
+May 13 18:47:37 pve-home-01 kernel: watchdog: watchdog0: watchdog did not stop!
+May 13 18:47:37 pve-home-01 systemd[1]: watchdog-mux.service: Deactivated successfully.
+May 13 18:47:37 pve-home-01 systemd[1]: watchdog-mux.service: Consumed 1.885s CPU time, 1.8M memory peak.
+May 13 18:47:37 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:37.963-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:37 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:37.963-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 5 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:38 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:38.973-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:38 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:38.973-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 5 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:38 pve-home-01 ceph-mon[1150]: 2026-05-13T18:47:38.985-0400 736053da96c0 -1 mon.pve-home-01@0(probing) e3 get_health_metrics reporting 50 slow ops, oldest is monmgrreport(gid 734118, 1 checks, 1 progress events)
+May 13 18:47:39 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:39.987-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+May 13 18:47:39 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:39.987-0400 7cb89b8456c0 -1 osd.2 622 get_health_metrics reporting 5 slow ops, oldest is osd_op(client.734382.0:597653 2.2a 2:547418f4:::rbd_data.19a8b964bf2a0.0000000000000090:head [write 4079616~8192 in=8192b] snapc 0=[] ondisk+write+known_if_redirected+supports_pool_eio e622)
+May 13 18:47:40 pve-home-01 ceph-osd[1414]: 2026-05-13T18:47:40.944-0400 7cb89b8456c0 -1 osd.2 622 heartbeat_check: no reply from 10.1.1.107:6804 osd.0 since back 2026-05-13T18:46:38.615659-0400 front 2026-05-13T18:46:38.615721-0400 (oldest deadline 2026-05-13T18:47:03.915554-0400)
+
+========== PREVIOUS BOOT KERNEL FAULT SCAN (panic/oom/mce/thermal/hung/oops) ==========
+May 12 20:21:17 pve-home-01 kernel: CPU0: Thermal monitoring enabled (TM1)
+May 12 20:21:17 pve-home-01 kernel: thermal_sys: Registered thermal governor 'fair_share'
+May 12 20:21:17 pve-home-01 kernel: thermal_sys: Registered thermal governor 'bang_bang'
+May 12 20:21:17 pve-home-01 kernel: thermal_sys: Registered thermal governor 'step_wise'
+May 12 20:21:17 pve-home-01 kernel: thermal_sys: Registered thermal governor 'user_space'
+May 12 20:21:17 pve-home-01 kernel: thermal_sys: Registered thermal governor 'power_allocator'
+May 12 20:21:17 pve-home-01 kernel: simple-framebuffer simple-framebuffer.0: [drm] Registered 1 planes with drm panic
+May 12 20:21:17 pve-home-01 kernel: e1000e 0000:00:1f.6: Interrupt Throttling Rate (ints/sec) set to dynamic conservative mode
+May 12 20:21:19 pve-home-01 kernel: i915 0000:00:02.0: [drm] Registered 3 planes with drm panic
+May 12 20:21:19 pve-home-01 kernel: softdog: initialized. soft_noboot=0 soft_margin=60 sec soft_panic=0 (nowayout=0)
+(if nothing printed above: NO software/kernel fault was logged before the power loss)
+
+========== /sys/fs/pstore  (firmware/kernel crash store; empty = no software crash captured) ==========
+total 0
+drwxr-x---  2 root root 0 May 13 18:48 .
+drwxr-xr-x 10 root root 0 May 15 13:48 ..
+
+========== HARDWARE IDENTITY — dmidecode system ==========
+	Manufacturer: HP
+	Product Name: HP MP9 G2 Retail System
+	Version:  
+	Serial Number: MXL74628LJ
+	UUID: 6ca12ef3-ce1b-11e7-9c43-bc0000fa0000
+	SKU Number: W5Y31UA#ABA
+	Family: 103C_5330US HP MP9
+
+========== HARDWARE IDENTITY — dmidecode baseboard ==========
+	Manufacturer: HP
+	Product Name: 8055
+	Version: KBC Version 05.36
+	Serial Number: PEWKU0M0Z893DS
+
+========== HARDWARE IDENTITY — dmidecode bios ==========
+	Vendor: HP
+	Version: N21 Ver. 02.24
+	Release Date: 06/05/2017
+	BIOS Revision: 2.24
+	Firmware Revision: 5.54
+
+========== HARDWARE IDENTITY — dmidecode processor ==========
+	Version: Intel(R) Core(TM) i5-6500T CPU @ 2.50GHz
+	Max Speed: 3100 MHz
+	Core Count: 4
+	Thread Count: 4
+
+========== HARDWARE IDENTITY — dmidecode memory (DIMMs) ==========
+	Error Correction Type: None
+	Size: 16 GB
+	Locator: DIMM1
+	Bank Locator: ChannelB
+	Type: DDR4
+	Speed: 2133 MT/s
+	Manufacturer: Unknown - [0x268C]
+	Serial Number: 00000000
+	Part Number: TIMETEC-S16G-2400   
+	Rank: 2
+	Configured Memory Speed: 2133 MT/s
+	Size: 16 GB
+	Locator: DIMM3
+	Bank Locator: ChannelA
+	Type: DDR4
+	Speed: 2133 MT/s
+	Manufacturer: Unknown - [0x268C]
+	Serial Number: 00000000
+	Part Number: TIMETEC-S16G-2400   
+	Rank: 2
+	Configured Memory Speed: 2133 MT/s
+
+========== HARDWARE IDENTITY — power supply (if reported) ==========
+	Name: NULL
+	Manufacturer: NULL
+	Max Power Capacity: Unknown
+	Status: Present, Unknown
+	Type: Unknown
+
+========== KERNEL / OS ==========
+Linux pve-home-01 6.17.2-1-pve #1 SMP PREEMPT_DYNAMIC PMX 6.17.2-1 (2025-10-21T11:55Z) x86_64 GNU/Linux
+PRETTY_NAME="Debian GNU/Linux 13 (trixie)"
+
+========== ECC / EDAC memory-error reporting capability ==========
+May 13 18:48:10 pve-home-01 kernel: EDAC MC: Ver: 3.0.0
+May 13 18:48:11 pve-home-01 kernel: EDAC ie31200: No ECC support
+("No ECC support" => RAM faults are NOT self-reported; memtest86+ needed to exclude RAM)
+
+========== BOOT DISK SMART (rule out disk) ==========
+-- /dev/sda --
+SMART overall-health self-assessment test result: PASSED
+  5 Reallocated_Sector_Ct   0x0032   100   100   050    Old_age   Always       -       0
+  9 Power_On_Hours          0x0032   100   100   050    Old_age   Always       -       12171
+197 Current_Pending_Sector  0x0032   100   100   050    Old_age   Always       -       0
+198 Offline_Uncorrectable   0x0032   100   100   050    Old_age   Always       -       0
+199 UDMA_CRC_Error_Count    0x0032   100   100   050    Old_age   Always       -       0
+
+========== RECENT KERNEL HARDWARE ERRORS (current boot, all sources) ==========
+May 13 18:48:10 pve-home-01 kernel: pcieport 0000:00:1c.0: AER: enabled with IRQ 120
+(empty = no in-band hardware errors logged this boot)
+
+========== END pve-home-01 ==========
+
+
+################################################################################
+# RAW CAPTURE: pve-home-02
+################################################################################
+
+################################################################
+#  NODE: pve-home-02   (collected: 2026-05-15T13:49:54-04:00)
+################################################################
+
+========== STABILITY SUMMARY ==========
+uptime: up 12 minutes  (since 2026-05-15 13:37:44)
+unclean reboots in wtmp (last -x reboot | grep -c crash): 711
+boot epochs retained on disk (journalctl --list-boots): 100
+
+========== last -x reboot ==========
+reboot   system boot  6.17.2-1-pve     Fri May 15 13:37 - still running
+reboot   system boot  6.17.2-1-pve     Fri May 15 13:35 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 13:33 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 13:19 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 13:00 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 12:55 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 12:34 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 12:21 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 12:18 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 12:10 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 12:00 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 11:58 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 11:35 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 11:33 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 11:19 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 11:10 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 10:41 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 10:28 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 10:26 - crash 
+reboot   system boot  6.17.2-1-pve     Fri May 15 10:04 - crash 
+
+========== last -x shutdown  (clean shutdowns; expected NONE on a crashing unit) ==========
+
+wtmpdb begins Fri May  8 18:18:36 2026
+
+========== journalctl --list-boots ==========
+-24 bb36e3ccb0214d6988c73abf47bcdddd Thu 2026-05-14 03:08:04 EDT Thu 2026-05-14 03:08:04 EDT
+-23 b21a77fe3f84492f8dee7bc24468fef3 Thu 2026-05-14 03:10:04 EDT Thu 2026-05-14 03:20:00 EDT
+-22 32484401d10743fda1335570f79c686d Thu 2026-05-14 03:22:03 EDT Thu 2026-05-14 03:26:10 EDT
+-21 3056167f37b04707ae01b035bc3c4ab0 Thu 2026-05-14 03:28:01 EDT Thu 2026-05-14 03:29:02 EDT
+-20 86896346bbc44fc0817f54701438fed9 Thu 2026-05-14 12:28:43 EDT Fri 2026-05-15 10:02:43 EDT
+-19 ce03ac65da39440babe4a47c2e1eafc9 Fri 2026-05-15 10:04:13 EDT Fri 2026-05-15 10:24:32 EDT
+-18 b09f6ced609646959e00d7adc4f5e811 Fri 2026-05-15 10:26:34 EDT Fri 2026-05-15 10:26:34 EDT
+-17 435022795fc44bf4bdfea0e6fe61359f Fri 2026-05-15 10:28:34 EDT Fri 2026-05-15 10:39:22 EDT
+-16 ed1af7556bb84748a3e86bb5ac281210 Fri 2026-05-15 10:41:09 EDT Fri 2026-05-15 11:08:42 EDT
+-15 647dad9ce71b4405a70e055ede30eebb Fri 2026-05-15 11:10:47 EDT Fri 2026-05-15 11:18:22 EDT
+-14 1eda5d0fc3984661a72442880a3e9179 Fri 2026-05-15 11:20:04 EDT Fri 2026-05-15 11:31:32 EDT
+-13 3f8d6d6ed2594b98917e9b975e39f626 Fri 2026-05-15 11:33:12 EDT Fri 2026-05-15 11:33:42 EDT
+-12 4db8e1877bef453b920aec285fa6f0f6 Fri 2026-05-15 11:35:25 EDT Fri 2026-05-15 11:56:22 EDT
+-11 cad3fad650d04da49c19afa5fc311d85 Fri 2026-05-15 11:58:32 EDT Fri 2026-05-15 11:59:02 EDT
+-10 87c428adcffd4d8cb9d9ae477b8a19fe Fri 2026-05-15 12:00:55 EDT Fri 2026-05-15 12:08:32 EDT
+ -9 1a6ab615b6ad4c78b55fd0cc2d077d90 Fri 2026-05-15 12:10:12 EDT Fri 2026-05-15 12:17:22 EDT
+ -8 f57d0a5729604389bcfa5eada733c3fa Fri 2026-05-15 12:19:07 EDT Fri 2026-05-15 12:20:09 EDT
+ -7 816869dc7410495a8fcb456a5adee56b Fri 2026-05-15 12:22:05 EDT Fri 2026-05-15 12:32:12 EDT
+ -6 4043d4d3955444aea5c0776466d74fdf Fri 2026-05-15 12:34:28 EDT Fri 2026-05-15 12:53:52 EDT
+ -5 cb028083622e4c7ba95590c85f29b7ab Fri 2026-05-15 12:56:03 EDT Fri 2026-05-15 12:58:43 EDT
+ -4 80f271e4d188412385e3a42d671d06be Fri 2026-05-15 13:00:44 EDT Fri 2026-05-15 13:18:22 EDT
+ -3 9a40c815e4394f1baf31f0ce83d7d48f Fri 2026-05-15 13:20:00 EDT Fri 2026-05-15 13:31:53 EDT
+ -2 ea3cc88449ca44b8b64558b4dc512c3d Fri 2026-05-15 13:33:30 EDT Fri 2026-05-15 13:34:00 EDT
+ -1 2d470d22b35b4a519d31c8f0eee35e97 Fri 2026-05-15 13:35:53 EDT Fri 2026-05-15 13:35:53 EDT
+  0 b2cd0166d1fa4df19fda291a1f3d7d4d Fri 2026-05-15 13:37:53 EDT Fri 2026-05-15 13:49:54 EDT
+
+========== PREVIOUS BOOT (-b -1) LAST 40 LINES  (02: abrupt stop / 01,03: clean shutdown sequence) ==========
+May 15 13:35:53 pve-home-02 kernel: GPT: Use GNU Parted to correct GPT errors.
+May 15 13:35:53 pve-home-02 kernel:  sda: sda1 sda2 sda3 sda4
+May 15 13:35:53 pve-home-02 kernel: sd 2:0:0:0: [sda] Attached SCSI removable disk
+May 15 13:35:53 pve-home-02 systemd[1]: Mounting sys-kernel-config.mount - Kernel Configuration File System...
+May 15 13:35:53 pve-home-02 systemd[1]: Starting systemd-tmpfiles-setup-dev-early.service - Create Static Device Nodes in /dev gracefully...
+May 15 13:35:53 pve-home-02 systemd[1]: modprobe@nvme_fabrics.service: Deactivated successfully.
+May 15 13:35:53 pve-home-02 kernel: EXT4-fs (dm-1): re-mounted b135e738-892e-4db9-9abd-57bf5fd6e666 r/w.
+May 15 13:35:53 pve-home-02 systemd[1]: Finished modprobe@nvme_fabrics.service - Load Kernel Module nvme_fabrics.
+May 15 13:35:53 pve-home-02 systemd[1]: Finished systemd-remount-fs.service - Remount Root and Kernel File Systems.
+May 15 13:35:53 pve-home-02 systemd[1]: Mounted sys-fs-fuse-connections.mount - FUSE Control File System.
+May 15 13:35:53 pve-home-02 systemd[1]: Finished systemd-udev-load-credentials.service - Load udev Rules from Credentials.
+May 15 13:35:53 pve-home-02 systemd[1]: Mounted sys-kernel-config.mount - Kernel Configuration File System.
+May 15 13:35:53 pve-home-02 systemd[1]: systemd-hwdb-update.service - Rebuild Hardware Database was skipped because of an unmet condition check (ConditionNeedsUpdate=/etc).
+May 15 13:35:53 pve-home-02 kernel: pstore: Registered efi_pstore as persistent store backend
+May 15 13:35:53 pve-home-02 systemd[1]: Starting systemd-random-seed.service - Load/Save OS Random Seed...
+May 15 13:35:53 pve-home-02 systemd[1]: systemd-tpm2-setup.service - TPM SRK Setup was skipped because of an unmet condition check (ConditionSecurity=measured-uki).
+May 15 13:35:53 pve-home-02 systemd[1]: modprobe@efi_pstore.service: Deactivated successfully.
+May 15 13:35:53 pve-home-02 systemd[1]: Finished modprobe@efi_pstore.service - Load Kernel Module efi_pstore.
+May 15 13:35:53 pve-home-02 systemd[1]: systemd-pstore.service - Platform Persistent Storage Archival was skipped because of an unmet condition check (ConditionDirectoryNotEmpty=/sys/fs/pstore).
+May 15 13:35:53 pve-home-02 systemd-journald[341]: Collecting audit messages is disabled.
+May 15 13:35:53 pve-home-02 systemd[1]: Finished systemd-tmpfiles-setup-dev-early.service - Create Static Device Nodes in /dev gracefully.
+May 15 13:35:53 pve-home-02 systemd[1]: systemd-sysusers.service - Create System Users was skipped because no trigger condition checks were met.
+May 15 13:35:53 pve-home-02 systemd[1]: Starting systemd-tmpfiles-setup-dev.service - Create Static Device Nodes in /dev...
+May 15 13:35:53 pve-home-02 systemd[1]: Finished systemd-random-seed.service - Load/Save OS Random Seed.
+May 15 13:35:53 pve-home-02 systemd[1]: Started dm-event.service - Device-mapper event daemon.
+May 15 13:35:53 pve-home-02 systemd[1]: Finished systemd-tmpfiles-setup-dev.service - Create Static Device Nodes in /dev.
+May 15 13:35:53 pve-home-02 kernel: spl: loading out-of-tree module taints kernel.
+May 15 13:35:53 pve-home-02 systemd[1]: Starting systemd-udevd.service - Rule-based Manager for Device Events and Files...
+May 15 13:35:53 pve-home-02 systemd-journald[341]: Journal started
+May 15 13:35:53 pve-home-02 systemd-journald[341]: Runtime Journal (/run/log/journal/ec9ede88f27c4a76981882e7093e5eca) is 8M, max 318.7M, 310.7M free.
+May 15 13:35:53 pve-home-02 systemd-modules-load[342]: Inserted module 'vhost_net'
+May 15 13:35:53 pve-home-02 dmeventd[360]: dmeventd ready for processing.
+May 15 13:35:53 pve-home-02 systemd-modules-load[342]: Inserted module 'msr'
+May 15 13:35:53 pve-home-02 systemd[1]: Started systemd-journald.service - Journal Service.
+May 15 13:35:53 pve-home-02 lvm[333]:   1 logical volume(s) in volume group "ceph-725473ed-b90d-4f63-b8b0-26ec33faf0ae" monitored
+May 15 13:35:53 pve-home-02 systemd[1]: Starting systemd-journal-flush.service - Flush Journal to Persistent Storage...
+May 15 13:35:53 pve-home-02 dmeventd[360]: Monitoring thin pool pve-data.
+May 15 13:35:53 pve-home-02 lvm[333]:   5 logical volume(s) in volume group "pve" monitored
+May 15 13:35:53 pve-home-02 systemd-udevd[361]: Using default interface naming scheme 'v257'.
+May 15 13:35:53 pve-home-02 systemd-journald[341]: Time spent on flushing to /var/log/journal/ec9ede88f27c4a76981882e7093e5eca is 6.478ms for 854 entries.
+
+========== PREVIOUS BOOT KERNEL FAULT SCAN (panic/oom/mce/thermal/hung/oops) ==========
+May 15 13:35:53 pve-home-02 kernel: CPU0: Thermal monitoring enabled (TM1)
+May 15 13:35:53 pve-home-02 kernel: thermal_sys: Registered thermal governor 'fair_share'
+May 15 13:35:53 pve-home-02 kernel: thermal_sys: Registered thermal governor 'bang_bang'
+May 15 13:35:53 pve-home-02 kernel: thermal_sys: Registered thermal governor 'step_wise'
+May 15 13:35:53 pve-home-02 kernel: thermal_sys: Registered thermal governor 'user_space'
+May 15 13:35:53 pve-home-02 kernel: thermal_sys: Registered thermal governor 'power_allocator'
+May 15 13:35:53 pve-home-02 kernel: e1000e 0000:00:1f.6: Interrupt Throttling Rate (ints/sec) set to dynamic conservative mode
+(if nothing printed above: NO software/kernel fault was logged before the power loss)
+
+========== /sys/fs/pstore  (firmware/kernel crash store; empty = no software crash captured) ==========
+total 0
+drwxr-x---  2 root root 0 May 15 13:37 .
+drwxr-xr-x 10 root root 0 May 15 13:48 ..
+
+========== HARDWARE IDENTITY — dmidecode system ==========
+	Manufacturer: HP
+	Product Name: HP ProDesk 600 G4 DM (TAA)
+	Version:  
+	Serial Number: MXL915300H
+	UUID: 082e039a-6fab-3f2c-751d-f155a68ab29c
+	SKU Number: 5UJ47UC#ABA
+	Family: 103C_53307F HP ProDesk
+
+========== HARDWARE IDENTITY — dmidecode baseboard ==========
+	Manufacturer: HP
+	Product Name: 83EF
+	Version: KBC Version 07.D1.00
+	Serial Number: PGVLV0B8JC0NV1
+
+========== HARDWARE IDENTITY — dmidecode bios ==========
+	Vendor: HP
+	Version: Q22 Ver. 02.16.00
+	Release Date: 04/16/2021
+	BIOS Revision: 16.0
+	Firmware Revision: 7.209
+
+========== HARDWARE IDENTITY — dmidecode processor ==========
+	Version: Intel(R) Core(TM) i5-8600T CPU @ 2.30GHz
+	Max Speed: 2300 MHz
+	Core Count: 6
+	Thread Count: 6
+
+========== HARDWARE IDENTITY — dmidecode memory (DIMMs) ==========
+	Error Correction Type: None
+	Size: 16 GB
+	Locator: DIMM1
+	Bank Locator: ChannelB
+	Type: DDR4
+	Speed: 3200 MT/s
+	Manufacturer: Samsung
+	Serial Number: 4728284B
+	Part Number: M471A2G43BB2-CWE    
+	Rank: 1
+	Configured Memory Speed: 2667 MT/s
+	Size: 16 GB
+	Locator: DIMM3
+	Bank Locator: ChannelA
+	Type: DDR4
+	Speed: 3200 MT/s
+	Manufacturer: Samsung
+	Serial Number: 19652B99
+	Part Number: M471A2G43AB2-CWE    
+	Rank: 1
+	Configured Memory Speed: 2667 MT/s
+
+========== HARDWARE IDENTITY — power supply (if reported) ==========
+	Name: NULL
+	Manufacturer: NULL
+	Max Power Capacity: Unknown
+	Status: Present, Unknown
+	Type: Unknown
+
+========== KERNEL / OS ==========
+Linux pve-home-02 6.17.2-1-pve #1 SMP PREEMPT_DYNAMIC PMX 6.17.2-1 (2025-10-21T11:55Z) x86_64 GNU/Linux
+PRETTY_NAME="Debian GNU/Linux 13 (trixie)"
+
+========== ECC / EDAC memory-error reporting capability ==========
+May 15 13:37:53 pve-home-02 kernel: EDAC MC: Ver: 3.0.0
+May 15 13:37:54 pve-home-02 kernel: EDAC ie31200: No ECC support
+("No ECC support" => RAM faults are NOT self-reported; memtest86+ needed to exclude RAM)
+
+========== BOOT DISK SMART (rule out disk) ==========
+-- /dev/sda --
+-- /dev/nvme0n1 --
+SMART overall-health self-assessment test result: PASSED
+Percentage Used:                    5%
+
+========== RECENT KERNEL HARDWARE ERRORS (current boot, all sources) ==========
+May 15 13:37:53 pve-home-02 kernel: pcieport 0000:00:1b.0: AER: enabled with IRQ 123
+(empty = no in-band hardware errors logged this boot)
+
+========== END pve-home-02 ==========
+
+
+################################################################################
+# RAW CAPTURE: pve-home-03
+################################################################################
+
+################################################################
+#  NODE: pve-home-03   (collected: 2026-05-15T13:49:54-04:00)
+################################################################
+
+========== STABILITY SUMMARY ==========
+uptime: up 12 hours, 17 minutes  (since 2026-05-15 01:32:23)
+unclean reboots in wtmp (last -x reboot | grep -c crash): 4
+boot epochs retained on disk (journalctl --list-boots): 7
+
+========== last -x reboot ==========
+reboot   system boot  6.17.2-1-pve     Fri May 15 01:32 - still running
+reboot   system boot  6.17.2-1-pve     Wed May 13 23:33 - crash 
+reboot   system boot  6.17.2-1-pve     Tue May 12 20:20 - crash 
+reboot   system boot  6.17.2-1-pve     Sun May 10 18:40 - crash 
+reboot   system boot  6.17.2-1-pve     Sun May 10 18:30 - 18:36  (00:05)
+shutdown system down  6.17.2-1-pve     Sun May 10 18:36 - 18:40  (00:03)
+reboot   system boot  6.17.2-1-pve     Fri May  8 18:47 - crash 
+
+wtmpdb begins Fri May  8 18:47:55 2026
+
+========== last -x shutdown  (clean shutdowns; expected NONE on a crashing unit) ==========
+
+wtmpdb begins Fri May  8 18:47:55 2026
+
+========== journalctl --list-boots ==========
+IDX BOOT ID                          FIRST ENTRY                 LAST ENTRY
+ -5 ea01ec35340a4bf6a88fdb5555954f48 Fri 2026-05-08 18:48:01 EDT Sun 2026-05-10 16:03:39 EDT
+ -4 058ef822de1a4197b71a5120e9f67177 Sun 2026-05-10 18:30:56 EDT Sun 2026-05-10 18:36:49 EDT
+ -3 8415ebff979040edac8f1fb94d401245 Sun 2026-05-10 18:40:24 EDT Tue 2026-05-12 20:17:01 EDT
+ -2 07b6bbba4619477398fc5d3ed53e42b2 Tue 2026-05-12 20:21:01 EDT Wed 2026-05-13 18:40:06 EDT
+ -1 17b9f47a54df43cab0dd78fe7adfd3d9 Wed 2026-05-13 23:33:44 EDT Fri 2026-05-15 01:17:38 EDT
+  0 ce9e5afdb1ca49f594fbec69a8af1f3f Fri 2026-05-15 01:32:27 EDT Fri 2026-05-15 13:49:54 EDT
+
+========== PREVIOUS BOOT (-b -1) LAST 40 LINES  (02: abrupt stop / 01,03: clean shutdown sequence) ==========
+May 15 00:04:01 pve-home-03 systemd[1]: pvefw-logger.service: Deactivated successfully.
+May 15 00:04:01 pve-home-03 systemd[1]: Stopped pvefw-logger.service - Proxmox VE firewall logger.
+May 15 00:04:01 pve-home-03 systemd[1]: pvefw-logger.service: Consumed 4.069s CPU time, 1.7M memory peak.
+May 15 00:04:01 pve-home-03 systemd[1]: Starting pvefw-logger.service - Proxmox VE firewall logger...
+May 15 00:04:01 pve-home-03 pvefw-logger[402472]: starting pvefw logger
+May 15 00:04:01 pve-home-03 systemd[1]: Started pvefw-logger.service - Proxmox VE firewall logger.
+May 15 00:04:01 pve-home-03 systemd[1]: logrotate.service: Deactivated successfully.
+May 15 00:04:01 pve-home-03 systemd[1]: Finished logrotate.service - Rotate log files.
+May 15 00:04:01 pve-home-03 spiceproxy[1399]: restarting server
+May 15 00:04:01 pve-home-03 spiceproxy[1399]: starting 1 worker(s)
+May 15 00:04:01 pve-home-03 spiceproxy[1399]: worker 402478 started
+May 15 00:04:01 pve-home-03 pveproxy[1389]: restarting server
+May 15 00:04:01 pve-home-03 pveproxy[1389]: starting 3 worker(s)
+May 15 00:04:01 pve-home-03 pveproxy[1389]: worker 402479 started
+May 15 00:04:01 pve-home-03 pveproxy[1389]: worker 402480 started
+May 15 00:04:01 pve-home-03 pveproxy[1389]: worker 402481 started
+May 15 00:04:06 pve-home-03 spiceproxy[19967]: worker exit
+May 15 00:04:06 pve-home-03 spiceproxy[1399]: worker 19967 finished
+May 15 00:04:06 pve-home-03 pveproxy[19970]: worker exit
+May 15 00:04:06 pve-home-03 pveproxy[19969]: worker exit
+May 15 00:04:06 pve-home-03 pveproxy[19968]: worker exit
+May 15 00:04:07 pve-home-03 pveproxy[1389]: worker 19969 finished
+May 15 00:04:07 pve-home-03 pveproxy[1389]: worker 19968 finished
+May 15 00:04:07 pve-home-03 pveproxy[1389]: worker 19970 finished
+May 15 00:17:01 pve-home-03 CRON[406012]: pam_unix(cron:session): session opened for user root(uid=0) by root(uid=0)
+May 15 00:17:01 pve-home-03 CRON[406014]: (root) CMD (cd / && run-parts --report /etc/cron.hourly)
+May 15 00:17:01 pve-home-03 CRON[406012]: pam_unix(cron:session): session closed for user root
+May 15 00:43:28 pve-home-03 systemd[1]: Starting fwupd-refresh.service - Refresh fwupd metadata and update motd...
+May 15 00:43:28 pve-home-03 fwupdmgr[413206]: Updating lvfs
+May 15 00:43:29 pve-home-03 fwupdmgr[413206]: Successfully downloaded new metadata: Updates have been published for 0 of 8 local devices
+May 15 00:43:29 pve-home-03 systemd[1]: fwupd-refresh.service: Deactivated successfully.
+May 15 00:43:29 pve-home-03 systemd[1]: Finished fwupd-refresh.service - Refresh fwupd metadata and update motd.
+May 15 00:48:27 pve-home-03 pmxcfs[969]: [dcdb] notice: data verification successful
+May 15 01:17:01 pve-home-03 CRON[422310]: pam_unix(cron:session): session opened for user root(uid=0) by root(uid=0)
+May 15 01:17:01 pve-home-03 CRON[422312]: (root) CMD (cd / && run-parts --report /etc/cron.hourly)
+May 15 01:17:01 pve-home-03 CRON[422310]: pam_unix(cron:session): session closed for user root
+May 15 01:17:38 pve-home-03 systemd[1]: Starting fwupd-refresh.service - Refresh fwupd metadata and update motd...
+May 15 01:17:38 pve-home-03 fwupd[5536]: 05:17:38.238 FuPluginLinuxSwap    could not parse /proc/swaps: failed to call org.freedesktop.UDisks2.Manager.GetBlockDevices(): The name org.freedesktop.UDisks2 was not provided by any .service files
+May 15 01:17:38 pve-home-03 systemd[1]: fwupd-refresh.service: Deactivated successfully.
+May 15 01:17:38 pve-home-03 systemd[1]: Finished fwupd-refresh.service - Refresh fwupd metadata and update motd.
+
+========== PREVIOUS BOOT KERNEL FAULT SCAN (panic/oom/mce/thermal/hung/oops) ==========
+May 13 23:33:44 pve-home-03 kernel: CPU0: Thermal monitoring enabled (TM1)
+May 13 23:33:44 pve-home-03 kernel: thermal_sys: Registered thermal governor 'fair_share'
+May 13 23:33:44 pve-home-03 kernel: thermal_sys: Registered thermal governor 'bang_bang'
+May 13 23:33:44 pve-home-03 kernel: thermal_sys: Registered thermal governor 'step_wise'
+May 13 23:33:44 pve-home-03 kernel: thermal_sys: Registered thermal governor 'user_space'
+May 13 23:33:44 pve-home-03 kernel: thermal_sys: Registered thermal governor 'power_allocator'
+May 13 23:33:44 pve-home-03 kernel: e1000e 0000:00:1f.6: Interrupt Throttling Rate (ints/sec) set to dynamic conservative mode
+May 13 23:33:46 pve-home-03 kernel: i915 0000:00:02.0: [drm] Registered 3 planes with drm panic
+May 13 23:33:46 pve-home-03 kernel: softdog: initialized. soft_noboot=0 soft_margin=60 sec soft_panic=0 (nowayout=0)
+(if nothing printed above: NO software/kernel fault was logged before the power loss)
+
+========== /sys/fs/pstore  (firmware/kernel crash store; empty = no software crash captured) ==========
+total 0
+drwxr-x---  2 root root 0 May 15 01:32 .
+drwxr-xr-x 10 root root 0 May 15 13:48 ..
+
+========== HARDWARE IDENTITY — dmidecode system ==========
+	Manufacturer: HP
+	Product Name: HP ProDesk 600 G4 DM (TAA)
+	Version:  
+	Serial Number: MXL9082PDR
+	UUID: 80cf5cff-65af-4d1b-20ba-3b5fda025435
+	SKU Number: 5EE30US#ABA
+	Family: 103C_53307F HP ProDesk
+
+========== HARDWARE IDENTITY — dmidecode baseboard ==========
+	Manufacturer: HP
+	Product Name: 83EF
+	Version: KBC Version 07.B4.00
+	Serial Number: PGVLV0B8JBSA22
+
+========== HARDWARE IDENTITY — dmidecode bios ==========
+	Vendor: HP
+	Version: Q22 Ver. 02.02.04
+	Release Date: 08/06/2018
+	BIOS Revision: 2.4
+	Firmware Revision: 7.180
+
+========== HARDWARE IDENTITY — dmidecode processor ==========
+	Version: Intel(R) Core(TM) i5-8600T CPU @ 2.30GHz
+	Max Speed: 2300 MHz
+	Core Count: 6
+	Thread Count: 6
+
+========== HARDWARE IDENTITY — dmidecode memory (DIMMs) ==========
+	Error Correction Type: None
+	Size: 16 GB
+	Locator: DIMM1
+	Bank Locator: ChannelB
+	Type: DDR4
+	Speed: 3200 MT/s
+	Manufacturer: Samsung
+	Serial Number: 336C7B2A
+	Part Number: M471A2G43BB2-CWE    
+	Rank: 1
+	Configured Memory Speed: 2667 MT/s
+	Size: 16 GB
+	Locator: DIMM3
+	Bank Locator: ChannelA
+	Type: DDR4
+	Speed: 3200 MT/s
+	Manufacturer: Samsung
+	Serial Number: 01B900BA
+	Part Number: M471A2G43BB2-CWE    
+	Rank: 1
+	Configured Memory Speed: 2667 MT/s
+
+========== HARDWARE IDENTITY — power supply (if reported) ==========
+	Name: NULL
+	Manufacturer: NULL
+	Max Power Capacity: Unknown
+	Status: Present, Unknown
+	Type: Unknown
+
+========== KERNEL / OS ==========
+Linux pve-home-03 6.17.2-1-pve #1 SMP PREEMPT_DYNAMIC PMX 6.17.2-1 (2025-10-21T11:55Z) x86_64 GNU/Linux
+PRETTY_NAME="Debian GNU/Linux 13 (trixie)"
+
+========== ECC / EDAC memory-error reporting capability ==========
+May 15 01:32:27 pve-home-03 kernel: EDAC MC: Ver: 3.0.0
+May 15 01:32:28 pve-home-03 kernel: EDAC ie31200: No ECC support
+("No ECC support" => RAM faults are NOT self-reported; memtest86+ needed to exclude RAM)
+
+========== BOOT DISK SMART (rule out disk) ==========
+-- /dev/sda --
+-- /dev/nvme0n1 --
+SMART overall-health self-assessment test result: PASSED
+Percentage Used:                    1%
+
+========== RECENT KERNEL HARDWARE ERRORS (current boot, all sources) ==========
+May 15 01:32:27 pve-home-03 kernel: pcieport 0000:00:1b.0: AER: enabled with IRQ 123
+(empty = no in-band hardware errors logged this boot)
+
+========== END pve-home-03 ==========

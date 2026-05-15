@@ -30,6 +30,41 @@
   changed_when: true
   run_once: true
 
+# Recovery throttle: keep backfill from saturating the single shared
+# 1GbE link every time a node/OSD rejoins. Idempotent — only writes
+# when the running profile differs from the desired one.
+- name: Read current osd_mclock_profile
+  ansible.builtin.command: ceph config get osd osd_mclock_profile
+  register: ceph_mclock_profile_cur
+  changed_when: false
+  run_once: true
+
+- name: Set osd_mclock_profile (deprioritize recovery vs client IO)
+  ansible.builtin.command: >-
+    ceph config set osd osd_mclock_profile {{ ceph_osd_mclock_profile }}
+  changed_when: true
+  run_once: true
+  when: ceph_mclock_profile_cur.stdout | trim != ceph_osd_mclock_profile
+
+# Raise the PG-per-OSD ceiling. The default (250) is sized for clusters
+# with many OSDs; with only 3 OSDs the pg_autoscaler grows the `vms`
+# pool past the cap and `osd pool create` for kube-rbd is then rejected
+# by the mon (pveceph swallows the error and exits 0, so the pool just
+# silently never appears). Must be set before any pool creation below.
+# Idempotent — only writes when the value differs.
+- name: Read current mon_max_pg_per_osd
+  ansible.builtin.command: ceph config get mon mon_max_pg_per_osd
+  register: ceph_max_pg_cur
+  changed_when: false
+  run_once: true
+
+- name: Set mon_max_pg_per_osd (3-OSD cluster headroom for the pg_autoscaler)
+  ansible.builtin.command: >-
+    ceph config set mon mon_max_pg_per_osd {{ ceph_mon_max_pg_per_osd }}
+  changed_when: true
+  run_once: true
+  when: ceph_max_pg_cur.stdout | trim != ceph_mon_max_pg_per_osd | string
+
 - name: Wait for all OSDs to be up + in
   ansible.builtin.command: ceph osd tree -f json
   register: osd_tree
@@ -66,8 +101,15 @@
 
 - name: Initialize RBD application metadata on the vms pool
   ansible.builtin.command: "rbd pool init {{ ceph_pool_vms.name }}"
+  register: rbd_init_vms
   changed_when: false                         # idempotent; re-runs are no-ops
   run_once: true
+  # `pveceph pool create` returns before the pool is openable, so a
+  # first-run `rbd pool init` can race and hit ENOENT. Retry until the
+  # pool is ready (no-op once initialized).
+  retries: 15
+  delay: 4
+  until: rbd_init_vms.rc == 0
 
 - name: Allow LXC rootdir on the vms RBD storage (PVE default is images only)
   ansible.builtin.command: >-
@@ -90,8 +132,13 @@
 
 - name: Initialize RBD application metadata on the kube-rbd pool
   ansible.builtin.command: "rbd pool init {{ ceph_pool_kube_rbd.name }}"
+  register: rbd_init_kube
   changed_when: false                         # idempotent; re-runs are no-ops
   run_once: true
+  # See note on the vms pool: tolerate the post-create readiness race.
+  retries: 15
+  delay: 4
+  until: rbd_init_kube.rc == 0
 
 - name: Storage bootstrap complete — next steps
   ansible.builtin.debug:

@@ -1,0 +1,42 @@
+---
+# Make ceph-osd@.service survive a transient mon-unreachable window at
+# start instead of permanently failing after the stock start-limit.
+#
+# Background: at the 2026-05-13 reboot, osd.2 on pve-home-01 could not
+# fetch its mon config (peer node flapping / 1GbE contention), exhausted
+# systemd's restart limit in ~15 min, and sat `failed` for ~2 days until
+# a manual `systemctl reset-failed`. This drop-in removes the start-rate
+# limiter and adds a restart back-off so the OSD self-recovers whenever
+# the mons become reachable again, without hot-spinning if the disk is
+# genuinely dead.
+#
+# Per-node (drop-in lives on every baremetal host). Idempotent. Does NOT
+# restart running OSDs — a daemon-reload is enough; the new limits apply
+# on the next (re)start.
+
+- name: Ensure ceph-osd@.service drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/ceph-osd@.service.d
+    state: directory
+    mode: "0755"
+
+- name: Install ceph-osd@ restart-hardening drop-in
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/ceph-osd@.service.d/10-restart-hardening.conf
+    mode: "0644"
+    content: |
+      # Managed by Ansible (roles/ceph/tasks/osd_hardening.yml). Do not edit by hand.
+      #
+      # StartLimitIntervalSec=0 disables the start-rate limiter so systemd
+      # keeps retrying indefinitely; RestartSec backs off between attempts
+      # so a genuinely-dead OSD loops once per RestartSec rather than
+      # hot-spinning. See osd.2 / pve-home-01 incident 2026-05-15.
+      [Unit]
+      StartLimitIntervalSec={{ ceph_osd_start_limit_interval_sec }}
+
+      [Service]
+      RestartSec={{ ceph_osd_restart_sec }}
+  notify: Reload systemd daemon
+
+- name: Flush handlers so the drop-in is live before the play ends
+  ansible.builtin.meta: flush_handlers
