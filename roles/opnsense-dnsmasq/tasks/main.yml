@@ -48,18 +48,3 @@
   loop_control:
     loop_var: lease
     label: "{{ lease.hostname }} -> {{ lease.address }} ({{ lease.mac }})"
-
-- name: Configure DNS-only records
-  oxlorg.opnsense.dnsmasq_host:
-    description: "{{ record.description | default(dnsmasq_dns_record_prefix ~ '-' ~ (record.host if (record.host | default('')) else 'wildcard') ~ '-' ~ record.domain) }}"
-    host: "{{ record.host | default(omit) }}"
-    domain: "{{ record.domain }}"
-    local: "{{ record.local | default(false) }}"
-    ip: "{{ [record.ip] if record.ip is string else record.ip }}"
-    aliases: "{{ record.aliases | default(omit) }}"
-    cnames: "{{ record.cnames | default(omit) }}"
-    state: present
-  loop: "{{ dnsmasq_dns_records }}"
-  loop_control:
-    loop_var: record
-    label: "{{ (record.host if (record.host | default('')) else '*') ~ '.' ~ record.domain }} -> {{ record.ip }}"

@@ -1,0 +1,35 @@
+---
+# Configures OPNsense Unbound host overrides. Unbound owns port 53 on the
+# router (dnsmasq is on 53053), so wildcard A records for cluster ingress
+# domains belong here rather than in dnsmasq's Hosts page — the dnsmasq
+# plugin's API rejects host overrides with an empty hostname.
+#
+# Pre-condition: OPNsense API credentials in vault as `vault_opnsense_api_key`
+# and `vault_opnsense_api_secret`. Same key/secret as 01b-router-dnsmasq.yml.
+#
+# Talks to the OPNsense API from the controller; no SSH into the router.
+- name: Configure OPNsense Unbound host overrides
+  hosts: router
+  gather_facts: false
+  connection: local
+  module_defaults:
+    group/oxlorg.opnsense.unbound:
+      firewall: "{{ ansible_host }}"
+      api_key: "{{ opnsense_api_key }}"
+      api_secret: "{{ opnsense_api_secret }}"
+      ssl_verify: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  tasks:
+    # Wildcard *.doghouse.lan resolves to the MetalLB IP pinned for the
+    # Traefik ingress (see k3s HelmChartConfig override), so any Ingress
+    # host under doghouse.lan reaches the cluster's ingress controller.
+    # Unbound treats hostname '*' as a wildcard match for the domain.
+    - name: Wildcard *.doghouse.lan -> Traefik ingress VIP
+      oxlorg.opnsense.unbound_host:
+        hostname: "*"
+        domain: doghouse.lan
+        record_type: A
+        value: 10.1.1.250
+        description: doghouse-ingress-wildcard
+        state: present

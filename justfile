@@ -177,6 +177,10 @@ do-ceph-csi:
 do-router-dhcp:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/01b-router-dnsmasq.yml
 
+# Configure OPNsense Unbound host overrides (wildcard DNS for k8s ingress)
+do-router-dns:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/01c-router-unbound.yml
+
 # Install Prometheus node_exporter on Proxmox baremetal hosts
 do-node-exporter:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/11-node-exporter.yml
