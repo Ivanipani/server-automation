@@ -13,6 +13,6 @@
 - import_playbook: 06-bootstrap-ansible-global.yml
 - import_playbook: 07-firewall.yml
 - import_playbook: 08-tailscale.yml
-- import_playbook: 09-install-kubernetes.yml
-- import_playbook: 09b-longhorn-storage.yml
-- import_playbook: 11-node-exporter.yml
+- import_playbook: 09-node-exporter.yml
+- import_playbook: 10-longhorn-storage.yml
+- import_playbook: 11-install-kubernetes.yml

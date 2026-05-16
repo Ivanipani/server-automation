@@ -1,10 +1,13 @@
 ---
+# Non-blocking restarts. `systemctl restart` on a Type=notify unit blocks
+# until the unit reports ready and FAILS if the first attempt doesn't —
+# expected during HA bring-up while the VIP / first CP is still settling.
+# `--no-block` fires the restart and returns immediately; Restart=always
+# plus the caller's readiness gate converge it.
 - name: restart k3s
-  ansible.builtin.service:
-    name: k3s
-    state: restarted
+  ansible.builtin.command: systemctl restart --no-block k3s
+  changed_when: true
 
 - name: restart k3s-agent
-  ansible.builtin.service:
-    name: k3s-agent
-    state: restarted
+  ansible.builtin.command: systemctl restart --no-block k3s-agent
+  changed_when: true

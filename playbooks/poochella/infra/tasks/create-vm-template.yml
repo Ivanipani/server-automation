@@ -32,12 +32,21 @@
         - not image_check.results[0].stat.exists
         - image_check.results[1].stat.exists
 
+    # The default get_url timeout is 10s — too short for the TLS handshake
+    # to the cloud-image CDN plus a multi-hundred-MB transfer over this
+    # single-NIC homelab. Bump the socket timeout and retry transient
+    # failures (handshake timeouts, slow mirrors) before giving up.
     - name: "Download cloud image for VM {{ vm_template.id }}"
       ansible.builtin.get_url:
         url: "{{ vm_template.image_url }}"
         dest: "/tmp/{{ vm_template.image_file }}"
         mode: "0644"
+        timeout: 120
       when: not image_check.results[0].stat.exists and not image_check.results[1].stat.exists
+      register: vm_image_dl
+      until: vm_image_dl is succeeded
+      retries: 5
+      delay: 15
 
     - name: "Stage ansible SSH public key on PVE host"
       ansible.builtin.copy:

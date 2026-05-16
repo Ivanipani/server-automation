@@ -9,8 +9,16 @@
 
 - ansible.builtin.include_tasks: _install.yml
 
-- name: Ensure k3s-agent service is enabled and started
-  ansible.builtin.service:
-    name: k3s-agent
-    state: started
-    enabled: true
+- name: Ensure k3s-agent is enabled and started (non-blocking)
+  ansible.builtin.command: systemctl enable --now --no-block k3s-agent
+  changed_when: false
+
+# Real success gate. k3s-agent stays 'active' once it reaches a server;
+# until then it crash-loops (Restart=always) while the CPs/VIP settle.
+- name: Wait for k3s-agent to be active
+  ansible.builtin.command: systemctl is-active k3s-agent
+  register: k3s_agent_active
+  retries: 60
+  delay: 10
+  until: k3s_agent_active.stdout == 'active'
+  changed_when: false

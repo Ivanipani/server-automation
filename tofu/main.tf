@@ -120,7 +120,7 @@ resource "proxmox_virtual_environment_vm" "vm" {
 #   }
 #
 #   clone {
-#     vm_id = local.template_ct_id
+#     vm_id = local.inventory.all.vars.template_ct_ids[var.proxmox_node]
 #   }
 #
 #   features {

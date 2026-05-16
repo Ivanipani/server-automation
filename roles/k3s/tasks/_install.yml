@@ -55,12 +55,20 @@
     - k3s_args_drifted
     - (k3s_systemd_unit | trim) == 'k3s.service'
 
+# INSTALL_K3S_SKIP_START (not FORCE_RESTART): the installer must only
+# lay down the binary + unit and exit 0. It must NOT block on
+# `systemctl start` — during HA bring-up a joining server's endpoint
+# (kube-vip VIP / first CP apiserver) is briefly unreachable, so the
+# first start legitimately fails; `k3s.service` has Restart=always and
+# self-heals. Letting the installer fail here aborts the play before the
+# readiness gate (which retries) can do its job. Start is owned by the
+# caller (non-blocking) and success is determined by that readiness gate.
 - name: Install / upgrade k3s
   ansible.builtin.command: "{{ k3s_install_script_path }}"
   environment:
     INSTALL_K3S_VERSION: "{{ k3s_version }}"
     INSTALL_K3S_EXEC: "{{ k3s_install_exec | regex_replace('\\s+', ' ') | trim }}"
-    INSTALL_K3S_FORCE_RESTART: "true"
+    INSTALL_K3S_SKIP_START: "true"
     K3S_TOKEN: "{{ k3s_cluster_token }}"
     K3S_URL: "{{ k3s_api_endpoint if (k3s_systemd_unit | trim) == 'k3s-agent.service' else '' }}"
   when: k3s_needs_install or k3s_args_drifted

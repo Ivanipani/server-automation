@@ -1,0 +1,91 @@
+---
+# Prepare each k3s worker as a Longhorn (v1 data engine) host:
+#   1. install the host prerequisites Longhorn needs — open-iscsi/iscsid
+#      (Longhorn attaches every volume to its consumer over iSCSI) and the
+#      NFSv4 client (required for RWX volumes and backups), and
+#   2. prepare the worker's second virtio disk (/dev/vdb, backed by the
+#      node-local `longhorn-data` LVM-thin pool) as the Longhorn data
+#      volume: ext4-format it and mount it at /var/lib/longhorn (by UUID,
+#      via fstab).
+#
+# HOST ground-prep ONLY — installing Longhorn itself (the Helm chart /
+# k8s manifests) is out of scope and handled separately later.
+#
+# iSCSI lives on the *guest OS of these VMs*, never the Proxmox hosts:
+# Longhorn's iSCSI initiator runs on whichever node the volume-consuming
+# pod is scheduled, using the host's iscsiadm (k3s ships no iscsi stack).
+#
+# WORKERS-ONLY BY DESIGN: only kube_workers declare `vm.data_disk_size`
+# (longhorn-data disk), and the future Longhorn install must pin storage
+# scheduling to them (createDefaultDiskLabeledNodes + label only workers)
+# so replica-rebuild IO never lands on the schedulable etcd control
+# planes. This stays correct only while every Longhorn-PVC-consuming pod
+# is constrained to the workers; if a stateful workload is ever allowed
+# onto a control plane, widen `hosts:` to the full kubernetes group (the
+# disk-prep tasks must stay workers-only — only workers have /dev/vdb).
+#
+# Pre-conditions:
+#   - 05-provision-infrastructure.yml completed (worker VMs exist with a
+#     `vm.data_disk_size` declared in inventory.yaml → virtio1 disk)
+#   - 06-bootstrap-ansible-global.yml completed (ansible reachable on VMs)
+
+- name: Prepare k3s workers as Longhorn hosts
+  hosts: kube_workers
+  become: true
+  vars:
+    longhorn_data_device: /dev/vdb
+    longhorn_data_path: /var/lib/longhorn
+  tasks:
+    # --- Longhorn host prerequisites -----------------------------------
+    - name: Install Longhorn host prerequisites
+      ansible.builtin.apt:
+        name:
+          - open-iscsi   # Longhorn attaches volumes over iSCSI (required)
+          - nfs-common   # NFSv4 client: required for RWX volumes & backups
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure the iscsi_tcp module is loaded now and on boot
+      community.general.modprobe:
+        name: iscsi_tcp
+        state: present
+        persistent: present
+
+    - name: Ensure iscsid is enabled and running
+      ansible.builtin.systemd:
+        name: iscsid
+        enabled: true
+        state: started
+
+    # --- Longhorn data disk --------------------------------------------
+    - name: Assert the Longhorn data disk is present
+      ansible.builtin.stat:
+        path: "{{ longhorn_data_device }}"
+      register: longhorn_disk
+      failed_when: not longhorn_disk.stat.exists
+
+    - name: Create an ext4 filesystem on the Longhorn data disk
+      community.general.filesystem:
+        fstype: ext4
+        dev: "{{ longhorn_data_device }}"
+        # Never reformat an already-formatted disk (no `force`).
+
+    - name: Read the filesystem UUID
+      ansible.builtin.command: "blkid -s UUID -o value {{ longhorn_data_device }}"
+      register: longhorn_fs_uuid
+      changed_when: false
+
+    - name: Ensure the Longhorn data directory exists
+      ansible.builtin.file:
+        path: "{{ longhorn_data_path }}"
+        state: directory
+        mode: "0755"
+
+    - name: Mount the Longhorn data disk by UUID (persisted in fstab)
+      ansible.posix.mount:
+        path: "{{ longhorn_data_path }}"
+        src: "UUID={{ longhorn_fs_uuid.stdout | trim }}"
+        fstype: ext4
+        opts: defaults
+        state: mounted

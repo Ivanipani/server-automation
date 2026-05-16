@@ -27,18 +27,29 @@ all:
     ansible_python_interpreter: /usr/bin/python3
     # Proxmox API endpoint. Read by Tofu via tofu/locals.tf → provider.tf.
     proxmox_endpoint: "https://pve-home-01.lan:8006"
-    # Proxmox VM/LXC base template IDs. Read by Tofu via tofu/locals.tf.
-    # VM storage is node-local LVM-thin, so every baremetal node builds
-    # its own template with a per-node-unique ID:
-    #   effective ID = base + (node_index * template_vm_id_node_stride)
-    # node_index is the host's position in `baremetal.hosts`
-    # (pve-home-01→0, pve-home-02→1, pve-home-03→2). Each VM is cloned
-    # locally on its own `vm.proxmox_node` from that node's template —
-    # no cross-node copy, no HA. Per-VM override: set `vm.template_id`
-    # on a host below (used verbatim, skips the offset).
-    template_vm_id: 9001
-    template_ct_id: 9101
-    template_vm_id_node_stride: 10
+    # Per-node Proxmox template IDs. Read by Ansible
+    # (04-prepare-templates.yml) and Tofu (tofu/locals.tf). VM storage is
+    # node-local LVM-thin, so every baremetal node needs its own local
+    # template; Proxmox VMIDs are unique cluster-wide, so each node's
+    # template gets a distinct ID. These maps are the single source of
+    # truth — no offset arithmetic, no group-ordering coupling. The value
+    # is each node's *anchor* (first/default template) ID;
+    # 04-prepare-templates.yml builds the per-image-family templates as
+    # anchor+0, anchor+1, … in vm_templates_base / lxc_templates_base
+    # order, bakes them once on the first baremetal node, and copies them
+    # to the others. Tofu clones each VM from
+    # `template_vm_ids[its proxmox_node]` (the default = first VM
+    # template). Per-VM override: set `vm.template_id` on a host below
+    # (used verbatim). Keep anchors ≥ (#templates) apart so families
+    # don't collide.
+    template_vm_ids:
+      pve-home-01: 9001
+      pve-home-02: 9011
+      pve-home-03: 9021
+    template_ct_ids:
+      pve-home-01: 9101
+      pve-home-02: 9111
+      pve-home-03: 9121
 
 router:
   hosts:

@@ -13,21 +13,14 @@ locals {
   inventory = yamldecode(file("${path.module}/../inventory.yaml"))
 
   # Provider + template config also lives in inventory.yaml's `all.vars`
-  # (single source of truth shared with Ansible). Per-VM `vm.template_id`
-  # overrides the computed per-node template id below.
-  proxmox_endpoint           = local.inventory.all.vars.proxmox_endpoint
-  template_vm_id             = local.inventory.all.vars.template_vm_id
-  template_ct_id             = local.inventory.all.vars.template_ct_id
-  template_vm_id_node_stride = local.inventory.all.vars.template_vm_id_node_stride
-
-  # VM storage is node-local LVM-thin: every baremetal node builds its
-  # own template with a per-node-unique id (base + node_index * stride),
-  # and each VM is cloned locally on its own node from that template.
-  # keys() is sorted, so pve-home-01→0, pve-home-02→1, pve-home-03→2 —
-  # this MUST match the index 04-prepare-templates.yml derives from
-  # `groups['baremetal']`.
-  baremetal_nodes = keys(local.inventory.baremetal.hosts)
-  node_index      = { for i, n in local.baremetal_nodes : n => i }
+  # (single source of truth shared with Ansible). VM storage is
+  # node-local LVM-thin, so each baremetal node has its own template with
+  # a distinct cluster-wide VMID. `template_vm_ids` is an explicit
+  # {node => anchor id} map (no offset math, no group-ordering coupling);
+  # the anchor is the node's default/first VM template, which is exactly
+  # what each VM is cloned from. Per-VM `vm.template_id` overrides it.
+  proxmox_endpoint = local.inventory.all.vars.proxmox_endpoint
+  template_vm_ids  = local.inventory.all.vars.template_vm_ids
 
   # Top-level groups (router, baremetal, switches, virtual-machines, kubernetes, ...)
   _groups_l1 = { for k, v in local.inventory : k => v if k != "all" && can(v) && v != null }
@@ -55,11 +48,8 @@ locals {
       gateway        = ""
       tags           = try(h.vm.tags, [])
       node           = h.vm.proxmox_node
-      # Per-VM override wins; otherwise base + this node's offset.
-      template_id = try(
-        h.vm.template_id,
-        local.template_vm_id + local.node_index[h.vm.proxmox_node] * local.template_vm_id_node_stride,
-      )
+      # Per-VM override wins; otherwise this node's anchor template.
+      template_id = try(h.vm.template_id, local.template_vm_ids[h.vm.proxmox_node])
     } if try(h.vm, null) != null
   }
 }

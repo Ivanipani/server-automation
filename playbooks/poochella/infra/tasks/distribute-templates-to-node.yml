@@ -1,0 +1,162 @@
+---
+# Copy every template baked on `source_node` to `target_node` with that
+# node's anchor IDs, then convert each copy to a template there.
+#
+# `qm/pct clone --target` REQUIRES shared storage; our `vms` is
+# node-local LVM-thin ("can't clone to non-shared storage"). So the copy
+# is: clone LOCALLY on the source node, then offline-migrate the clone to
+# the target with `--with-local-disks` (Proxmox copies the volume over
+# the cluster link — one-time, at bootstrap), then templatize on the
+# target. Runs on the source (builder) node; the migrate moves the guest
+# to `target_node`; `qm/pct template` is delegated there.
+#
+# Idempotent + self-healing: a destination already present on the target
+# (config file in the shared pmxcfs) is skipped; a stray clone left on
+# the source by a failed prior run is destroyed before recloning.
+# `purge_existing_templates` (play 1) clears the final per-node IDs.
+#
+# Loop var: target_node
+# Requires: source_node, vm_templates_base, lxc_templates_base,
+#           template_vm_ids, template_ct_ids, build_* flags.
+
+# ── VM templates ───────────────────────────────────────────────────
+
+- name: "[{{ target_node }}] Check which VM templates already exist on the target"
+  ansible.builtin.stat:
+    path: "/etc/pve/nodes/{{ target_node }}/qemu-server/{{ (template_vm_ids[target_node] | int) + idx }}.conf"
+  loop: "{{ vm_templates_base }}"
+  loop_control:
+    loop_var: tmpl
+    index_var: idx
+    label: "{{ tmpl.name }} ({{ (template_vm_ids[target_node] | int) + idx }})"
+  register: vm_dst_conf
+  when: build_vm_templates | bool
+
+- name: "[{{ target_node }}] Destroy any stray clone left on {{ source_node }}"
+  ansible.builtin.command: "qm destroy {{ (template_vm_ids[target_node] | int) + idx }} --purge"
+  loop: "{{ vm_templates_base }}"
+  loop_control:
+    loop_var: tmpl
+    index_var: idx
+    label: "{{ (template_vm_ids[target_node] | int) + idx }} on {{ source_node }}"
+  register: vm_stray
+  changed_when: vm_stray.rc == 0
+  failed_when:
+    - vm_stray.rc != 0
+    - "'does not exist' not in vm_stray.stderr"
+  when:
+    - build_vm_templates | bool
+    - not vm_dst_conf.results[idx].stat.exists
+
+- name: "[{{ target_node }}] Clone VM template locally on {{ source_node }}"
+  ansible.builtin.command: >-
+    qm clone {{ (template_vm_ids[source_node] | int) + idx }}
+    {{ (template_vm_ids[target_node] | int) + idx }}
+    --name {{ tmpl.name }} --full --storage vms
+  loop: "{{ vm_templates_base }}"
+  loop_control:
+    loop_var: tmpl
+    index_var: idx
+    label: "{{ tmpl.name }} {{ (template_vm_ids[source_node] | int) + idx }} → {{ (template_vm_ids[target_node] | int) + idx }}"
+  when:
+    - build_vm_templates | bool
+    - not vm_dst_conf.results[idx].stat.exists
+  changed_when: true
+
+- name: "[{{ target_node }}] Offline-migrate the clone to {{ target_node }}"
+  ansible.builtin.command: >-
+    qm migrate {{ (template_vm_ids[target_node] | int) + idx }}
+    {{ target_node }} --with-local-disks 1 --targetstorage vms
+  loop: "{{ vm_templates_base }}"
+  loop_control:
+    loop_var: tmpl
+    index_var: idx
+    label: "{{ (template_vm_ids[target_node] | int) + idx }} → {{ target_node }}"
+  when:
+    - build_vm_templates | bool
+    - not vm_dst_conf.results[idx].stat.exists
+  changed_when: true
+
+- name: "[{{ target_node }}] Convert migrated VM to a template"
+  ansible.builtin.command: "qm template {{ (template_vm_ids[target_node] | int) + idx }}"
+  delegate_to: "{{ target_node }}"
+  loop: "{{ vm_templates_base }}"
+  loop_control:
+    loop_var: tmpl
+    index_var: idx
+    label: "{{ tmpl.name }} ({{ (template_vm_ids[target_node] | int) + idx }})"
+  when:
+    - build_vm_templates | bool
+    - not vm_dst_conf.results[idx].stat.exists
+  changed_when: true
+
+# ── LXC templates ──────────────────────────────────────────────────
+
+- name: "[{{ target_node }}] Check which LXC templates already exist on the target"
+  ansible.builtin.stat:
+    path: "/etc/pve/nodes/{{ target_node }}/lxc/{{ (template_ct_ids[target_node] | int) + idx }}.conf"
+  loop: "{{ lxc_templates_base }}"
+  loop_control:
+    loop_var: tmpl
+    index_var: idx
+    label: "{{ tmpl.hostname }} ({{ (template_ct_ids[target_node] | int) + idx }})"
+  register: lxc_dst_conf
+  when: build_lxc_templates | bool
+
+- name: "[{{ target_node }}] Destroy any stray CT clone left on {{ source_node }}"
+  ansible.builtin.command: "pct destroy {{ (template_ct_ids[target_node] | int) + idx }} --purge"
+  loop: "{{ lxc_templates_base }}"
+  loop_control:
+    loop_var: tmpl
+    index_var: idx
+    label: "{{ (template_ct_ids[target_node] | int) + idx }} on {{ source_node }}"
+  register: lxc_stray
+  changed_when: lxc_stray.rc == 0
+  failed_when:
+    - lxc_stray.rc != 0
+    - "'does not exist' not in lxc_stray.stderr"
+  when:
+    - build_lxc_templates | bool
+    - not lxc_dst_conf.results[idx].stat.exists
+
+- name: "[{{ target_node }}] Clone LXC template locally on {{ source_node }}"
+  ansible.builtin.command: >-
+    pct clone {{ (template_ct_ids[source_node] | int) + idx }}
+    {{ (template_ct_ids[target_node] | int) + idx }}
+    --hostname {{ tmpl.hostname }} --full --storage vms
+  loop: "{{ lxc_templates_base }}"
+  loop_control:
+    loop_var: tmpl
+    index_var: idx
+    label: "{{ tmpl.hostname }} {{ (template_ct_ids[source_node] | int) + idx }} → {{ (template_ct_ids[target_node] | int) + idx }}"
+  when:
+    - build_lxc_templates | bool
+    - not lxc_dst_conf.results[idx].stat.exists
+  changed_when: true
+
+- name: "[{{ target_node }}] Offline-migrate the CT clone to {{ target_node }}"
+  ansible.builtin.command: >-
+    pct migrate {{ (template_ct_ids[target_node] | int) + idx }}
+    {{ target_node }} --with-local-disks 1 --targetstorage vms
+  loop: "{{ lxc_templates_base }}"
+  loop_control:
+    loop_var: tmpl
+    index_var: idx
+    label: "{{ (template_ct_ids[target_node] | int) + idx }} → {{ target_node }}"
+  when:
+    - build_lxc_templates | bool
+    - not lxc_dst_conf.results[idx].stat.exists
+  changed_when: true
+
+- name: "[{{ target_node }}] Convert migrated CT to a template"
+  ansible.builtin.command: "pct template {{ (template_ct_ids[target_node] | int) + idx }}"
+  delegate_to: "{{ target_node }}"
+  loop: "{{ lxc_templates_base }}"
+  loop_control:
+    loop_var: tmpl
+    index_var: idx
+    label: "{{ tmpl.hostname }} ({{ (template_ct_ids[target_node] | int) + idx }})"
+  when:
+    - build_lxc_templates | bool
+    - not lxc_dst_conf.results[idx].stat.exists
+  changed_when: true
