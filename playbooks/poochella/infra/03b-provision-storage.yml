@@ -1,0 +1,47 @@
+---
+# Build node-local LVM-thin storage from the carved partitions and
+# register them as cluster-wide PVE storage. Replaces the old Ceph
+# bootstrap (03b-install-ceph.yml) in the infra run order — the storage
+# ID `vms` is preserved so Tofu and the template playbooks need no
+# datastore changes.
+#
+# Pre-conditions:
+#   - 03-partition-disks.yml completed (vm-storage + longhorn partitions
+#     present on each baremetal node)
+#   - PVE cluster quorate (storage.cfg lives in pmxcfs and replicates)
+
+- name: Build LVM-thin pools on every baremetal node
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: hypervisor-disks
+        tasks_from: storage_pools.yml
+
+- name: Register cluster-wide PVE storage (run once; storage.cfg is shared)
+  hosts: baremetal[0]
+  become: true
+  run_once: true
+  tasks:
+    - name: Read which lvmthin storages are already registered
+      ansible.builtin.command:
+        cmd: "grep -E '^lvmthin: (vms|longhorn-data)$' /etc/pve/storage.cfg"
+      register: storage_cfg
+      changed_when: false
+      failed_when: false
+
+    - name: Register the vm-storage pool as PVE storage `vms`
+      ansible.builtin.command: >-
+        pvesm add lvmthin vms
+        --vgname vmdata --thinpool vmthin
+        --content images,rootdir
+      when: "'lvmthin: vms' not in storage_cfg.stdout"
+      changed_when: true
+
+    - name: Register the longhorn pool as PVE storage `longhorn-data`
+      ansible.builtin.command: >-
+        pvesm add lvmthin longhorn-data
+        --vgname longhorndata --thinpool longhornthin
+        --content images
+      when: "'lvmthin: longhorn-data' not in storage_cfg.stdout"
+      changed_when: true

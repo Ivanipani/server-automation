@@ -156,22 +156,24 @@ do-hypervisor-init:
 do-cluster-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02b-cluster-hypervisor.yml
 
-# Carve the boot disk into a single ceph-osd partition spanning the
-# unallocated tail. DESTRUCTIVE on first run — requires
+# Carve the boot-disk tail into `vm-storage` (~45%) + `longhorn` (rest)
+# GPT partitions. DESTRUCTIVE on first run — requires
 # `confirm_carve_data_disk: true` in group_vars/baremetal.yml AND PVE
 # installed with `lvm.hdsize = 100`.
 do-partition-disks:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03-partition-disks.yml
 
-# Bootstrap Ceph storage (RBD/CephFS/RGW). Requires `do-partition-disks`
-# to have been run first.
-do-ceph-init:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03b-install-ceph.yml
+# Build node-local LVM-thin pools on the carved partitions and register
+# them as PVE storage (`vms`, `longhorn-data`). Requires
+# `do-partition-disks` to have been run first.
+do-provision-storage:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03b-provision-storage.yml
 
-# Install ceph-csi-rbd against the cluster (Helm release + StorageClass).
-# Requires k3s cluster up and kubeconfig present at repo root.
-do-ceph-csi:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/10-install-ceph-csi.yml
+# Format + mount the k3s workers' second disk at /var/lib/longhorn
+# (ground-prep for a future Longhorn install). Requires worker VMs
+# provisioned with a `vm.data_disk_size` declared in inventory.yaml.
+do-longhorn-storage:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/09b-longhorn-storage.yml
 
 # Configure OPNsense dnsmasq static leases for baremetal
 do-router-dhcp:

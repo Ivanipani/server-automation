@@ -3,6 +3,20 @@
 Incident + remediation record for the recurring "quorum blips" on the
 poochella 3-node Proxmox/Ceph cluster. Written 2026-05-15.
 
+> **Update 2026-05-16 — Ceph removed.** Storage was reworked to
+> node-local LVM-thin (`vm-storage` → PVE `vms`, `longhorn` → PVE
+> `longhorn-data`); the `ceph`/`ceph-csi` roles and their playbooks are
+> now dormant/unwired. Consequently the Ceph-specific stopgaps recorded
+> below are **moot** (no OSDs/mons exist): the mclock profile,
+> `ceph-osd@.service` start-limit hardening, and `mon_max_pg_per_osd`
+> tuning no longer apply. Removing Ceph eliminates the reboot-time
+> backfill storms over the shared 1GbE and the mon-quorum coupling — a
+> flapping *amplifier* is gone. **The hardware power-cycle root cause
+> (Appendix B / `rma-evidence-pve-home-02-2026-05-15.txt`) is
+> unaffected and still open** — this change is not a hardware fix, and
+> node-local storage means a crashed node's VMs are down (no HA
+> failover) until it returns.
+
 ## TL;DR
 
 The "frequent quorum loss" is **not** a corosync/quorum design problem

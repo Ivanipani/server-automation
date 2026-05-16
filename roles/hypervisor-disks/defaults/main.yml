@@ -3,29 +3,38 @@
 #
 # Pre-condition: PVE installed with `lvm.hdsize = 100` (see
 # scripts/images/proxmox/pve-home-0X.toml) so that ~900 GB at the end
-# of the boot disk is unpartitioned. This role carves that free space
-# into the GPT partitions listed in `hypervisor_disks_partitions`,
-# each identified by a stable GPT label and exposed at
-# /dev/disk/by-partlabel/<label>.
+# of the boot disk is unpartitioned. This role carves that free tail
+# into two GPT partitions, each exposed at /dev/disk/by-partlabel/<label>:
 #
-# Layout target on a 1 TB disk:
-#   sda1/sda2  BIOS + EFI boot  (~1 GB total)
-#   sda3       LVM PV → `pve` VG (root, swap, data thinpool) (~99 GB)
-#   sda4       ceph-osd partition spanning the rest of the disk (~900 GB)
+#   sda1/sda2  BIOS + EFI boot                  (~1 GB total)
+#   sda3       LVM PV → `pve` VG (root, swap)   (~99 GB)
+#   sda4       vm-storage  (~45% of the free tail; LVM-thin → PVE `vms`)
+#   sda5       longhorn    (fills the rest;      LVM-thin → PVE `longhorn-data`)
+#
+# `vm-storage`/`longhorn` later become node-local LVM-thin pools and PVE
+# storage entries in 03b-provision-storage.yml (storage_pools.yml).
 
 # DESTRUCTIVE: setting this true authorizes sgdisk to write the GPT.
 # Per-host opt-in lives in group_vars/baremetal.yml or host_vars.
 confirm_carve_data_disk: false
 
+# Percentage of the unallocated tail allocated to the `vm-storage`
+# partition. The `longhorn` partition takes the remainder (sgdisk "0").
+# Override per-group in group_vars/baremetal.yml if needed.
+hypervisor_disks_vm_storage_percent: 45
+
 # Ordered list of partitions to carve at the end of the boot disk.
 # - `label` becomes the GPT partition label (must be unique per disk).
-# - `size` uses sgdisk +SIZE syntax (e.g. "450G", "10M").
-#   Set to "0" on the last entry to fill the remaining disk.
+# - `size` uses sgdisk +SIZE syntax (e.g. "450G"); "0" fills the rest.
 # Partitions are created in list order using sequential partition
 # numbers, so reordering changes the on-disk layout.
-# The ceph-osd partition's label is defined in group_vars/baremetal.yml
-# (`ceph_osd_partition_label`) so the ceph role consumes the exact same
-# string.
+#
+# NOTE: this default is a documentation/fallback shape. At runtime
+# compute_layout.yml overwrites `hypervisor_disks_partitions` with the
+# `vm-storage` size computed from `hypervisor_disks_vm_storage_percent`
+# and the live free tail (see roles/hypervisor-disks/tasks/compute_layout.yml).
 hypervisor_disks_partitions:
-  - label: "{{ ceph_osd_partition_label }}"
+  - label: "vm-storage"
+    size: "0"   # placeholder; replaced at runtime with the computed +SIZE
+  - label: "longhorn"
     size: "0"   # fill remaining unallocated space at end of boot disk

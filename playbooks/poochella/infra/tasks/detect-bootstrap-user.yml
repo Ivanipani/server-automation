@@ -2,6 +2,16 @@
 # Detects whether the 'ansible' user can SSH into the target host.
 # Falls back to a configurable user if not.
 #
+# The connectivity probe deliberately ignores known_hosts
+# (StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null): hosts are
+# routinely re-imaged, which changes their SSH host key. `accept-new`
+# only auto-accepts keys for *unknown* hosts — a stale known_hosts entry
+# for a re-imaged host makes ssh hard-fail, which would mask a working
+# 'ansible' user and wrongly fall back to root. This is only a
+# reachability/auth probe (`true`), not the data path, so skipping
+# host-key verification here is safe; BatchMode=yes still requires the
+# 'ansible' key (no password fallback).
+#
 # Required vars:
 #   fallback_user  – user to connect as when 'ansible' SSH fails (e.g. root, temp)
 # Optional vars:
@@ -10,7 +20,8 @@
 - name: Check if ansible user can connect
   ansible.builtin.command:
     cmd: >-
-      ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new
+      ssh -o BatchMode=yes -o ConnectTimeout=5
+      -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
       {{ ssh_extra_flags | default('') }}
       ansible@{{ ansible_host }} true
   register: ansible_ssh

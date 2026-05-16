@@ -4,17 +4,12 @@ proxmox_cluster_name: usfa
 
 # Storage partitioning (consumed by 03-partition-disks.yml).
 # DESTRUCTIVE: setting `confirm_carve_data_disk: true` authorizes the
-# playbook to partition the unallocated space at the end of the boot
-# disk per the `hypervisor_disks_partitions` list (defaults to a single
-# ceph-osd partition spanning the unallocated tail, see
-# roles/hypervisor-disks/defaults/main.yml). Requires PVE installed
-# with `lvm.hdsize = 100` so that ~900 GB is unpartitioned and
-# available. Only set this on a freshly-installed node with no
-# VMs/containers.
+# playbook to carve the unallocated tail at the end of the boot disk
+# into two GPT partitions: `vm-storage`
+# (`hypervisor_disks_vm_storage_percent`% of the free tail, default 45%)
+# and `longhorn` (fills the rest). 03b-provision-storage.yml then turns
+# each into a node-local LVM-thin pool registered as the PVE `vms` and
+# `longhorn-data` storages. Requires PVE installed with
+# `lvm.hdsize = 100` so that ~900 GB is unpartitioned and available.
+# Only set this on a freshly-installed node with no VMs/containers.
 confirm_carve_data_disk: true
-ceph_public_network: 10.1.1.0/24
-
-# Shared between `hypervisor-disks` (creates the GPT partition with this
-# label) and `ceph` (consumes /dev/disk/by-partlabel/<label> as the OSD
-# device). One source of truth for the label string.
-ceph_osd_partition_label: ceph-osd

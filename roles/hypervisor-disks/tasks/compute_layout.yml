@@ -1,0 +1,100 @@
+---
+# Compute the `vm-storage` partition size from the live free tail and
+# rewrite `hypervisor_disks_partitions` accordingly, before carve.yml
+# runs. The `longhorn` partition always uses size "0" (fills the rest).
+#
+# Required upstream fact: `boot_disk` (set by preflight.yml; persists
+# across plays within one playbook run).
+#
+# Idempotency: on a fresh disk (neither partlabel present) we measure
+# the free tail and compute a +SIZE for vm-storage. On an already-carved
+# disk both partlabels exist — we skip the measurement entirely and just
+# pass the labels-only list through so carve.yml's non-empty assert
+# passes and its existing-label skip path runs (hosts are normally
+# re-imaged before this, so the fresh path is the usual one).
+
+- name: Read partition labels from the role default layout
+  ansible.builtin.set_fact:
+    _vm_storage_label: "{{ hypervisor_disks_partitions[0].label }}"
+    _longhorn_label: "{{ hypervisor_disks_partitions[1].label }}"
+
+- name: Check whether the carved partitions already exist
+  ansible.builtin.stat:
+    path: "/dev/disk/by-partlabel/{{ item }}"
+  loop:
+    - "{{ _vm_storage_label }}"
+    - "{{ _longhorn_label }}"
+  register: _partlabel_stat
+
+- name: Set fact for whether the disk is already carved
+  ansible.builtin.set_fact:
+    _disk_already_carved: "{{ _partlabel_stat.results | map(attribute='stat.exists') | select | list | length == 2 }}"
+
+- name: Measure the free tail and compute the vm-storage size
+  when: not _disk_already_carved
+  block:
+    - name: Read the logical sector size of the boot disk
+      ansible.builtin.command: "lsblk -dno LOG-SEC /dev/{{ boot_disk }}"
+      register: _sector_size
+      changed_when: false
+
+    - name: Read the first aligned free sector of the largest free block
+      ansible.builtin.command: "sgdisk -F /dev/{{ boot_disk }}"
+      register: _first_free_sector
+      changed_when: false
+
+    - name: Read the last usable sector of the largest free block
+      ansible.builtin.command: "sgdisk -E /dev/{{ boot_disk }}"
+      register: _last_free_sector
+      changed_when: false
+
+    - name: Compute the free tail and vm-storage size
+      ansible.builtin.set_fact:
+        _free_tail_bytes: >-
+          {{ ((_last_free_sector.stdout | trim | int)
+              - (_first_free_sector.stdout | trim | int) + 1)
+             * (_sector_size.stdout | trim | int) }}
+    - name: Compute the vm-storage size in whole GiB (floored)
+      ansible.builtin.set_fact:
+        _vm_storage_gib: >-
+          {{ (_free_tail_bytes | int
+              * (hypervisor_disks_vm_storage_percent | int)
+              / 100 // (1024 ** 3)) | int }}
+
+    - name: Sanity-check the measured free tail and computed size
+      ansible.builtin.assert:
+        that:
+          - (_free_tail_bytes | int) >= (50 * (1024 ** 3))
+          - (_vm_storage_gib | int) > 0
+        fail_msg: >-
+          Free tail on {{ inventory_hostname }} /dev/{{ boot_disk }} is
+          only {{ (_free_tail_bytes | int / (1024 ** 3)) | round(1) }} GiB
+          (computed vm-storage {{ _vm_storage_gib }} GiB). Expected a
+          large unpartitioned tail — was PVE installed with
+          `lvm.hdsize = 100`? Refusing to proceed.
+
+    - name: Override hypervisor_disks_partitions with the computed layout
+      ansible.builtin.set_fact:
+        hypervisor_disks_partitions:
+          - label: "{{ _vm_storage_label }}"
+            size: "{{ _vm_storage_gib }}G"
+          - label: "{{ _longhorn_label }}"
+            size: "0"
+
+    - name: Show the computed partition split
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} /dev/{{ boot_disk }}: free tail
+          {{ (_free_tail_bytes | int / (1024 ** 3)) | round(1) }} GiB →
+          {{ _vm_storage_label }} {{ _vm_storage_gib }} GiB
+          ({{ hypervisor_disks_vm_storage_percent }}%),
+          {{ _longhorn_label }} ≈ rest.
+
+- name: Pass through the labels-only layout (disk already carved)
+  when: _disk_already_carved
+  ansible.builtin.set_fact:
+    hypervisor_disks_partitions:
+      - label: "{{ _vm_storage_label }}"
+        size: "0"
+      - label: "{{ _longhorn_label }}"
+        size: "0"

@@ -11,6 +11,8 @@
 #   - `ip_address` + `mac_address`  → host appears as a dnsmasq static lease
 #   - `static_ip: true`             → suppress the dnsmasq reservation (e.g. router)
 #   - `vm: {...}`                   → Tofu creates this VM on Proxmox
+#   - `vm.data_disk_size: <GiB>`    → attach a 2nd virtio disk backed by
+#     the `longhorn-data` PVE storage (used by k3s workers for Longhorn)
 #   - VM MACs use the locally-administered prefix `02:` and a structured
 #     tail (02:00:00:<role>:<index>) so collisions are obvious at a glance.
 #
@@ -25,16 +27,18 @@ all:
     ansible_python_interpreter: /usr/bin/python3
     # Proxmox API endpoint. Read by Tofu via tofu/locals.tf → provider.tf.
     proxmox_endpoint: "https://pve-home-01.lan:8006"
-    # Proxmox VM/LXC template IDs. Read by Tofu via tofu/locals.tf.
-    # Per-VM override: set `vm.template_id` on a host below.
+    # Proxmox VM/LXC base template IDs. Read by Tofu via tofu/locals.tf.
+    # VM storage is node-local LVM-thin, so every baremetal node builds
+    # its own template with a per-node-unique ID:
+    #   effective ID = base + (node_index * template_vm_id_node_stride)
+    # node_index is the host's position in `baremetal.hosts`
+    # (pve-home-01→0, pve-home-02→1, pve-home-03→2). Each VM is cloned
+    # locally on its own `vm.proxmox_node` from that node's template —
+    # no cross-node copy, no HA. Per-VM override: set `vm.template_id`
+    # on a host below (used verbatim, skips the offset).
     template_vm_id: 9001
     template_ct_id: 9101
-    # Node where the templates live (templates are node-local in PVE even
-    # when their disks sit on shared Ceph). Tofu passes this as
-    # `clone.node_name` so cross-node clones know where to find the source.
-    # Must match the `hosts:` line in 04-prepare-templates.yml.
-    template_vm_node: pve-home-01
-    template_ct_node: pve-home-01
+    template_vm_id_node_stride: 10
 
 router:
   hosts:
@@ -126,6 +130,7 @@ kubernetes:
             cores: 4
             memory: 8192
             disk_size: 50
+            data_disk_size: 100
             tags: [kube, worker]
         kube-worker-02:
           ansible_host: kube-worker-02.lan
@@ -136,6 +141,7 @@ kubernetes:
             cores: 4
             memory: 8192
             disk_size: 50
+            data_disk_size: 100
             tags: [kube, worker]
         kube-worker-03:
           ansible_host: kube-worker-03.lan
@@ -146,6 +152,7 @@ kubernetes:
             cores: 4
             memory: 8192
             disk_size: 50
+            data_disk_size: 100
             tags: [kube, worker]
 
 containers:

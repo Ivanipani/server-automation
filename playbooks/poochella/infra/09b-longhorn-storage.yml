@@ -1,0 +1,61 @@
+---
+# Prepare each k3s worker's second virtio disk (/dev/vdb, backed by the
+# node-local `longhorn-data` LVM-thin pool) as the Longhorn data volume:
+# ext4-format it and mount it at /var/lib/longhorn (by UUID, via fstab).
+#
+# This is ground-prep ONLY. Installing Longhorn itself (Helm/role) is
+# out of scope and handled separately later.
+#
+# WORKERS-ONLY BY DESIGN: k3s control planes here are schedulable (no
+# --node-taint), but Longhorn storage must NOT run on them — co-locating
+# replica-rebuild IO with etcd is exactly the instability we're avoiding.
+# Only kube_workers get a `vm.data_disk_size` / longhorn-data disk, so
+# only they are prepared here. The future Longhorn install MUST restrict
+# storage scheduling to the workers, e.g.:
+#   - defaultSettings.createDefaultDiskLabeledNodes: true, and label only
+#     the workers with `node.longhorn.io/create-default-disk=true`
+#   - so control planes get no Longhorn disk and host no replicas
+#     (they may still run stateless pods — only storage is pinned).
+#
+# Pre-conditions:
+#   - 05-provision-infrastructure.yml completed (worker VMs exist with a
+#     `vm.data_disk_size` declared in inventory.yaml → virtio1 disk)
+#   - 06-bootstrap-ansible-global.yml completed (ansible reachable on VMs)
+
+- name: Prepare Longhorn data disk on k3s workers
+  hosts: kube_workers
+  become: true
+  vars:
+    longhorn_data_device: /dev/vdb
+    longhorn_data_path: /var/lib/longhorn
+  tasks:
+    - name: Assert the Longhorn data disk is present
+      ansible.builtin.stat:
+        path: "{{ longhorn_data_device }}"
+      register: longhorn_disk
+      failed_when: not longhorn_disk.stat.exists
+
+    - name: Create an ext4 filesystem on the Longhorn data disk
+      community.general.filesystem:
+        fstype: ext4
+        dev: "{{ longhorn_data_device }}"
+        # Never reformat an already-formatted disk (no `force`).
+
+    - name: Read the filesystem UUID
+      ansible.builtin.command: "blkid -s UUID -o value {{ longhorn_data_device }}"
+      register: longhorn_fs_uuid
+      changed_when: false
+
+    - name: Ensure the Longhorn data directory exists
+      ansible.builtin.file:
+        path: "{{ longhorn_data_path }}"
+        state: directory
+        mode: "0755"
+
+    - name: Mount the Longhorn data disk by UUID (persisted in fstab)
+      ansible.posix.mount:
+        path: "{{ longhorn_data_path }}"
+        src: "UUID={{ longhorn_fs_uuid.stdout | trim }}"
+        fstype: ext4
+        opts: defaults
+        state: mounted

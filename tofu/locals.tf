@@ -14,12 +14,20 @@ locals {
 
   # Provider + template config also lives in inventory.yaml's `all.vars`
   # (single source of truth shared with Ansible). Per-VM `vm.template_id`
-  # overrides template_vm_id below.
-  proxmox_endpoint = local.inventory.all.vars.proxmox_endpoint
-  template_vm_id   = local.inventory.all.vars.template_vm_id
-  template_ct_id   = local.inventory.all.vars.template_ct_id
-  template_vm_node = local.inventory.all.vars.template_vm_node
-  template_ct_node = local.inventory.all.vars.template_ct_node
+  # overrides the computed per-node template id below.
+  proxmox_endpoint           = local.inventory.all.vars.proxmox_endpoint
+  template_vm_id             = local.inventory.all.vars.template_vm_id
+  template_ct_id             = local.inventory.all.vars.template_ct_id
+  template_vm_id_node_stride = local.inventory.all.vars.template_vm_id_node_stride
+
+  # VM storage is node-local LVM-thin: every baremetal node builds its
+  # own template with a per-node-unique id (base + node_index * stride),
+  # and each VM is cloned locally on its own node from that template.
+  # keys() is sorted, so pve-home-01→0, pve-home-02→1, pve-home-03→2 —
+  # this MUST match the index 04-prepare-templates.yml derives from
+  # `groups['baremetal']`.
+  baremetal_nodes = keys(local.inventory.baremetal.hosts)
+  node_index      = { for i, n in local.baremetal_nodes : n => i }
 
   # Top-level groups (router, baremetal, switches, virtual-machines, kubernetes, ...)
   _groups_l1 = { for k, v in local.inventory : k => v if k != "all" && can(v) && v != null }
@@ -37,16 +45,21 @@ locals {
 
   vms_from_inventory = {
     for name, h in local.all_hosts : name => {
-      hostname    = name
-      mac_address = h.mac_address
-      cores       = try(h.vm.cores, 2)
-      memory      = try(h.vm.memory, 2048)
-      disk_size   = try(h.vm.disk_size, 20)
-      ip_address  = "dhcp"
-      gateway     = ""
-      tags        = try(h.vm.tags, [])
-      node        = try(h.vm.proxmox_node, null)
-      template_id = try(h.vm.template_id, null)
+      hostname       = name
+      mac_address    = h.mac_address
+      cores          = try(h.vm.cores, 2)
+      memory         = try(h.vm.memory, 2048)
+      disk_size      = try(h.vm.disk_size, 20)
+      data_disk_size = try(h.vm.data_disk_size, 0)
+      ip_address     = "dhcp"
+      gateway        = ""
+      tags           = try(h.vm.tags, [])
+      node           = h.vm.proxmox_node
+      # Per-VM override wins; otherwise base + this node's offset.
+      template_id = try(
+        h.vm.template_id,
+        local.template_vm_id + local.node_index[h.vm.proxmox_node] * local.template_vm_id_node_stride,
+      )
     } if try(h.vm, null) != null
   }
 }

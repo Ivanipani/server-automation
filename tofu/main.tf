@@ -3,15 +3,14 @@ resource "proxmox_virtual_environment_vm" "vm" {
 
   name        = each.value.hostname
   description = each.key
-  # Every VM is cloned on the template node. Final placement is handled by
-  # the HA resources below — Proxmox HA migrates the VM to its preferred
-  # node after creation, and `lifecycle.ignore_changes = [node_name]` keeps
-  # Tofu from fighting that migration on subsequent plans.
-  node_name = local.template_vm_node
+  # Storage is node-local LVM-thin, so each VM is created directly on its
+  # preferred node and cloned from that node's own per-node template.
+  # There is no HA / live-migration — a VM lives and stays on one node.
+  node_name = each.value.node
   tags      = each.value.tags
 
   clone {
-    vm_id = each.value.template_id != null ? each.value.template_id : local.template_vm_id
+    vm_id = each.value.template_id
     full  = true
   }
 
@@ -26,7 +25,20 @@ resource "proxmox_virtual_environment_vm" "vm" {
   disk {
     interface    = "virtio0"
     size         = each.value.disk_size
-    datastore_id = "vms" # Ceph RBD; cluster-shared so VMs can live-migrate
+    datastore_id = "vms" # node-local LVM-thin; VM is pinned to its node
+  }
+
+  # Optional second disk for k3s workers (Longhorn data), backed by the
+  # node-local `longhorn-data` LVM-thin pool. Emitted only when the host
+  # declares `vm.data_disk_size` in inventory.yaml. Presents as virtio1
+  # (/dev/vdb) in the guest; 09b-longhorn-storage.yml formats+mounts it.
+  dynamic "disk" {
+    for_each = each.value.data_disk_size > 0 ? [1] : []
+    content {
+      interface    = "virtio1"
+      size         = each.value.data_disk_size
+      datastore_id = "longhorn-data"
+    }
   }
 
   # The cloud-init drive is attached because this block is present. VM `name`
@@ -52,43 +64,16 @@ resource "proxmox_virtual_environment_vm" "vm" {
   }
 
   lifecycle {
-    ignore_changes = [disk, node_name]
+    # `disk` churns from cloud-init / qemu runtime attributes — ignore it
+    # (covers the optional second data disk too). `node_name` is now
+    # authoritative from Tofu; there is no HA to fight over placement.
+    ignore_changes = [disk]
   }
 }
 
-# Per-VM HA enrollment. PVE 9.x replaced HA groups with HA rules, so the
-# `group` field on this resource is no longer used — node placement is
-# expressed exclusively via the `proxmox_harule` below, which requires
-# the resources to be HA-managed first.
-resource "proxmox_haresource" "vm" {
-  for_each = local.vms_from_inventory
-
-  resource_id = "vm:${proxmox_virtual_environment_vm.vm[each.key].vm_id}"
-  state       = "started"
-  comment     = "Managed by Tofu"
-}
-
-# One node-affinity rule per preferred node. `strict = false` allows
-# fail-over to other cluster nodes if the preferred one is unavailable;
-# the priority-2 entry pulls the VM back when the preferred node returns.
-# The `resources` set references proxmox_haresource.vm so the rule waits
-# for HA enrollment before being created.
-resource "proxmox_harule" "pin" {
-  for_each = toset([for h in local.vms_from_inventory : h.node])
-
-  rule = "pin-${each.value}"
-  type = "node-affinity"
-  resources = toset([
-    for name, h in local.vms_from_inventory :
-    proxmox_haresource.vm[name].resource_id
-    if h.node == each.value
-  ])
-  nodes = {
-    (each.value) = 2
-  }
-  strict  = false
-  comment = "Managed by Tofu - prefers ${each.value}"
-}
+# No proxmox_haresource / proxmox_harule: storage is node-local LVM-thin,
+# so HA failover to a node lacking the VM's disk is invalid. Placement is
+# expressed solely by `node_name` above (the VM's inventory proxmox_node).
 
 # resource "proxmox_virtual_environment_container" "ct" {
 #   for_each = var.containers

@@ -1,7 +1,9 @@
 ---
-# Partition the boot disk on each baremetal node into a single
-# ceph-osd partition spanning the unallocated tail. The Ceph install
-# (03b-install-ceph.yml) consumes that partition as the OSD device.
+# Carve the unallocated tail of each baremetal node's boot disk into two
+# GPT partitions: `vm-storage` (~45% of the tail, tunable via
+# `hypervisor_disks_vm_storage_percent`) and `longhorn` (fills the rest).
+# 03b-provision-storage.yml then turns each into a node-local LVM-thin
+# pool registered as the PVE `vms` / `longhorn-data` storages.
 #
 # DESTRUCTIVE on first run: partitions unallocated space at the end of
 # each node's boot disk. Refuses to run unless `confirm_carve_data_disk:
@@ -23,7 +25,15 @@
         name: hypervisor-disks
         tasks_from: preflight.yml
 
-- name: Carve ceph-osd partition on the boot disk
+- name: Compute partition layout from the live free tail
+  hosts: baremetal
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: hypervisor-disks
+        tasks_from: compute_layout.yml
+
+- name: Carve vm-storage + longhorn partitions on the boot disk
   hosts: baremetal
   become: true
   tasks:
