@@ -1,19 +1,24 @@
 ---
 # Carve the unallocated tail of each baremetal node's boot disk into two
-# GPT partitions: `vm-storage` (~45% of the tail, tunable via
-# `hypervisor_disks_vm_storage_percent`) and `longhorn` (fills the rest).
-# 03b-provision-storage.yml then turns each into a node-local LVM-thin
-# pool registered as the PVE `vms` / `longhorn-data` storages.
+# fixed-size GPT partitions: `vm-storage` (200 GiB) and `longhorn`
+# (fills the rest, ~700 GiB). 03b-provision-storage.yml then turns each
+# into a node-local LVM-thin pool registered as the PVE `vms` /
+# `longhorn-data` storages. (Root/swap — the first ~100 GiB — is already
+# the `pve` VG from the PVE installer's `lvm.hdsize = 100`.)
 #
 # DESTRUCTIVE on first run: partitions unallocated space at the end of
 # each node's boot disk. Refuses to run unless `confirm_carve_data_disk:
 # true` is set per host.
 #
+# Sizes are fixed (see roles/hypervisor-disks/defaults/main.yml) — no
+# runtime free-tail measurement. The carve is idempotent on the GPT
+# partition label, so re-runs are safe.
+#
 # Pre-conditions:
 #   - 02-bootstrap-hypervisor.yml completed (ansible user, repos staged)
 #   - 02b-cluster-hypervisor.yml completed (PVE cluster quorate)
 #   - PVE installed with LVM/ext4 root AND `lvm.hdsize = 100` so that
-#     ~900 GB at the end of the disk is unpartitioned. See the answer
+#     ~900 GiB at the end of the disk is unpartitioned. See the answer
 #     files under scripts/images/proxmox/pve-home-0X.toml.
 #   - No VMs or containers exist yet on any node
 
@@ -24,14 +29,6 @@
     - ansible.builtin.import_role:
         name: hypervisor-disks
         tasks_from: preflight.yml
-
-- name: Compute partition layout from the live free tail
-  hosts: baremetal
-  become: true
-  tasks:
-    - ansible.builtin.import_role:
-        name: hypervisor-disks
-        tasks_from: compute_layout.yml
 
 - name: Carve vm-storage + longhorn partitions on the boot disk
   hosts: baremetal

@@ -12,7 +12,10 @@
 #   - `static_ip: true`             → suppress the dnsmasq reservation (e.g. router)
 #   - `vm: {...}`                   → Tofu creates this VM on Proxmox
 #   - `vm.data_disk_size: <GiB>`    → attach a 2nd virtio disk backed by
-#     the `longhorn-data` PVE storage (used by k3s workers for Longhorn)
+#     the node-local `longhorn-data` PVE storage (k3s workers, Longhorn).
+#     One worker per node, sized to consume that node's whole longhorn
+#     pool (kept just under the physical pool — it is thin-provisioned,
+#     so over-committing it would let Longhorn exhaust the pool).
 #   - VM MACs use the locally-administered prefix `02:` and a structured
 #     tail (02:00:00:<role>:<index>) so collisions are obvious at a glance.
 #
@@ -106,7 +109,7 @@ kubernetes:
           mac_address: "02:00:00:00:02:01"
           vm:
             proxmox_node: pve-home-01
-            cores: 2
+            cores: 4
             memory: 8192
             disk_size: 30
             tags: [kube, control-plane]
@@ -116,7 +119,7 @@ kubernetes:
           mac_address: "02:00:00:00:02:02"
           vm:
             proxmox_node: pve-home-02
-            cores: 2
+            cores: 4
             memory: 8192
             disk_size: 30
             tags: [kube, control-plane]
@@ -126,7 +129,7 @@ kubernetes:
           mac_address: "02:00:00:00:02:03"
           vm:
             proxmox_node: pve-home-03
-            cores: 2
+            cores: 4
             memory: 8192
             disk_size: 30
             tags: [kube, control-plane]
@@ -138,10 +141,10 @@ kubernetes:
           mac_address: "02:00:00:00:03:01"
           vm:
             proxmox_node: pve-home-01
-            cores: 4
+            cores: 2
             memory: 8192
             disk_size: 50
-            data_disk_size: 100
+            data_disk_size: 600
             tags: [kube, worker]
         kube-worker-02:
           ansible_host: kube-worker-02.lan
@@ -149,10 +152,10 @@ kubernetes:
           mac_address: "02:00:00:00:03:02"
           vm:
             proxmox_node: pve-home-02
-            cores: 4
+            cores: 2
             memory: 8192
             disk_size: 50
-            data_disk_size: 100
+            data_disk_size: 600
             tags: [kube, worker]
         kube-worker-03:
           ansible_host: kube-worker-03.lan
@@ -160,10 +163,10 @@ kubernetes:
           mac_address: "02:00:00:00:03:03"
           vm:
             proxmox_node: pve-home-03
-            cores: 4
+            cores: 2
             memory: 8192
             disk_size: 50
-            data_disk_size: 100
+            data_disk_size: 600
             tags: [kube, worker]
 
 containers:

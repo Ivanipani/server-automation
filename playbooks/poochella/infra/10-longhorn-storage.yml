@@ -43,8 +43,6 @@
           - open-iscsi   # Longhorn attaches volumes over iSCSI (required)
           - nfs-common   # NFSv4 client: required for RWX volumes & backups
         state: present
-        update_cache: true
-        cache_valid_time: 3600
 
     - name: Ensure the iscsi_tcp module is loaded now and on boot
       community.general.modprobe:

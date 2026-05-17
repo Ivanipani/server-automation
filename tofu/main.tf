@@ -30,8 +30,11 @@ resource "proxmox_virtual_environment_vm" "vm" {
 
   # Optional second disk for k3s workers (Longhorn data), backed by the
   # node-local `longhorn-data` LVM-thin pool. Emitted only when the host
-  # declares `vm.data_disk_size` in inventory.yaml. Presents as virtio1
-  # (/dev/vdb) in the guest; 09b-longhorn-storage.yml formats+mounts it.
+  # declares `vm.data_disk_size` in inventory.yaml — one worker per node,
+  # sized to consume that node's whole longhorn pool (kept just under the
+  # physical pool: the pool is thin-provisioned, so over-committing it
+  # would let Longhorn exhaust it). Presents as virtio1 (/dev/vdb) in the
+  # guest; 10-longhorn-storage.yml ext4-formats + mounts it.
   dynamic "disk" {
     for_each = each.value.data_disk_size > 0 ? [1] : []
     content {
@@ -64,16 +67,9 @@ resource "proxmox_virtual_environment_vm" "vm" {
   }
 
   lifecycle {
-    # `disk` churns from cloud-init / qemu runtime attributes — ignore it
-    # (covers the optional second data disk too). `node_name` is now
-    # authoritative from Tofu; there is no HA to fight over placement.
     ignore_changes = [disk]
   }
 }
-
-# No proxmox_haresource / proxmox_harule: storage is node-local LVM-thin,
-# so HA failover to a node lacking the VM's disk is invalid. Placement is
-# expressed solely by `node_name` above (the VM's inventory proxmox_node).
 
 # resource "proxmox_virtual_environment_container" "ct" {
 #   for_each = var.containers

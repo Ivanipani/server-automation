@@ -1,40 +1,38 @@
 ---
 # Boot-disk partitioning for the poochella Proxmox cluster.
 #
-# Pre-condition: PVE installed with `lvm.hdsize = 100` (see
-# scripts/images/proxmox/pve-home-0X.toml) so that ~900 GB at the end
-# of the boot disk is unpartitioned. This role carves that free tail
-# into two GPT partitions, each exposed at /dev/disk/by-partlabel/<label>:
+# Every node has a ~1 TB boot disk. The PVE installer already claimed the
+# first ~100 GiB for the `pve` VG (root + swap) via `lvm.hdsize = 100`
+# (see scripts/images/proxmox/pve-home-0X.toml). This role carves the
+# remaining ~900 GiB tail into two fixed-size GPT partitions, each
+# exposed at /dev/disk/by-partlabel/<label>:
 #
 #   sda1/sda2  BIOS + EFI boot                  (~1 GB total)
-#   sda3       LVM PV → `pve` VG (root, swap)   (~99 GB)
-#   sda4       vm-storage  (~45% of the free tail; LVM-thin → PVE `vms`)
-#   sda5       longhorn    (fills the rest;      LVM-thin → PVE `longhorn-data`)
+#   sda3       LVM PV → `pve` VG (root, swap)   (~100 GiB, installer)
+#   sda4       vm-storage  200 GiB  → PVE `vms`           (LVM-thin)
+#   sda5       longhorn    rest (~700 GiB) → PVE `longhorn-data` (LVM-thin)
 #
-# `vm-storage`/`longhorn` later become node-local LVM-thin pools and PVE
+# `vm-storage`/`longhorn` become node-local LVM-thin pools and PVE
 # storage entries in 03b-provision-storage.yml (storage_pools.yml).
+#
+# Sizes are fixed (not computed): the disk geometry is known, so there is
+# no runtime free-tail measurement. The carve is idempotent on the GPT
+# partition label (carve.yml / _carve_one.yml skip an existing label), so
+# re-runs are safe. If the tail is too small for the 200 GiB vm-storage
+# partition (e.g. PVE was not installed with `lvm.hdsize = 100`), sgdisk
+# fails the carve loudly rather than silently mis-sizing.
 
 # DESTRUCTIVE: setting this true authorizes sgdisk to write the GPT.
 # Per-host opt-in lives in group_vars/baremetal.yml or host_vars.
 confirm_carve_data_disk: false
 
-# Percentage of the unallocated tail allocated to the `vm-storage`
-# partition. The `longhorn` partition takes the remainder (sgdisk "0").
-# Override per-group in group_vars/baremetal.yml if needed.
-hypervisor_disks_vm_storage_percent: 45
-
 # Ordered list of partitions to carve at the end of the boot disk.
 # - `label` becomes the GPT partition label (must be unique per disk).
-# - `size` uses sgdisk +SIZE syntax (e.g. "450G"); "0" fills the rest.
+# - `size` uses sgdisk +SIZE syntax (e.g. "200G"); "0" fills the rest.
 # Partitions are created in list order using sequential partition
 # numbers, so reordering changes the on-disk layout.
-#
-# NOTE: this default is a documentation/fallback shape. At runtime
-# compute_layout.yml overwrites `hypervisor_disks_partitions` with the
-# `vm-storage` size computed from `hypervisor_disks_vm_storage_percent`
-# and the live free tail (see roles/hypervisor-disks/tasks/compute_layout.yml).
 hypervisor_disks_partitions:
   - label: "vm-storage"
-    size: "0"   # placeholder; replaced at runtime with the computed +SIZE
+    size: "200G"   # PVE `vms` LVM-thin pool (VM root disks)
   - label: "longhorn"
-    size: "0"   # fill remaining unallocated space at end of boot disk
+    size: "0"      # fill the rest of the tail (~700 GiB) → `longhorn-data`

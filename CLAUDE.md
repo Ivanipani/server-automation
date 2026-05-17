@@ -44,7 +44,7 @@ Per-host fields:
 - `ansible_host` — DNS name or IP Ansible uses to reach the host
 - `ip_address` + `mac_address` — host appears as a dnsmasq static DHCP+DNS reservation on OPNsense
 - `static_ip: true` — suppress the dnsmasq reservation (e.g. the router itself)
-- `vm: { proxmox_node, cores, memory, disk_size, tags, ... }` — Tofu creates this VM on Proxmox, pinned to `proxmox_node`. VM MACs use the locally-administered `02:` prefix. Optional `vm.data_disk_size` (GiB) attaches a second virtio disk on the node-local `longhorn-data` storage (k3s workers, for Longhorn).
+- `vm: { proxmox_node, cores, memory, disk_size, tags, ... }` — Tofu creates this VM on Proxmox, pinned to `proxmox_node`. VM MACs use the locally-administered `02:` prefix. Optional `vm.data_disk_size` (GiB) attaches a second virtio disk on the node-local `longhorn-data` storage (k3s workers, for Longhorn); each worker is sized to consume its node's whole longhorn pool, kept just under the physical pool since it is thin-provisioned.
 
 Groups define topology:
 - `router` → OPNsense (`opnsense01` at `10.1.1.1`)
@@ -66,9 +66,9 @@ VM disks live on the **node-local** `vms` LVM-thin storage (same storage ID on e
 
 ### Storage carving (DESTRUCTIVE)
 
-`playbooks/poochella/infra/03-partition-disks.yml` carves the unallocated tail of each PVE boot disk into two GPT partitions: `vm-storage` (~`hypervisor_disks_vm_storage_percent`% of the tail, default 45%) and `longhorn` (fills the rest). `roles/hypervisor-disks/tasks/compute_layout.yml` computes the `vm-storage` size at runtime from the live free tail (`sgdisk -F`/`-E`); the carve is idempotent on the GPT partition label. Gated by `confirm_carve_data_disk: true` in `group_vars/baremetal.yml` and **requires PVE installed with `lvm.hdsize = 100`** (~900 GB unallocated); the answer files under `scripts/images/proxmox/pve-home-0X.toml` set this. `03b-provision-storage.yml` then builds a node-local LVM-thin pool on each partition (`vmdata/vmthin`, `longhorndata/longhornthin`) and registers them as the cluster-wide PVE storages `vms` (content `images,rootdir`) and `longhorn-data` (content `images`).
+Each node has a ~1 TB boot disk. The PVE installer already claimed the first ~100 GiB for the `pve` VG (root + swap) via `lvm.hdsize = 100`. `playbooks/poochella/infra/03-partition-disks.yml` carves the remaining ~900 GiB tail into two **fixed-size** GPT partitions: `vm-storage` (200 GiB) and `longhorn` (fills the rest, ~700 GiB) — sizes live in `roles/hypervisor-disks/defaults/main.yml`, there is **no runtime free-tail measurement** (the disk geometry is known). The carve is idempotent on the GPT partition label (re-runs skip existing labels); if the tail is too small for the 200 GiB `vm-storage` partition, sgdisk fails the carve loudly rather than mis-sizing. Gated by `confirm_carve_data_disk: true` in `group_vars/baremetal.yml` and **requires PVE installed with `lvm.hdsize = 100`** (~900 GiB unallocated); the answer files under `scripts/images/proxmox/pve-home-0X.toml` set this. `03b-provision-storage.yml` then builds a node-local LVM-thin pool on each partition (`vmdata/vmthin`, `longhorndata/longhornthin`) and registers them as the cluster-wide PVE storages `vms` (content `images,rootdir`) and `longhorn-data` (content `images`).
 
-Longhorn (future) is **workers-only by design**: only `kube_workers` declare `vm.data_disk_size`, so only they get a `longhorn-data`-backed second disk (`09b-longhorn-storage.yml` ext4-mounts it at `/var/lib/longhorn`). k3s control planes here are schedulable (no `--node-taint`) and may run stateless pods, but the future Longhorn install must restrict storage scheduling to the workers (`createDefaultDiskLabeledNodes` + label only workers) so replica-rebuild IO never lands on the etcd nodes.
+Longhorn (future) is **workers-only by design**: only `kube_workers` declare `vm.data_disk_size`, so only they get a `longhorn-data`-backed second disk (`10-longhorn-storage.yml` ext4-mounts it at `/var/lib/longhorn`). k3s control planes here are schedulable (no `--node-taint`) and may run stateless pods, but the future Longhorn install must restrict storage scheduling to the workers (`createDefaultDiskLabeledNodes` + label only workers) so replica-rebuild IO never lands on the etcd nodes.
 
 ### k3s + kube-vip
 
@@ -82,7 +82,7 @@ The VIP must be a free address on the same L2 segment as the control planes. Con
 ### Roles
 
 Roles under `roles/` are units of work, not "things to install":
-- `hypervisor`, `hypervisor-disks` — PVE node setup; disk carving + node-local LVM-thin pool/PVE-storage provisioning (`preflight.yml`, `compute_layout.yml`, `carve.yml`, `storage_pools.yml`)
+- `hypervisor`, `hypervisor-disks` — PVE node setup; fixed-size disk carving + node-local LVM-thin pool/PVE-storage provisioning (`preflight.yml`, `carve.yml`, `storage_pools.yml`)
 - `ceph`, `ceph-csi` — **dormant** (Ceph removed): kept on disk for reference, not referenced by any active playbook/recipe
 - `k3s` — task-file-per-phase (`server_init.yml`, `kube_vip.yml`, `server_join.yml`, `agent.yml`, `fetch_kubeconfig.yml`); playbooks `import_role` with `tasks_from:` rather than running the role as a whole
 - `opnsense-dnsmasq` — DHCP static leases + DNS records on the router
