@@ -72,6 +72,18 @@
           - "/etc/sudoers.d/90-ansible:ansible ALL=(ALL) NOPASSWD: ALL\n"
           - --chmod
           - "0440:/etc/sudoers.d/90-ansible"
+          # Bake the automatic-apt-upgrade kill-switch into the image so
+          # clones never auto-upgrade — even before Ansible (06b) reaches
+          # them. APT::Periodic::Unattended-Upgrade "0" is authoritative;
+          # 06b-disable-auto-upgrades.yml additionally masks the apt-daily
+          # timers on the running VMs (roles/apt-no-auto-upgrades).
+          - --write
+          - |
+            /etc/apt/apt.conf.d/20auto-upgrades:// Baked by 04-prepare-templates.yml — automatic apt upgrading off.
+            APT::Periodic::Update-Package-Lists "0";
+            APT::Periodic::Unattended-Upgrade "0";
+            APT::Periodic::Download-Upgradeable-Packages "0";
+            APT::Periodic::AutocleanInterval "0";
           # cc_set_hostname runs after networking is already up, so the first
           # DHCPREQUEST goes out without option 12 and OPNsense dnsmasq has
           # nothing to register. Renewing the lease in runcmd (cloud-final

@@ -11,6 +11,7 @@
 - import_playbook: 04-prepare-templates.yml
 - import_playbook: 05-provision-infrastructure.yml
 - import_playbook: 06-bootstrap-ansible-global.yml
+- import_playbook: 06b-disable-auto-upgrades.yml
 - import_playbook: 07-firewall.yml
 - import_playbook: 08-tailscale.yml
 - import_playbook: 09-node-exporter.yml

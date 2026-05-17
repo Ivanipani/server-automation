@@ -30,30 +30,13 @@
     content: "deb http://download.proxmox.com/debian/ceph-squid trixie no-subscription\n"
     mode: "0644"
 
-# - name: Stop apt-daily services to release lock
-#   ansible.builtin.systemd:
-#     name: "{{ item }}"
-#     state: stopped
-#   loop:
-#     - apt-daily.service
-#     - apt-daily-upgrade.service
-#     - apt-daily.timer
-#     - apt-daily-upgrade.timer
-#   failed_when: false
-#
-# - name: Kill any running apt/dpkg processes
-#   ansible.builtin.shell: |
-#     pkill -9 -x apt || true
-#     pkill -9 -x apt-get || true
-#     pkill -9 -x dpkg || true
-#     rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock
-#     dpkg --configure -a
-#   changed_when: true
-#
-# - name: Update apt cache
-#   ansible.builtin.apt:
-#     update_cache: true
-#
+# Disable automatic ("unattended") apt upgrading BEFORE the first apt
+# install below. Masking apt-daily also stops it grabbing the dpkg lock
+# mid-play — the long-standing lock-contention pain the brute-force block
+# that used to live here was fighting. See roles/apt-no-auto-upgrades.
+- name: Disable automatic apt upgrades + apt-daily lock contention
+  ansible.builtin.import_role:
+    name: apt-no-auto-upgrades
 
 - name: Install sudo
   ansible.builtin.apt:

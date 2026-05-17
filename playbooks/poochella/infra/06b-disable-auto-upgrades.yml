@@ -1,0 +1,29 @@
+---
+# Disable automatic ("unattended") apt upgrading on every managed VM.
+#
+# Why: this cluster is deliberately patched, not auto-patched. On a
+# quorum-sensitive HA k3s/etcd control plane fronted by a single 1GbE
+# NIC, an unattended security upgrade that restarts containerd/etcd or
+# leaves a pending-reboot defeats the point of rolling, controlled
+# upgrades — and silent auto-mutation drifts the nodes apart, against the
+# single-source-of-truth model. The `unattended-upgrades` package is left
+# installed so patching can still be done deliberately later.
+#
+# Layering:
+#   - Baremetal PVE hosts: handled earlier by the `hypervisor` role
+#     (02-bootstrap-hypervisor.yml) — not repeated here.
+#   - Future VMs: the kill-switch is baked into the golden template
+#     (04-prepare-templates.yml) so clones never auto-upgrade even before
+#     Ansible reaches them. This playbook additionally masks the
+#     apt-daily timers on the *running* VMs and enforces the end state
+#     idempotently on every run.
+#
+# Pre-conditions:
+#   - 05-provision-infrastructure.yml completed (VMs exist)
+#   - 06-bootstrap-ansible-global.yml completed (ansible user reachable)
+
+- name: Disable automatic apt upgrades on all VMs
+  hosts: virtual-machines
+  become: true
+  roles:
+    - role: apt-no-auto-upgrades

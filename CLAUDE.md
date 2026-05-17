@@ -85,6 +85,7 @@ Roles under `roles/` are units of work, not "things to install":
 - `hypervisor`, `hypervisor-disks` — PVE node setup; fixed-size disk carving + node-local LVM-thin pool/PVE-storage provisioning (`preflight.yml`, `carve.yml`, `storage_pools.yml`)
 - `ceph`, `ceph-csi` — **dormant** (Ceph removed): kept on disk for reference, not referenced by any active playbook/recipe
 - `k3s` — task-file-per-phase (`server_init.yml`, `kube_vip.yml`, `server_join.yml`, `agent.yml`, `fetch_kubeconfig.yml`); playbooks `import_role` with `tasks_from:` rather than running the role as a whole
+- `apt-no-auto-upgrades` — disable automatic ("unattended") apt upgrading: pins `APT::Periodic` to `"0"` + masks the apt-daily timers. Used by the `hypervisor` role (baremetal) and `06b-disable-auto-upgrades.yml` (VMs); the kill-switch is also baked into the golden template by `04-prepare-templates.yml`. Patching is deliberate, not unattended — the `unattended-upgrades` package is left installed
 - `opnsense-dnsmasq` — DHCP static leases + DNS records on the router
 - `create-user`, `ivan-user`, `dev-tools`, `python`, `golang`, `node`, `install-rust` — user/dev environment
 - `caddy`, `nginx`, `postgres`, `pihole`, `docker`, `tailscale`, `firewall-basic` — services

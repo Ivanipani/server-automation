@@ -1,0 +1,62 @@
+---
+# Disable Debian/Proxmox automatic ("unattended") apt upgrading — the
+# supported, reversible way.
+#
+# Two independent layers, both pinned here:
+#   1. APT::Periodic::Unattended-Upgrade "0" in 20auto-upgrades — the
+#      AUTHORITATIVE kill-switch. The package stays installed and the
+#      timer may still fire, but unattended-upgrade installs nothing.
+#   2. Mask the apt-daily timers/services — nothing triggers an upgrade
+#      at all, AND apt-daily can never grab the dpkg lock mid-Ansible-run
+#      (the long-standing lock-contention pain on this single-NIC,
+#      crash-loop-prone cluster).
+#
+# Deliberately NOT removing the `unattended-upgrades` package: you can
+# still patch on your own schedule (e.g. a rolling Ansible patch play, or
+# `unattended-upgrade -d` by hand). This only kills the *automatic* path.
+#
+# Reversible: delete /etc/apt/apt.conf.d/20auto-upgrades (or set the
+# values to "1") and `systemctl unmask` the units below.
+#
+# Applies unchanged to PVE hypervisors and Debian/Ubuntu guests — the
+# apt-daily units ship with the `apt` package, so they always exist.
+
+- name: Pin apt periodic behaviour (authoritative auto-upgrade kill-switch)
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      // Managed by Ansible (roles/apt-no-auto-upgrades) — do not edit.
+      // 0 = disabled. Patching is deliberate, never unattended.
+      APT::Periodic::Update-Package-Lists "0";
+      APT::Periodic::Unattended-Upgrade "0";
+      APT::Periodic::Download-Upgradeable-Packages "0";
+      APT::Periodic::AutocleanInterval "0";
+
+- name: Stop + mask the apt-daily timers and services (ship with apt)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+    - apt-daily.service
+    - apt-daily-upgrade.service
+
+- name: Check whether the unattended-upgrades service unit exists
+  ansible.builtin.command: systemctl list-unit-files unattended-upgrades.service
+  register: _uu_unit
+  changed_when: false
+  failed_when: false
+
+- name: Stop + mask unattended-upgrades.service (only if the unit exists)
+  ansible.builtin.systemd:
+    name: unattended-upgrades.service
+    state: stopped
+    enabled: false
+    masked: true
+  when: "'unattended-upgrades.service' in _uu_unit.stdout"
