@@ -36,10 +36,17 @@
 #   build_lxc_templates      – run the LXC template build phase.
 #   build_vm_templates       – run the VM template build phase.
 #   purge_existing_templates – destroy this node's existing VM/LXC
-#                              templates before recreating them. Without
-#                              it the per-template status checks
-#                              short-circuit and existing templates are
-#                              left untouched.
+#                              templates before recreating them. DEFAULT
+#                              false: a re-run (incl. site.yml) is then
+#                              idempotent and non-destructive — the
+#                              per-template status checks short-circuit
+#                              and existing templates are left untouched.
+#                              Opt in (`-e purge_existing_templates=true`)
+#                              ONLY for a deliberate clean rebuild, e.g.
+#                              after re-pinning an image. A failed
+#                              download mid-purge leaves the node with no
+#                              template, so this is never the site.yml
+#                              default.
 #   purge_cached_images      – wipe this node's cached cloud images on
 #                              local ISO storage so the next run
 #                              re-downloads fresh upstream and re-bakes.
@@ -69,7 +76,10 @@
         image_file: noble-server-cloudimg-amd64-20260323.img
     build_lxc_templates: false
     build_vm_templates: true
-    purge_existing_templates: true
+    # Non-destructive by default: re-runs (and site.yml) leave existing
+    # templates intact. Opt in for a deliberate clean rebuild only:
+    #   -e purge_existing_templates=true
+    purge_existing_templates: false
     # Wipe the cached customized cloud images so the next run re-bakes.
     purge_cached_images: false
     ansible_pubkey: "{{ lookup('file', '~/.ssh/ansible.pub') }}"

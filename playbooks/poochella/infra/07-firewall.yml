@@ -25,13 +25,36 @@
         - { port: 67, proto: udp }
         - { port: 80, proto: tcp }
 
-# Virtual machines — per-host open ports
+# Virtual machines — per-host open ports, plus k3s ports for any host in
+# the kube groups (so 11-install-kubernetes.yml can form the cluster
+# behind this default-deny-incoming firewall).
+#
+# k3s ports are GROUP-DRIVEN, not host-enumerated: membership in
+# `kube_control_plane` / `kube_workers` is the real predicate, so
+# uncommenting more workers or adding a CP needs no edit here.
+#
+# Ports (k3s default flannel VXLAN + embedded etcd; see roles/k3s):
+#   control plane : 6443/tcp apiserver+kube-vip VIP, 2379-2380/tcp etcd,
+#                   10250/tcp kubelet, 8472/udp flannel VXLAN
+#   worker        : 10250/tcp kubelet, 8472/udp flannel VXLAN
+# Out of scope here (handled by the platform/trunk layer, not k3s
+# bring-up): NodePort 30000-32767, MetalLB/Traefik 80/443/7946.
+#
+# STOPGAP / known limitation: firewall-basic has no source-CIDR support,
+# so etcd (2379-2380) and kubelet (10250) are exposed to the whole LAN,
+# not just the cluster subnet. Acceptable here (single L2 behind
+# OPNsense WAN default-deny, consistent with how 5432 is already
+# exposed), but the robust fix is a source-restricted allow in
+# firewall-basic — tracked as a follow-up, not silently accepted.
 - hosts: virtual-machines
   become: true
   roles:
     - role: firewall-basic
       vars:
-        inbound_allow: "{{ _vm_inbound[inventory_hostname] | default([]) }}"
+        inbound_allow: >-
+          {{ (_vm_inbound[inventory_hostname] | default([]))
+             + (_k3s_cp_inbound if 'kube_control_plane' in group_names else [])
+             + (_k3s_worker_inbound if 'kube_workers' in group_names else []) }}
         outbound_deny:
           - { port: 22, proto: tcp }
   vars:
@@ -41,3 +64,12 @@
       postgres01:
         - { port: "50000:50100", proto: tcp }
         - { port: 5432, proto: tcp }
+    _k3s_cp_inbound:
+      - { port: 6443, proto: tcp }       # kube-apiserver + kube-vip VIP
+      - { port: 2379, proto: tcp }       # embedded etcd client
+      - { port: 2380, proto: tcp }       # embedded etcd peer
+      - { port: 10250, proto: tcp }      # kubelet API
+      - { port: 8472, proto: udp }       # flannel VXLAN
+    _k3s_worker_inbound:
+      - { port: 10250, proto: tcp }      # kubelet API
+      - { port: 8472, proto: udp }       # flannel VXLAN

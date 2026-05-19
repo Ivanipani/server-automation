@@ -18,9 +18,14 @@
 #
 # Loop var: `partition` (a resolved pool: pool, device, size, backing…).
 
-- name: "[{{ partition.pool }}] Sync kernel partition table from disk"
+- name: "[{{ partition.pool }}] Sync kernel partition table from disk (best-effort)"
   ansible.builtin.command: "partx -u {{ partition.device }}"
   changed_when: false
+  # Advisory pre-sync only. A freshly-wiped whole_disk has NO partition
+  # table yet ("partx: failed to read partition table"); that is the
+  # desired state, not an error. The create step does its own
+  # authoritative partx -u after sgdisk writes the GPT.
+  failed_when: false
 
 - name: "[{{ partition.pool }}] Check whether the partition already exists"
   ansible.builtin.stat:
