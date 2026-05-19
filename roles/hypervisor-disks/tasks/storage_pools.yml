@@ -1,26 +1,21 @@
 ---
-# Build a node-local LVM-thin pool on each carved partition. Idempotent.
-# Runs on every baremetal node — each node has its own identically-named
-# VG/thinpool, so a single cluster-wide PVE storage entry resolves to the
-# local pool on every node (same pattern as the stock `local-lvm`).
+# Build a node-local LVM-thin pool for each declared pool. Idempotent.
+# Runs on every baremetal node. Nodes are independent (no shared pmxcfs),
+# so each node owns its identically-named VG/thinpool and registers its
+# own PVE storage (03b-provision-storage.yml) — the storage IDs match
+# across nodes the same way the stock `local-lvm` does.
+#
+# Iterates this host's declared `storage.pools` directly, operating
+# purely on /dev/disk/by-partlabel/<pool> so the logic is identical for
+# boot_tail and whole_disk backing.
 #
 # Requires: 03-partition-disks.yml has created the by-partlabel devices.
 
-- name: Define the LVM-thin pools to build
-  ansible.builtin.set_fact:
-    _storage_pools:
-      - partlabel: vm-storage
-        vg: vmdata
-        thinpool: vmthin
-      - partlabel: longhorn
-        vg: longhorndata
-        thinpool: longhornthin
-
 - name: Resolve partition device paths
-  ansible.builtin.command: "readlink -f /dev/disk/by-partlabel/{{ item.partlabel }}"
-  loop: "{{ _storage_pools }}"
+  ansible.builtin.command: "readlink -f /dev/disk/by-partlabel/{{ item.pool }}"
+  loop: "{{ storage.pools }}"
   loop_control:
-    label: "{{ item.partlabel }}"
+    label: "{{ item.pool }}"
   register: _pool_devpaths
   changed_when: false
 
@@ -29,13 +24,13 @@
     vg: "{{ item.0.vg }}"
     pvs: "{{ item.1.stdout | trim }}"
     state: present
-  loop: "{{ _storage_pools | zip(_pool_devpaths.results) | list }}"
+  loop: "{{ storage.pools | zip(_pool_devpaths.results) | list }}"
   loop_control:
     label: "{{ item.0.vg }} ({{ item.1.stdout | trim }})"
 
 - name: Check whether the thin pool LV already exists
   ansible.builtin.command: "lvs --noheadings -o lv_name {{ item.vg }}/{{ item.thinpool }}"
-  loop: "{{ _storage_pools }}"
+  loop: "{{ storage.pools }}"
   loop_control:
     label: "{{ item.vg }}/{{ item.thinpool }}"
   register: _thinpool_check
@@ -46,7 +41,7 @@
   ansible.builtin.command: >-
     lvcreate --type thin-pool --name {{ item.0.thinpool }}
     --extents 100%FREE --poolmetadatasize 1G {{ item.0.vg }}
-  loop: "{{ _storage_pools | zip(_thinpool_check.results) | list }}"
+  loop: "{{ storage.pools | zip(_thinpool_check.results) | list }}"
   loop_control:
     label: "{{ item.0.vg }}/{{ item.0.thinpool }}"
   when: item.1.rc != 0

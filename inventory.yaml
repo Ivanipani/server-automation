@@ -18,6 +18,21 @@
 #     so over-committing it would let Longhorn exhaust the pool).
 #   - VM MACs use the locally-administered prefix `02:` and a structured
 #     tail (02:00:00:<role>:<index>) so collisions are obvious at a glance.
+#   - `storage: {pools: [...]}` on a baremetal host → the disk layout the
+#     hypervisor-disks role realises (03-partition-disks +
+#     03b-provision-storage). DECLARED, NOT DISCOVERED: the role only
+#     touches disks named here by their /dev/disk/by-id path. An
+#     undeclared disk is never touched; a declared by-id that is not
+#     physically present is a HARD FAILURE. Hardware changes (swap/add a
+#     drive) MUST be reflected here first, then the playbook re-run.
+#     Per pool: `pool` (GPT partlabel + idempotency key), `vg`,
+#     `thinpool`, `pve_storage` (PVE storage id — a FROZEN contract, Tofu
+#     hardcodes `vms`/`longhorn-data`), `content`, and `backing`:
+#       backing.strategy: boot_tail  → carve `size` at the end of the
+#         auto-detected PVE boot disk (size "0" = fill the tail)
+#       backing.strategy: whole_disk → claim the entire disk at
+#         `by_id` (one full-disk GPT partition)
+#     Discover by-id paths with `just disk-ids`.
 #
 # VMs always DHCP-boot. The static IP comes from the reservation tied to
 # the MAC declared here — not from cloud-init.
@@ -94,12 +109,50 @@ baremetal:
           ansible_host: pve-home-01.lan
           ip_address: 10.1.1.105
           mac_address: "18:60:24:dc:b7:32"
+          # Single ~1 TB boot disk. PVE took the first 100 GiB (hdsize);
+          # carve the tail into vm-storage (200G) + longhorn (rest).
+          storage:
+            pools:
+              - pool: vm-storage
+                vg: vmdata
+                thinpool: vmthin
+                pve_storage: vms
+                content: images,rootdir
+                backing: { strategy: boot_tail, size: "200G" }
+              - pool: longhorn
+                vg: longhorndata
+                thinpool: longhornthin
+                pve_storage: longhorn-data
+                content: images
+                backing: { strategy: boot_tail, size: "0" }
         pve-home-02:
           ansible_host: pve-home-02.lan
           ip_address: 10.1.1.106
-          # New gaming-PC hardware (better CPU, 32 GB RAM, 256 GB SSD +
-          # 1 TB HDD). Replaced the old crash-looping unit.
           mac_address: "3c:7c:3f:1f:96:af"
+          # Two disks: 256 GB SSD (boot/root, via answer-file sda) + a
+          # whole 1 TB HDD. vm-storage lives on the SSD tail; longhorn
+          # claims the entire HDD.
+          #
+          # REPLACE the by_id values below with the REAL paths from
+          # `just disk-ids` (run against pve-home-02 once it is built).
+          # preflight refuses to run until each declared by_id resolves
+          # to a present block device — hardware must match inventory.
+          storage:
+            pools:
+              - pool: vm-storage
+                vg: vmdata
+                thinpool: vmthin
+                pve_storage: vms
+                content: images,rootdir
+                backing: { strategy: boot_tail, size: "0" }
+              - pool: longhorn
+                vg: longhorndata
+                thinpool: longhornthin
+                pve_storage: longhorn-data
+                content: images
+                backing:
+                  strategy: whole_disk
+                  by_id: "REPLACE-ME-1tb-hdd-by-id"   # e.g. wwn-0x5000c500... or ata-ST1000..._SERIAL
     pve_cluster:
       # Parent of all corosync clusters. Each child group is ONE cluster
       # (group name = cluster name; set proxmox_cluster_name in

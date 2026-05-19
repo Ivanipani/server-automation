@@ -1,0 +1,103 @@
+---
+# Resolve ONE declared pool to the kernel device the carve operates on,
+# validating that reality matches inventory. Appends the pool (annotated
+# with `device` + normalised `size`) to `hypervisor_disks_resolved`.
+#
+# Read-only: only readlink/lsblk — safe and idempotent on re-runs.
+#
+# Loop var: `pool` (one entry of storage.pools).
+# Required upstream fact: `boot_disk` (set earlier in preflight.yml).
+
+- name: "[{{ pool.pool }}] Assert backing strategy is supported"
+  ansible.builtin.assert:
+    that:
+      - pool.backing.strategy in ['boot_tail', 'whole_disk']
+    fail_msg: >-
+      Unknown backing.strategy '{{ pool.backing.strategy }}' for pool
+      {{ pool.pool }} on {{ inventory_hostname }}. Supported:
+      boot_tail, whole_disk.
+
+# ── boot_tail: carve the free tail of the auto-detected boot disk ──────
+
+- name: "[{{ pool.pool }}] Resolve boot_tail target"
+  when: pool.backing.strategy == 'boot_tail'
+  block:
+    - name: "[{{ pool.pool }}] Assert a tail size is given"
+      ansible.builtin.assert:
+        that:
+          - pool.backing.size is defined
+        fail_msg: >-
+          boot_tail pool {{ pool.pool }} needs `backing.size` (sgdisk
+          +SIZE, e.g. "200G", or "0" to fill the rest).
+
+    - name: "[{{ pool.pool }}] Record resolved boot_tail pool"
+      ansible.builtin.set_fact:
+        hypervisor_disks_resolved: "{{ hypervisor_disks_resolved + [pool | combine({'device': '/dev/' + boot_disk, 'size': pool.backing.size | string})] }}"
+
+# ── whole_disk: claim an entire dedicated disk named by /dev/disk/by-id ─
+
+- name: "[{{ pool.pool }}] Resolve + validate whole_disk target"
+  when: pool.backing.strategy == 'whole_disk'
+  block:
+    - name: "[{{ pool.pool }}] Assert a real by_id is declared"
+      ansible.builtin.assert:
+        that:
+          - pool.backing.by_id is defined
+          - pool.backing.by_id | length > 0
+          - not (pool.backing.by_id | regex_search('^REPLACE-ME'))
+        fail_msg: >-
+          whole_disk pool {{ pool.pool }} on {{ inventory_hostname }} has
+          no real `backing.by_id`. Run `just disk-ids`, then put the
+          disk's /dev/disk/by-id name in inventory.yaml.
+
+    - name: "[{{ pool.pool }}] Resolve the by-id path to a kernel device"
+      ansible.builtin.command: "readlink -f /dev/disk/by-id/{{ pool.backing.by_id }}"
+      register: _byid_resolve
+      changed_when: false
+      failed_when: false
+
+    - name: "[{{ pool.pool }}] Assert the declared disk is physically present"
+      ansible.builtin.assert:
+        that:
+          - _byid_resolve.rc == 0
+          - _byid_resolve.stdout | trim | length > 0
+        fail_msg: >-
+          Declared by_id '{{ pool.backing.by_id }}' for pool
+          {{ pool.pool }} is NOT present on {{ inventory_hostname }}.
+          Hardware must match inventory: run `just disk-ids`, then update
+          this host's storage.pools in inventory.yaml before re-running.
+
+    - name: "[{{ pool.pool }}] Inspect the resolved device"
+      ansible.builtin.command: "lsblk -dno TYPE,PKNAME {{ _byid_resolve.stdout | trim }}"
+      register: _byid_lsblk
+      changed_when: false
+
+    - name: "[{{ pool.pool }}] Set resolved-device facts"
+      ansible.builtin.set_fact:
+        _wd_dev: "{{ _byid_resolve.stdout | trim }}"
+        _wd_type: "{{ (_byid_lsblk.stdout_lines[0].split() + ['', ''])[0] }}"
+        _wd_pkname: "{{ (_byid_lsblk.stdout_lines[0].split() + ['', ''])[1] }}"
+
+    - name: "[{{ pool.pool }}] Assert by_id points at a WHOLE disk, not a partition"
+      ansible.builtin.assert:
+        that:
+          - _wd_type == 'disk'
+          - _wd_pkname | length == 0
+        fail_msg: >-
+          {{ pool.backing.by_id }} on {{ inventory_hostname }} resolves to
+          {{ _wd_dev }} (type={{ _wd_type }}, parent='{{ _wd_pkname }}'),
+          not a whole disk. whole_disk needs a by-id naming the entire drive.
+
+    - name: "[{{ pool.pool }}] Assert the claimed disk is NOT the boot disk"
+      ansible.builtin.assert:
+        that:
+          - _wd_dev != '/dev/' + boot_disk
+          - (_wd_dev | basename) != boot_disk
+        fail_msg: >-
+          {{ pool.backing.by_id }} resolves to the boot disk
+          (/dev/{{ boot_disk }}) on {{ inventory_hostname }}. Refusing to
+          claim the OS disk for pool {{ pool.pool }}.
+
+    - name: "[{{ pool.pool }}] Record resolved whole_disk pool"
+      ansible.builtin.set_fact:
+        hypervisor_disks_resolved: "{{ hypervisor_disks_resolved + [pool | combine({'device': _wd_dev, 'size': '0'})] }}"

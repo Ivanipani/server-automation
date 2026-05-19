@@ -1,42 +1,59 @@
 ---
-# Create a single GPT partition (type 8300) identified by `partition.label`,
-# sized per `partition.size` (sgdisk +SIZE syntax; "0" = fill rest).
-# Idempotent on `partition.label`. Fails if the carved space already has
-# filesystem signatures — auto-wipe is intentionally disabled.
+# Create a single GPT partition (type 8300) labelled `partition.pool` on
+# `partition.device`, sized per `partition.size` (sgdisk +SIZE syntax;
+# "0" = fill the rest of the device — which for a fresh whole_disk is the
+# entire drive, and for boot_tail is the unallocated tail).
+#
+# Idempotent on the GPT partlabel: an existing label is skipped, so
+# re-runs and device renames are no-ops.
+#
+# Safety: a whole_disk device that already carries ANY signature (and is
+# not yet ours) is refused — auto-wipe of foreign data is intentionally
+# disabled. A blank replacement disk passes (sgdisk creates a fresh GPT);
+# a disk with data fails until a human clears it. The post-create
+# `wipefs -n` guard catches a partition that came up with signatures.
 #
 # `partx -u` is used instead of `partprobe` because the boot disk has an
 # active LVM PV; BLKRRPART is refused on busy disks but BLKPG (partx) works.
 #
-# Loop var: `partition` (mapping with `label` and `size`).
-# Required upstream fact: `boot_disk` (set by preflight.yml).
+# Loop var: `partition` (a resolved pool: pool, device, size, backing…).
 
-- name: "[{{ partition.label }}] Sync kernel partition table from disk"
-  ansible.builtin.command: "partx -u /dev/{{ boot_disk }}"
+- name: "[{{ partition.pool }}] Sync kernel partition table from disk"
+  ansible.builtin.command: "partx -u {{ partition.device }}"
   changed_when: false
 
-- name: "[{{ partition.label }}] Check whether the partition already exists"
+- name: "[{{ partition.pool }}] Check whether the partition already exists"
   ansible.builtin.stat:
-    path: "/dev/disk/by-partlabel/{{ partition.label }}"
+    path: "/dev/disk/by-partlabel/{{ partition.pool }}"
   register: part_stat
 
-- name: "[{{ partition.label }}] Create the partition and refresh kernel"
+- name: "[{{ partition.pool }}] Refuse a whole_disk that holds foreign data"
+  ansible.builtin.command: "wipefs -n {{ partition.device }}"
+  register: whole_disk_sig
+  changed_when: false
+  failed_when: whole_disk_sig.stdout | length > 0
+  when:
+    - not part_stat.stat.exists
+    - partition.backing.strategy == 'whole_disk'
+
+- name: "[{{ partition.pool }}] Create the partition and refresh kernel"
   ansible.builtin.shell: |
     set -euo pipefail
-    sgdisk -n 0:0:{{ '+' + partition.size if (partition.size | string) != '0' else '0' }} \
+    sgdisk -n 0:0:{{ '+' + (partition.size | string) if (partition.size | string) != '0' else '0' }} \
            -t 0:8300 \
-           -c 0:{{ partition.label }} \
-           /dev/{{ boot_disk }}
-    partx -u /dev/{{ boot_disk }}
+           -c 0:{{ partition.pool }} \
+           {{ partition.device }}
+    partx -u {{ partition.device }}
   changed_when: true
   when: not part_stat.stat.exists
 
-- name: "[{{ partition.label }}] Wait for partition device node to appear"
+- name: "[{{ partition.pool }}] Wait for partition device node to appear"
   ansible.builtin.wait_for:
-    path: "/dev/disk/by-partlabel/{{ partition.label }}"
+    path: "/dev/disk/by-partlabel/{{ partition.pool }}"
     timeout: 30
 
-- name: "[{{ partition.label }}] Fail if the partition has pre-existing signatures"
-  ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ partition.label }}"
+- name: "[{{ partition.pool }}] Fail if the partition has pre-existing signatures"
+  ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ partition.pool }}"
   register: wipefs_check
   changed_when: false
   failed_when: wipefs_check.stdout | length > 0

@@ -1,5 +1,8 @@
 ---
 # Hard gates before any sgdisk write. No auto-recovery on failure.
+# Also resolves each declared pool to the kernel device the carve will
+# operate on, building the `hypervisor_disks_resolved` fact consumed by
+# carve.yml / storage_pools.yml.
 
 - name: Assert opt-in flag is set (refuses to run without explicit confirmation)
   ansible.builtin.assert:
@@ -9,6 +12,17 @@
       `confirm_carve_data_disk` is not true on {{ inventory_hostname }}.
       Set it in group_vars/baremetal.yml or
       host_vars/{{ inventory_hostname }}.yml, then re-run.
+
+- name: Assert this node declares a storage layout
+  ansible.builtin.assert:
+    that:
+      - storage is defined
+      - storage.pools is defined
+      - storage.pools | length > 0
+    fail_msg: >-
+      No `storage.pools` declared for {{ inventory_hostname }} in
+      inventory.yaml. The disk layout is declared, not discovered — add a
+      `storage:` block to this host (see the inventory.yaml header).
 
 - name: List existing VMs (qm list)
   ansible.builtin.command: qm list
@@ -54,3 +68,28 @@
     fail_msg: >-
       Could not detect the PVE boot disk on {{ inventory_hostname }}
       (got '{{ boot_disk }}'). Check `pvs` and `lsblk`.
+
+# Resolve + validate every declared pool. Builds hypervisor_disks_resolved
+# as a list of {pool} dicts each annotated with `device` (the full path
+# the carve operates on). For whole_disk this enforces the core safety
+# rule: a declared by_id MUST be physically present and MUST NOT be the
+# boot disk, or we fail loudly — hardware has to match inventory.
+- name: Reset resolved-pools accumulator
+  ansible.builtin.set_fact:
+    hypervisor_disks_resolved: []
+
+- name: Resolve and validate each declared pool
+  ansible.builtin.include_tasks: _resolve_pool.yml
+  loop: "{{ storage.pools }}"
+  loop_control:
+    loop_var: pool
+    label: "{{ pool.pool }} ({{ pool.backing.strategy }})"
+
+- name: Assert pool partlabels are unique on this node
+  ansible.builtin.assert:
+    that:
+      - (hypervisor_disks_resolved | map(attribute='pool') | list) ==
+        (hypervisor_disks_resolved | map(attribute='pool') | unique | list)
+    fail_msg: >-
+      Duplicate `pool` (GPT partlabel) in {{ inventory_hostname }}'s
+      storage.pools. Each partlabel must be unique per node.

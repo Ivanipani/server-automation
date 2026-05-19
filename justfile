@@ -159,15 +159,23 @@ do-hypervisor-init:
 do-cluster-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02b-cluster-hypervisor.yml
 
-# Carve the boot-disk tail into `vm-storage` (~45%) + `longhorn` (rest)
-# GPT partitions. DESTRUCTIVE on first run — requires
-# `confirm_carve_data_disk: true` in group_vars/baremetal.yml AND PVE
-# installed with `lvm.hdsize = 100`.
+# List /dev/disk/by-id for every baremetal node (read-only). Use this to
+# fill the `storage.pools[].backing.by_id` values in inventory.yaml —
+# the disk layout is DECLARED, never auto-discovered.
+disk-ids:
+    ansible baremetal --vault-password-file ansible-pass -b -m shell \
+      -a "ls -l /dev/disk/by-id/ | awk '/->/ && !/-part[0-9]/ {print \$9, \$10, \$11}'"
+
+# Carve a GPT partition per declared `storage.pools` entry (boot_tail or
+# whole_disk by-id; see inventory.yaml). DESTRUCTIVE on first run —
+# requires `confirm_carve_data_disk: true` in group_vars/baremetal.yml,
+# PVE installed with `lvm.hdsize = 100`, and every declared by_id
+# physically present (preflight fails loudly otherwise).
 do-partition-disks:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03-partition-disks.yml
 
 # Build node-local LVM-thin pools on the carved partitions and register
-# them as PVE storage (`vms`, `longhorn-data`). Requires
+# each declared pool as PVE storage (per-node storage.cfg). Requires
 # `do-partition-disks` to have been run first.
 do-provision-storage:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03b-provision-storage.yml
