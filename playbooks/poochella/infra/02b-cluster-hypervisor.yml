@@ -1,38 +1,61 @@
 ---
-# Forms a Proxmox VE cluster from group `baremetal`.
-# The first host (sorted) runs `pvecm create`; remaining nodes join via
-# `pvecm add <master> --use_ssh 1`. Idempotent — re-running on a healthy
-# cluster is a no-op; appending a host to the `baremetal` group in
-# inventory.yaml joins it on the next run.
+# Forms Proxmox VE corosync clusters — PER GROUP.
+#
+# Topology is decided by inventory groups (see inventory.yaml header):
+# only hosts under `pve_cluster` are touched here. `pve_cluster`'s
+# children are the clusters themselves — each child group is ONE cluster,
+# the group name IS the cluster name, and group_vars/<name>.yml sets
+# `proxmox_cluster_name: <name>`. Hosts under `pve_standalone` are never
+# targeted (independent nodes, no corosync).
+#
+# Per cluster: the lexically-first member runs `pvecm create
+# <cluster>`; remaining members `pvecm add` it (serial: 1). Multiple
+# clusters can coexist — each host acts only within `groups[its
+# proxmox_cluster_name]`. Idempotent: re-running a healthy cluster is a
+# no-op; adding a host to a cluster group joins it on the next run.
+#
+# NO-OP when `pve_cluster` has no members (poochella runs standalone) —
+# the playbook stays wired in infra/site.yml and simply matches no hosts.
 #
 # Pre-condition: 02-bootstrap-hypervisor.yml has run (the `ansible` user
 # with sudo NOPASSWD exists on each host). Joiners must be fresh PVE
 # installs (no VMs/CTs, no custom storage.cfg) — `pvecm add` rewrites
 # /etc/pve on the joiner.
 
-- name: Establish inter-node root SSH trust
-  hosts: baremetal
+- name: Establish inter-node root SSH trust (within each cluster)
+  hosts: pve_cluster
   become: true
   tasks:
+    - name: Assert this clustered node declares its cluster
+      ansible.builtin.assert:
+        that:
+          - proxmox_cluster_name is defined
+          - proxmox_cluster_name | length > 0
+          - inventory_hostname in (groups[proxmox_cluster_name] | default([]))
+        fail_msg: >-
+          {{ inventory_hostname }} is under `pve_cluster` but has no valid
+          `proxmox_cluster_name`. Set it in group_vars/<cluster-group>.yml
+          (value = the cluster's child-group name) — see inventory.yaml.
+
     - ansible.builtin.import_role:
         name: hypervisor
         tasks_from: cluster_ssh.yml
 
-- name: Create Proxmox cluster on first control node
-  hosts: baremetal
+- name: Create each cluster on its first member
+  hosts: pve_cluster
   become: true
   tasks:
     - ansible.builtin.import_role:
         name: hypervisor
         tasks_from: cluster_create.yml
-      when: inventory_hostname == (groups['baremetal'] | sort)[0]
+      when: inventory_hostname == (groups[proxmox_cluster_name] | sort)[0]
 
-- name: Join remaining nodes to cluster
-  hosts: baremetal
+- name: Join remaining members to their cluster
+  hosts: pve_cluster
   become: true
   serial: 1
   tasks:
     - ansible.builtin.import_role:
         name: hypervisor
         tasks_from: cluster_join.yml
-      when: inventory_hostname != (groups['baremetal'] | sort)[0]
+      when: inventory_hostname != (groups[proxmox_cluster_name] | sort)[0]

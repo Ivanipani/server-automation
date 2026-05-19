@@ -17,13 +17,20 @@ source = "from-dhcp"
 enabled = true
 
 [network.interface-name-pinning.mapping]
-"B0:0C:D1:6F:A6:7D" = "lan0"
+# New gaming-PC hardware NIC (replaced the old crash-looping unit).
+"3C:7C:3F:1F:96:AF" = "lan0"
 
 [first-boot]
 source = "from-iso"
 ordering = "before-network"
 
+# New hardware has TWO disks: a 256 GB SSD (sda — boot/root) and a 1 TB
+# HDD (the spinning disk — left UNTOUCHED by the installer). Naming the
+# SSD explicitly guarantees the installer never wipes the HDD. hdsize=100
+# caps the `pve` VG at 100 GiB; the ~150 GiB SSD tail is left for the
+# (deferred) two-disk storage redesign — the single-disk carve in
+# roles/hypervisor-disks still assumes one disk and is unchanged here.
 [disk-setup]
 filesystem = "ext4"
-disk-list = ["nvme0n1"]
+disk-list = ["sda"]
 lvm = { hdsize = 100 }

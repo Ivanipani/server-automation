@@ -1,10 +1,10 @@
-# output "vm_ips" {
-#   description = "IP addresses of provisioned VMs"
-#   value = {
-#     for name, vm in proxmox_virtual_environment_vm.vm :
-#     name => vm.ipv4_addresses
-#   }
-# }
+output "vm_ips" {
+  description = "IP addresses of provisioned VMs (merged across all nodes)"
+  value = merge(
+    module.vms_pve_home_01.vm_ips,
+    module.vms_pve_home_02.vm_ips,
+  )
+}
 
 # output "container_ips" {
 #   description = "IP addresses of provisioned containers"

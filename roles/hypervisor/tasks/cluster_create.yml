@@ -1,6 +1,7 @@
 ---
-# Creates the Proxmox cluster on the master node (first host in the
-# `baremetal` group, sorted). Idempotent: skipped when
+# Creates the Proxmox cluster `{{ proxmox_cluster_name }}` on the master
+# node (first host of `groups[proxmox_cluster_name]`, sorted — selected
+# by the caller 02b-cluster-hypervisor.yml). Idempotent: skipped when
 # /etc/pve/corosync.conf already exists.
 
 - name: Check for existing corosync.conf

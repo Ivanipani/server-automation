@@ -1,53 +1,62 @@
 ---
-# Provisions VMs and containers defined in tofu/ using OpenTofu.
+# Provisions VMs (and, when revived, containers) defined in tofu/ using
+# OpenTofu.
 #
-# Auth: `proxmox_api_token` is provided by group_vars/all/vault.yml
-# (indirection in group_vars/all/vars.yml). It's passed to Tofu via the
-# TF_VAR_proxmox_api_token environment variable — no plaintext file on
-# disk.
+# Topology: Proxmox nodes are independent (per-group; see inventory.yaml).
+# Each node has its OWN API token (separate /etc/pve), so OpenTofu uses a
+# provider per node (tofu/provider.tf) and this playbook passes a per-node
+# token to each via TF_VAR_proxmox_api_token_<node>.
 #
-# To rotate the token:
-#   pveum user token modify root@pam tofu-lan
-#   ansible-vault encrypt_string '<new-token>' \
-#     --name vault_proxmox_api_token --vault-password-file ./ansible-pass
-#   # paste the output over the existing block in group_vars/all/vault.yml
+# Auth indirection: `proxmox_api_tokens` (group_vars/all/vars.yml) maps
+# node => `{{ vault_* }}`. No plaintext token ever hits disk — values are
+# passed to Tofu through environment variables only.
 #
-# To bootstrap a NEW PVE token (first-time setup):
-#   ssh root@pve-home-01 'pveum user token add root@pam tofu-lan --privsep 0'
-#   # encrypt the printed secret as shown above
+# Bootstrap a NEW node's token (first-time / when adding a node):
+#   ssh root@<node> 'pveum user token add root@pam tofu-lan --privsep 0'
+#   just secret-encrypt vault_proxmox_api_token_<node_with_underscores>
+#   # paste the encrypted block into group_vars/all/vault.yml, then add
+#   # the node to the `proxmox_api_tokens` map in group_vars/all/vars.yml
+#   # (pve-home-01 reuses the legacy `vault_proxmox_api_token`).
+#
+# To rotate a token:
+#   ssh root@<node> 'pveum user token modify root@pam tofu-lan'
+#   re-encrypt the new secret over its block in group_vars/all/vault.yml
 
-- name: Verify Proxmox API token exists in PVE and the vault
-  hosts: baremetal[0]
+- name: Verify each node's Proxmox API token exists in PVE and the vault
+  hosts: baremetal
   become: true
   gather_facts: false
   vars:
     token_user: "root@pam"
     token_name: "tofu-lan"
+    _node_token: "{{ proxmox_api_tokens[inventory_hostname] | default('') }}"
   tasks:
-    - name: Assert the vault holds proxmox_api_token
+    - name: Assert the vault holds a token for this node
       ansible.builtin.assert:
         that:
-          - proxmox_api_token is defined
-          - proxmox_api_token | length > 0
+          - inventory_hostname in proxmox_api_tokens
+          - _node_token | length > 0
         fail_msg: >-
-          `proxmox_api_token` is not in the vault. Bootstrap via
-          `pveum user token add {{ token_user }} {{ token_name }} --privsep 0`,
-          then encrypt the secret into group_vars/all/vault.yml as
-          `vault_proxmox_api_token` using `ansible-vault encrypt_string`.
+          No Proxmox API token for {{ inventory_hostname }}. Mint it on the
+          node (`pveum user token add {{ token_user }} {{ token_name }}
+          --privsep 0`), encrypt the secret into group_vars/all/vault.yml,
+          and wire it into the `proxmox_api_tokens` map in
+          group_vars/all/vars.yml. See this playbook's header.
 
-    - name: List existing API tokens
+    - name: List existing API tokens on this node
       ansible.builtin.command:
         cmd: pveum user token list {{ token_user }} --output-format json
       register: token_list
       changed_when: false
 
-    - name: Assert the PVE-side token still exists
+    - name: Assert the PVE-side token still exists on this node
       ansible.builtin.assert:
         that:
           - token_list.stdout | from_json | selectattr('tokenid', 'equalto', token_name) | list | length > 0
         fail_msg: >-
-          The vault has a token but PVE doesn't list '{{ token_name }}' under
-          {{ token_user }}. Recreate it on the PVE node and update the vault.
+          The vault has a token for {{ inventory_hostname }} but PVE on
+          {{ inventory_hostname }} doesn't list '{{ token_name }}' under
+          {{ token_user }}. Recreate it on that node and update the vault.
 
 - name: Provision infrastructure with OpenTofu
   hosts: localhost
@@ -61,7 +70,11 @@
         state: present
         force_init: true
       environment:
-        TF_VAR_proxmox_api_token: "{{ proxmox_api_token }}"
+        # One TF_VAR per node — matches the static per-node provider
+        # blocks in tofu/provider.tf. Adding a node: add a line here and
+        # see the checklist in tofu/provider.tf.
+        TF_VAR_proxmox_api_token_pve_home_01: "{{ proxmox_api_tokens['pve-home-01'] }}"
+        TF_VAR_proxmox_api_token_pve_home_02: "{{ proxmox_api_tokens['pve-home-02'] }}"
       register: tofu_output
       no_log: false
 
@@ -69,4 +82,3 @@
       ansible.builtin.debug:
         msg: |
           VMs: {{ tofu_output.outputs.vm_ips.value | default({}) }}
-          Containers: {{ tofu_output.outputs.container_ips.value | default({}) }}

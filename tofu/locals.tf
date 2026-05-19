@@ -1,5 +1,5 @@
 # Read the repo-root inventory.yaml and shape the entries into the `vms` map
-# consumed by proxmox_virtual_environment_vm. Every host with a `vm:` block
+# consumed by the per-node `vm` module. Every host with a `vm:` block
 # becomes a VM; its declared `mac_address` is set on the NIC so dnsmasq's
 # static reservation (pushed from the same file by 01b-router-dnsmasq.yml)
 # lands the VM on its reserved IP at first boot.
@@ -15,12 +15,14 @@ locals {
   # Provider + template config also lives in inventory.yaml's `all.vars`
   # (single source of truth shared with Ansible). VM storage is
   # node-local LVM-thin, so each baremetal node has its own template with
-  # a distinct cluster-wide VMID. `template_vm_ids` is an explicit
-  # {node => anchor id} map (no offset math, no group-ordering coupling);
-  # the anchor is the node's default/first VM template, which is exactly
-  # what each VM is cloned from. Per-VM `vm.template_id` overrides it.
-  proxmox_endpoint = local.inventory.all.vars.proxmox_endpoint
-  template_vm_ids  = local.inventory.all.vars.template_vm_ids
+  # a distinct VMID. `template_vm_ids` is an explicit {node => anchor id}
+  # map (no offset math, no group-ordering coupling); the anchor is the
+  # node's default/first VM template, which is exactly what each VM is
+  # cloned from. Per-VM `vm.template_id` overrides it. `proxmox_endpoints`
+  # is {node => API endpoint} — one aliased provider per node lives in
+  # provider.tf (independent nodes don't share an API).
+  proxmox_endpoints = local.inventory.all.vars.proxmox_endpoints
+  template_vm_ids   = local.inventory.all.vars.template_vm_ids
 
   # Top-level groups (router, baremetal, switches, virtual-machines, kubernetes, ...)
   _groups_l1 = { for k, v in local.inventory : k => v if k != "all" && can(v) && v != null }
@@ -51,5 +53,15 @@ locals {
       # Per-VM override wins; otherwise this node's anchor template.
       template_id = try(h.vm.template_id, local.template_vm_ids[h.vm.proxmox_node])
     } if try(h.vm, null) != null
+  }
+
+  # Partition the VM map by target node so each per-node `vm` module
+  # (tofu/main.tf) only sees — and only its node's provider touches —
+  # the VMs pinned to it. A node with no VMs gets an empty map (the
+  # module then creates nothing).
+  vms_by_node = {
+    for node in keys(local.proxmox_endpoints) : node => {
+      for name, vm in local.vms_from_inventory : name => vm if vm.node == node
+    }
   }
 }

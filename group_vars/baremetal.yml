@@ -1,6 +1,12 @@
 ---
 tailscale_enabled: false
-proxmox_cluster_name: usfa
+
+# Proxmox topology is per-group (see inventory.yaml header). A corosync
+# cluster name is NOT a fleet-wide setting — standalone nodes have none.
+# To form a cluster, create a child group under `pve_cluster` and set
+# `proxmox_cluster_name: <group-name>` in group_vars/<group-name>.yml;
+# 02b-cluster-hypervisor.yml scopes corosync to that group's members.
+# Poochella runs standalone, so nothing is set here.
 
 # Storage partitioning (consumed by 03-partition-disks.yml).
 # DESTRUCTIVE: setting `confirm_carve_data_disk: true` authorizes the

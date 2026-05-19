@@ -1,8 +1,8 @@
 ---
-# Joins this node to the cluster created by the first host in the
-# `baremetal` group (sorted). Idempotent: skipped when
-# /etc/pve/corosync.conf already exists. Intended to run with
-# `serial: 1` so joins happen one at a time.
+# Joins this node to its cluster — the cluster created by the first host
+# (sorted) of `groups[proxmox_cluster_name]`, this host's own cluster
+# group. Idempotent: skipped when /etc/pve/corosync.conf already exists.
+# Intended to run with `serial: 1` so joins happen one at a time.
 
 - name: Check for existing corosync.conf
   ansible.builtin.stat:
@@ -45,13 +45,13 @@
   ansible.builtin.command:
     cmd: >-
       ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new
-      root@{{ hostvars[(groups['baremetal'] | sort)[0]].ip_address }} true
+      root@{{ hostvars[(groups[proxmox_cluster_name] | sort)[0]].ip_address }} true
   changed_when: false
   when: not corosync_conf.stat.exists
 
 - name: Join Proxmox cluster
   ansible.builtin.command:
-    cmd: pvecm add {{ hostvars[(groups['baremetal'] | sort)[0]].ip_address }} --use_ssh 1
+    cmd: pvecm add {{ hostvars[(groups[proxmox_cluster_name] | sort)[0]].ip_address }} --use_ssh 1
   when: not corosync_conf.stat.exists
   changed_when: true
 

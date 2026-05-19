@@ -152,7 +152,10 @@ do-hypervisor-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/07-users.yml
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/08-dev-tools.yml
 
-# Form the Proxmox cluster (run after do-hypervisor-init)
+# Form corosync clusters PER GROUP (run after do-hypervisor-init).
+# Scoped to hosts under `pve_cluster` child groups; a NO-OP when every
+# node is standalone (poochella's current state). Stays in the bootstrap
+# so adding a cluster group is the only change required.
 do-cluster-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02b-cluster-hypervisor.yml
 

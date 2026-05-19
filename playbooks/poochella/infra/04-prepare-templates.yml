@@ -1,118 +1,80 @@
 ---
-# Phase 0: Ensure all Proxmox templates exist before Tofu provisioning.
-# Idempotent — safe to re-run.
+# Phase 0: Ensure every Proxmox node has its own VM/LXC templates before
+# Tofu provisioning. Idempotent — safe to re-run.
 #
-# Bake-once + copy: VM storage is node-local LVM-thin, so every baremetal
-# node needs its own local template, and Proxmox VMIDs are unique
-# cluster-wide. Rather than baking independently on every node (3× the
-# download/virt-customize/sysprep work, and non-deterministic because the
-# image URLs point at a moving `/latest/`), we bake ONCE on the first
-# baremetal node, then copy it to every other node so all nodes get
-# byte-identical templates. `qm clone --target` requires shared storage
-# (ours is node-local LVM-thin), so the copy is: clone locally on the
-# source node, then offline-migrate the clone to the peer with
-# `--with-local-disks` (see tasks/distribute-templates-to-node.yml).
+# BAKE-PER-NODE: VM storage is node-local LVM-thin and Proxmox nodes are
+# independent (per-group topology; see inventory.yaml). The old
+# bake-once-then-`qm migrate`-to-peers optimization required a cluster
+# (migrate won't cross independent nodes), so it is gone — every node in
+# `baremetal` downloads, customizes, syspreps and templatizes its OWN
+# images locally. tasks/distribute-templates-to-node.yml is kept on disk
+# as dormant reference (no longer wired here).
 #
-# Per-node IDs come from the explicit `template_vm_ids` / `template_ct_ids`
-# maps in inventory.yaml (single source of truth, also read by
-# tofu/locals.tf — no offset arithmetic, no group-ordering coupling).
-# Each node's value is its *anchor* (first/default template) ID; the
-# per-image-family templates are anchor+0, anchor+1, … in
-# vm_templates_base / lxc_templates_base order.
+# Cost: each node repeats the download + virt-customize. To keep the
+# result deterministic across nodes and across time, the cloud image
+# URLs are PINNED to dated upstream snapshots (not the moving `/latest/`
+# // `/current/` paths). Re-pin = bump the URL + image_file together (the
+# versioned image_file busts the per-node ISO cache so the new image is
+# actually re-fetched).
+#
+# Per-node IDs come from the explicit `template_vm_ids` /
+# `template_ct_ids` maps in inventory.yaml (single source of truth, also
+# read by tofu/locals.tf). Each node's value is its *anchor* (first
+# template) ID; the per-image-family templates are anchor+0, anchor+1, …
+# in vm_templates_base / lxc_templates_base order. VMIDs only need to be
+# unique per node now (independent nodes), but distinct anchors stay
+# harmless and keep the maps stable if a cluster is ever formed.
 #
 # Templates bake in the `ansible` user (passwordless sudo + SSH key from
 # ~/.ssh/ansible.pub on the controller) and reset machine-id / SSH host
 # keys so every clone gets a unique DHCP client-id and host identity.
 #
 # Pre-condition: 03b-provision-storage.yml has run (the `vms` LVM-thin
-# storage exists on every node — the local clone and the offline
-# migration both land on it).
+# storage exists on every node — the imported disk lands on it).
 #
 # Flags:
 #   build_lxc_templates      – run the LXC template build phase.
 #   build_vm_templates       – run the VM template build phase.
-#   purge_existing_templates – destroy each node's existing VM/LXC
-#                              templates (source + copies) before
-#                              recreating them. Without this, the
-#                              per-template status checks short-circuit
-#                              and existing templates are left untouched.
-#   purge_cached_images      – wipe cached cloud images on the source
-#                              node's local ISO storage so the next run
+#   purge_existing_templates – destroy this node's existing VM/LXC
+#                              templates before recreating them. Without
+#                              it the per-template status checks
+#                              short-circuit and existing templates are
+#                              left untouched.
+#   purge_cached_images      – wipe this node's cached cloud images on
+#                              local ISO storage so the next run
 #                              re-downloads fresh upstream and re-bakes.
 #
 # After re-baking, re-provision any existing clones via
 # 05-provision-infrastructure.yml.
 
-- name: Purge existing per-node templates (clean rebuild)
+- name: Bake VM/LXC templates on every Proxmox node (independent)
   hosts: baremetal
   gather_facts: false
   become: true
   vars:
-    lxc_templates_base: &lxc_templates_base
+    lxc_templates_base:
       - hostname: debian-13-lxc-template
         image: debian-13-standard_13.1-2_amd64.tar.zst
       - hostname: ubuntu-24-lxc-template
         image: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
-    vm_templates_base: &vm_templates_base
+    # PINNED upstream cloud images (dated snapshots, NOT /latest/ //
+    # /current/). image_file carries the version so re-pinning forces a
+    # fresh download instead of reusing the stale cached ISO.
+    vm_templates_base:
       - name: debian-13-template
-        image_url: https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2
-        image_file: debian-13-genericcloud-amd64.qcow2
+        image_url: https://cloud.debian.org/images/cloud/trixie/20260518-2482/debian-13-genericcloud-amd64-20260518-2482.qcow2
+        image_file: debian-13-genericcloud-amd64-20260518-2482.qcow2
       - name: ubuntu-24-template
-        image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
-        image_file: noble-server-cloudimg-amd64.img
-    build_lxc_templates: &build_lxc false
-    build_vm_templates: &build_vm true
-    purge_existing_templates: &purge_existing true
-  tasks:
-    - name: Destroy this node's existing VM templates
-      ansible.builtin.command: "qm destroy {{ (template_vm_ids[inventory_hostname] | int) + idx }} --purge"
-      loop: "{{ vm_templates_base }}"
-      loop_control:
-        loop_var: tmpl
-        index_var: idx
-        label: "{{ tmpl.name }} ({{ (template_vm_ids[inventory_hostname] | int) + idx }})"
-      register: vm_destroy
-      changed_when: vm_destroy.rc == 0
-      failed_when:
-        - vm_destroy.rc != 0
-        - "'does not exist' not in vm_destroy.stderr"
-      when:
-        - build_vm_templates | bool
-        - purge_existing_templates | bool
-
-    - name: Destroy this node's existing LXC templates
-      ansible.builtin.command: "pct destroy {{ (template_ct_ids[inventory_hostname] | int) + idx }} --purge"
-      loop: "{{ lxc_templates_base }}"
-      loop_control:
-        loop_var: tmpl
-        index_var: idx
-        label: "{{ tmpl.hostname }} ({{ (template_ct_ids[inventory_hostname] | int) + idx }})"
-      register: lxc_destroy
-      changed_when: lxc_destroy.rc == 0
-      failed_when:
-        - lxc_destroy.rc != 0
-        - "'does not exist' not in lxc_destroy.stderr"
-      when:
-        - build_lxc_templates | bool
-        - purge_existing_templates | bool
-
-- name: Bake templates on the source node and copy to peers
-  hosts: "{{ (groups['baremetal'] | sort)[0] }}"
-  gather_facts: false
-  become: true
-  vars:
-    source_node: "{{ (groups['baremetal'] | sort)[0] }}"
-    peer_nodes: "{{ groups['baremetal'] | sort | difference([(groups['baremetal'] | sort)[0]]) }}"
-    lxc_templates_base: *lxc_templates_base
-    vm_templates_base: *vm_templates_base
+        image_url: https://cloud-images.ubuntu.com/noble/20260323/noble-server-cloudimg-amd64.img
+        image_file: noble-server-cloudimg-amd64-20260323.img
+    build_lxc_templates: false
+    build_vm_templates: true
+    purge_existing_templates: true
+    # Wipe the cached customized cloud images so the next run re-bakes.
+    purge_cached_images: false
     ansible_pubkey: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
     lxc_packages: openssh-server curl wget sudo rsync htop
     vm_packages: qemu-guest-agent,curl,wget,sudo,rsync,htop
-    build_lxc_templates: *build_lxc
-    build_vm_templates: *build_vm
-    purge_existing_templates: *purge_existing
-    # Wipe the cached customized cloud images so the next run re-bakes.
-    purge_cached_images: false
 
   pre_tasks:
     - name: Ensure ansible SSH keypair exists on controller
@@ -123,7 +85,7 @@
       become: false
       run_once: true
 
-    - name: Derive the source node's VM template list (anchor + index)
+    - name: Derive this node's VM template list (anchor + index)
       ansible.builtin.set_fact:
         vm_templates: "{{ vm_templates | default([]) + [tmpl | combine({'id': (template_vm_ids[inventory_hostname] | int) + idx})] }}"
       loop: "{{ vm_templates_base }}"
@@ -132,7 +94,7 @@
         index_var: idx
         label: "{{ tmpl.name }} → {{ (template_vm_ids[inventory_hostname] | int) + idx }}"
 
-    - name: Derive the source node's LXC template list (anchor + index)
+    - name: Derive this node's LXC template list (anchor + index)
       ansible.builtin.set_fact:
         lxc_templates: "{{ lxc_templates | default([]) + [tmpl | combine({'id': (template_ct_ids[inventory_hostname] | int) + idx})] }}"
       loop: "{{ lxc_templates_base }}"
@@ -153,9 +115,39 @@
         - purge_cached_images | bool
 
   tasks:
-    # ── Bake on the source node ────────────────────────────────────
+    # ── Purge this node's existing templates (clean rebuild) ───────────
 
-    - name: Build LXC templates (source node)
+    - name: Destroy this node's existing VM templates
+      ansible.builtin.command: "qm destroy {{ item.id }} --purge"
+      loop: "{{ vm_templates }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.id }})"
+      register: vm_destroy
+      changed_when: vm_destroy.rc == 0
+      failed_when:
+        - vm_destroy.rc != 0
+        - "'does not exist' not in vm_destroy.stderr"
+      when:
+        - build_vm_templates | bool
+        - purge_existing_templates | bool
+
+    - name: Destroy this node's existing LXC templates
+      ansible.builtin.command: "pct destroy {{ item.id }} --purge"
+      loop: "{{ lxc_templates }}"
+      loop_control:
+        label: "{{ item.hostname }} ({{ item.id }})"
+      register: lxc_destroy
+      changed_when: lxc_destroy.rc == 0
+      failed_when:
+        - lxc_destroy.rc != 0
+        - "'does not exist' not in lxc_destroy.stderr"
+      when:
+        - build_lxc_templates | bool
+        - purge_existing_templates | bool
+
+    # ── LXC templates ──────────────────────────────────────────────────
+
+    - name: Build LXC templates
       when: build_lxc_templates | bool
       block:
         - name: Update PVE appliance catalog
@@ -179,7 +171,9 @@
           loop_control:
             loop_var: lxc_template
 
-    - name: Build VM templates (source node)
+    # ── VM templates ───────────────────────────────────────────────────
+
+    - name: Build VM templates
       when: build_vm_templates | bool
       block:
         - name: Ensure libguestfs-tools is installed
@@ -192,11 +186,3 @@
           loop: "{{ vm_templates }}"
           loop_control:
             loop_var: vm_template
-
-    # ── Copy the baked templates to every peer node ────────────────
-
-    - name: Distribute templates to peer nodes
-      ansible.builtin.include_tasks: tasks/distribute-templates-to-node.yml
-      loop: "{{ peer_nodes }}"
-      loop_control:
-        loop_var: target_node

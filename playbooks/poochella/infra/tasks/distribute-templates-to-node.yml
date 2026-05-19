@@ -1,4 +1,9 @@
 ---
+# DORMANT — no longer wired into any playbook. 04-prepare-templates.yml
+# now bakes per-node (independent Proxmox nodes can't `qm migrate`
+# between each other; that needs a cluster). Kept on disk as reference
+# for a future clustered topology, mirroring the dormant ceph roles.
+#
 # Copy every template baked on `source_node` to `target_node` with that
 # node's anchor IDs, then convert each copy to a template there.
 #

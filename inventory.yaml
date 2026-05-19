@@ -21,6 +21,19 @@
 #
 # VMs always DHCP-boot. The static IP comes from the reservation tied to
 # the MAC declared here — not from cloud-init.
+#
+# Proxmox topology is PER-GROUP (clustered and standalone can coexist):
+#   - `baremetal`      → umbrella for ALL Proxmox hosts. Shared roles
+#                        target this; children flatten into it.
+#   - `pve_standalone` → independent nodes, NO corosync. Each is its own
+#                        API surface; Tofu uses a provider per node.
+#   - `pve_cluster`    → parent of zero or more corosync clusters. Each
+#                        CHILD group is ONE cluster: the group name is the
+#                        cluster name, and group_vars/<name>.yml sets
+#                        `proxmox_cluster_name: <name>`. Empty today —
+#                        poochella runs as two independent standalone nodes
+#                        (the gaming-PC pve-home-02 replaced the old
+#                        crash-looping unit; pve-home-03 retired).
 
 all:
   vars:
@@ -28,23 +41,29 @@ all:
     network_gateway: "10.1.1.1"
     network_cidr: "/24"
     ansible_python_interpreter: /usr/bin/python3
-    # Proxmox API endpoint. Read by Tofu via tofu/locals.tf → provider.tf.
-    proxmox_endpoint: "https://pve-home-01.lan:8006"
+    # Proxmox API endpoints, one per baremetal node. Read by Tofu via
+    # tofu/locals.tf → provider.tf, which declares one aliased provider
+    # per node. With independent (non-clustered) nodes a single endpoint
+    # cannot place VMs on a peer, so each node is addressed directly. In a
+    # cluster every member exposes the full API; pointing each provider at
+    # its own node is uniform and works for both topologies.
+    # Adding a node = add it here + a provider block in tofu/provider.tf +
+    # a token var (see tofu/variables.tf) + a module call in tofu/main.tf.
+    proxmox_endpoints:
+      pve-home-01: "https://pve-home-01.lan:8006"
+      pve-home-02: "https://pve-home-02.lan:8006"
     # Per-node Proxmox template IDs. Read by Ansible
     # (04-prepare-templates.yml) and Tofu (tofu/locals.tf). VM storage is
-    # node-local LVM-thin, so every baremetal node needs its own local
-    # template; Proxmox VMIDs are unique cluster-wide, so each node's
-    # template gets a distinct ID. These maps are the single source of
-    # truth — no offset arithmetic, no group-ordering coupling. The value
-    # is each node's *anchor* (first/default template) ID;
-    # 04-prepare-templates.yml builds the per-image-family templates as
-    # anchor+0, anchor+1, … in vm_templates_base / lxc_templates_base
-    # order, bakes them once on the first baremetal node, and copies them
-    # to the others. Tofu clones each VM from
-    # `template_vm_ids[its proxmox_node]` (the default = first VM
-    # template). Per-VM override: set `vm.template_id` on a host below
-    # (used verbatim). Keep anchors ≥ (#templates) apart so families
-    # don't collide.
+    # node-local LVM-thin, so every baremetal node bakes its own local
+    # template. These maps are the single source of truth — no offset
+    # arithmetic, no group-ordering coupling. The value is each node's
+    # *anchor* (first/default template) ID; 04-prepare-templates.yml
+    # builds the per-image-family templates as anchor+0, anchor+1, … in
+    # vm_templates_base / lxc_templates_base order on each node. Tofu
+    # clones each VM from `template_vm_ids[its proxmox_node]` (the
+    # default = first VM template). Per-VM override: set `vm.template_id`
+    # on a host below (used verbatim). Keep anchors ≥ (#templates) apart
+    # so families don't collide.
     template_vm_ids:
       pve-home-01: 9001
       pve-home-02: 9011
@@ -64,23 +83,40 @@ router:
       static_ip: true
 
 baremetal:
-  hosts:
-    pve-home-01:
-      ansible_host: pve-home-01.lan
-      ip_address: 10.1.1.105
-      mac_address: "18:60:24:dc:b7:32"
-    pve-home-02:
-      ansible_host: pve-home-02.lan
-      ip_address: 10.1.1.106
-      mac_address: "3c:7c:3f:1f:96:af"
-    # pve-home-03:
-    #   ansible_host: pve-home-03.lan
-    #   ip_address: 10.1.1.107
-    #   mac_address: "e4:e7:49:47:dc:bf"
-    # pve-home-04:
-    #   ansible_host: pve-home-04.lan
-    #   ip_address: 10.1.1.108
-    #   mac_address: "3c:7c:3f:1f:96:af"
+  # Umbrella for every Proxmox baremetal host. Topology is decided by
+  # which child group a host sits in (see header). `hosts:` here would be
+  # topology-ambiguous, so all hosts live under a child group.
+  children:
+    pve_standalone:
+      # Independent PVE nodes — no corosync, no HA, no live-migration.
+      hosts:
+        pve-home-01:
+          ansible_host: pve-home-01.lan
+          ip_address: 10.1.1.105
+          mac_address: "18:60:24:dc:b7:32"
+        pve-home-02:
+          ansible_host: pve-home-02.lan
+          ip_address: 10.1.1.106
+          # New gaming-PC hardware (better CPU, 32 GB RAM, 256 GB SSD +
+          # 1 TB HDD). Replaced the old crash-looping unit.
+          mac_address: "3c:7c:3f:1f:96:af"
+    pve_cluster:
+      # Parent of all corosync clusters. Each child group is ONE cluster
+      # (group name = cluster name; set proxmox_cluster_name in
+      # group_vars/<name>.yml). Empty today — poochella is standalone.
+      # Example:
+      #   children:
+      #     poochella:
+      #       hosts:
+      #         pve-home-03:
+      #           ansible_host: pve-home-03.lan
+      #           ip_address: 10.1.1.107
+      #           mac_address: "e4:e7:49:47:dc:bf"
+      #         pve-home-04:
+      #           ansible_host: pve-home-04.lan
+      #           ip_address: 10.1.1.108
+      #           mac_address: "<unique-mac>"
+      children: {}
 
 switches:
   hosts:
