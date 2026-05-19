@@ -61,8 +61,12 @@
 
 # Capacity bump path: when a bigger/extra disk was added the VG gained
 # free extents but the thin pool LV still has the old size. Grow it onto
-# the new space. Idempotent: with no free extents lvextend reports
-# "matches existing size" / "up to date" (rc 5) — not an error here.
+# the new space. Idempotent: with no free extents lvextend exits rc 5
+# and emits a benign no-op message — but WHICH stream varies by LVM
+# version (observed: "New size (...) matches existing size." on stdout
+# while stderr carries "No size change."). So scan stdout+stderr
+# COMBINED for any benign marker; only a real rc!=0 with none of them
+# is an error here.
 - name: Grow an existing thin pool onto any new free VG space
   ansible.builtin.command: >-
     lvextend --extents +100%FREE {{ item.0.vg }}/{{ item.0.thinpool }}
@@ -74,6 +78,6 @@
   changed_when: "'successfully resized' in (_thinpool_grow.stdout | default(''))"
   failed_when: >-
     _thinpool_grow.rc != 0
-    and 'matches existing size' not in (_thinpool_grow.stderr | default(''))
-    and 'up to date' not in (_thinpool_grow.stderr | default(''))
-    and 'New size' not in (_thinpool_grow.stderr | default(''))
+    and 'matches existing size' not in ((_thinpool_grow.stdout | default('')) ~ (_thinpool_grow.stderr | default('')))
+    and 'up to date' not in ((_thinpool_grow.stdout | default('')) ~ (_thinpool_grow.stderr | default('')))
+    and 'No size change' not in ((_thinpool_grow.stdout | default('')) ~ (_thinpool_grow.stderr | default('')))

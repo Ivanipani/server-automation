@@ -57,12 +57,36 @@
 
     # sgdisk only rewrites the partition TABLE. A full-disk partition
     # starts where the old layout's filesystems were, so a stale
-    # superblock (e.g. an old ESP's vfat) can bleed through. When this
-    # disk was authorised for force-wipe that residue IS the data we were
-    # told to destroy → clear it in place (also stops pvcreate later
-    # choking on the signature).
+    # superblock (e.g. an old ESP's vfat, or an old LVM PV label) can
+    # bleed through. When this disk was authorised for force-wipe that
+    # residue IS the data we were told to destroy → clear it in place
+    # (also stops pvcreate later choking on the signature).
+    #
+    # If the residue is an LVM PV label, udev autoactivation (`pvscan
+    # -aay` fired when this new partition node appeared) may have
+    # re-assembled the stale VG/thin-pool onto it — device-mapper then
+    # holds the partition and a bare `wipefs -a` fails EBUSY. So first
+    # deactivate ANY VG whose every PV is inside THIS partition (never
+    # one that also spans another disk — that would be the live `pve`
+    # root even when it shares a name) and drop leftover dm holders,
+    # exactly as the Pass-1 force-wipe does, THEN wipe.
     - name: "[{{ partition.label }}] Erase residual signatures (wipe=force disk)"
-      ansible.builtin.command: "wipefs -a /dev/disk/by-partlabel/{{ partition.label }}"
+      ansible.builtin.shell: |
+        set -u
+        pdev=$(readlink -f /dev/disk/by-partlabel/{{ partition.label }})
+        for vg in $(pvs --noheadings -o vg_name,pv_name 2>/dev/null \
+                    | awk -v d="$pdev" '$2==d && $1!="" {print $1}' \
+                    | sort -u); do
+          outside=$(pvs --noheadings -o pv_name,vg_name 2>/dev/null \
+                    | awk -v d="$pdev" -v v="$vg" '$2==v && $1!=d {c++} END{print c+0}')
+          [ "$outside" -eq 0 ] && vgchange -an "$vg" || true
+        done
+        for h in $(lsblk -nro NAME "$pdev" 2>/dev/null | tail -n +2); do
+          dmsetup remove "/dev/mapper/$h" 2>/dev/null || true
+        done
+        wipefs -a "$pdev"; rc=$?
+        udevadm settle || true
+        exit $rc
       changed_when: true
       when:
         - wipefs_check.stdout | default('') | length > 0

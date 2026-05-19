@@ -285,7 +285,7 @@ kubernetes:
             # needs one CP per physical node; move a CP here when the
             # 3rd node lands. (Longhorn DATA safety is independent of
             # this — it rides the per-node workers + zone anti-affinity.)
-            proxmox_node: pve-home-01
+            proxmox_node: pve-home-02
             cores: 4
             memory: 8192
             disk_size: 30

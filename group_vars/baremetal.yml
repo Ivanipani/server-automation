@@ -33,5 +33,14 @@ tailscale_enabled: false
 # write GPTs. A data disk that still holds foreign signatures is REFUSED
 # unless that disk declares `wipe: force` in inventory.yaml (scoped,
 # deliberate). The boot disk is never wiped. Only enable carving on a
-# freshly-installed node with no VMs/containers.
+# node with no REAL (non-template) VMs/containers — templates are
+# handled by `carve_destroy_templates` below.
 confirm_carve_data_disk: true
+
+# Regenerable VM/CT templates (baked by 20-hypervisor/40-templates.yml)
+# would otherwise block a re-carve, since `qm list` reports them as
+# guests. With this true, preflight `qm/pct destroy --purge`es any
+# TEMPLATE-only guests and then proceeds; 40-templates.yml re-bakes them
+# in the next tier step. Any REAL (non-template) VM or container still
+# HARD REFUSES regardless of this flag — it only ever touches templates.
+carve_destroy_templates: false

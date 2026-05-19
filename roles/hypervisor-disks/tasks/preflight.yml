@@ -37,14 +37,85 @@
   register: pct_list
   changed_when: false
 
-- name: Assert no VMs or containers exist (header line only)
+# Templates are REGENERABLE — 40-templates.yml (the next tier step)
+# destroys + re-bakes them from pinned cloud images — so they must not
+# permanently block a re-carve. Real guests carry data and are never
+# regenerable: they still HARD REFUSE. `qm list` cannot tell the two
+# apart (a stopped real VM looks identical), so classify every listed
+# guest by its `template:` config key. The destroy below is an opt-in
+# MUTATION, not a gate — deliberately so (carve_destroy_templates).
+- name: Extract VMIDs / CTIDs (drop the listing header line)
+  ansible.builtin.set_fact:
+    _vmids: >-
+      {{ qm_list.stdout_lines[1:]
+         | map('regex_replace', '^\s*(\d+).*$', '\1')
+         | select('match', '^\d+$') | list }}
+    _ctids: >-
+      {{ pct_list.stdout_lines[1:]
+         | map('regex_replace', '^\s*(\d+).*$', '\1')
+         | select('match', '^\d+$') | list }}
+
+- name: Read each VM config (template detection)
+  ansible.builtin.command: "qm config {{ item }}"
+  loop: "{{ _vmids }}"
+  register: _vm_cfg
+  changed_when: false
+
+- name: Read each container config (template detection)
+  ansible.builtin.command: "pct config {{ item }}"
+  loop: "{{ _ctids }}"
+  register: _ct_cfg
+  changed_when: false
+
+- name: Partition listed guests into templates vs real guests
+  ansible.builtin.set_fact:
+    _tmpl_vmids: "{{ _vm_cfg.results | selectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
+    _real_vmids: "{{ _vm_cfg.results | rejectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
+    _tmpl_ctids: "{{ _ct_cfg.results | selectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
+    _real_ctids: "{{ _ct_cfg.results | rejectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
+
+- name: Refuse if any real (non-template) VM or container exists
   ansible.builtin.assert:
     that:
-      - qm_list.stdout_lines | length <= 1
-      - pct_list.stdout_lines | length <= 1
+      - _real_vmids | length == 0
+      - _real_ctids | length == 0
     fail_msg: >-
-      VMs or containers exist on {{ inventory_hostname }}. The disk-carving
-      step would risk them. Refusing to proceed.
+      Real (non-template) guests exist on {{ inventory_hostname }} —
+      VMs {{ _real_vmids }}, containers {{ _real_ctids }}. The
+      disk-carving step would risk their data. Refusing to proceed.
+
+- name: Refuse if templates exist and the destroy opt-in is unset
+  ansible.builtin.assert:
+    that:
+      - (_tmpl_vmids | length) + (_tmpl_ctids | length) == 0
+        or (carve_destroy_templates | default(false) | bool)
+    fail_msg: >-
+      Only regenerable templates exist on {{ inventory_hostname }} —
+      VMs {{ _tmpl_vmids }}, containers {{ _tmpl_ctids }} — but
+      `carve_destroy_templates` is not true. Set it in
+      group_vars/baremetal.yml (or `-e carve_destroy_templates=true`)
+      to have preflight `qm/pct destroy --purge` them first;
+      40-templates.yml re-bakes them in the next tier step.
+
+- name: "Destroy regenerable VM templates (carve_destroy_templates opt-in)"
+  ansible.builtin.command: "qm destroy {{ item }} --purge"
+  loop: "{{ _tmpl_vmids }}"
+  when: carve_destroy_templates | default(false) | bool
+  register: _vm_tmpl_destroy
+  changed_when: _vm_tmpl_destroy.rc == 0
+  failed_when:
+    - _vm_tmpl_destroy.rc != 0
+    - "'does not exist' not in _vm_tmpl_destroy.stderr"
+
+- name: "Destroy regenerable CT templates (carve_destroy_templates opt-in)"
+  ansible.builtin.command: "pct destroy {{ item }} --purge"
+  loop: "{{ _tmpl_ctids }}"
+  when: carve_destroy_templates | default(false) | bool
+  register: _ct_tmpl_destroy
+  changed_when: _ct_tmpl_destroy.rc == 0
+  failed_when:
+    - _ct_tmpl_destroy.rc != 0
+    - "'does not exist' not in _ct_tmpl_destroy.stderr"
 
 - name: Verify PVE LVM root is present (pve VG)
   ansible.builtin.command: vgs --noheadings -o vg_name pve
@@ -52,10 +123,16 @@
   changed_when: false
   failed_when: pve_vg.rc != 0 or 'pve' not in pve_vg.stdout
 
-- name: Detect the boot disk (parent of the PVE LVM PV)
+- name: Detect the boot disk (parent of the pve VG's PV)
   ansible.builtin.shell: |
     set -eu
-    pv=$(pvs --noheadings -o pv_name | head -1 | awk '{print $1}')
+    # Scope to the `pve` VG (asserted present above) — never a bare
+    # `pvs | head -1`, which sorts by vg_name and would pick a data-disk
+    # PV (e.g. `longhordata` < `pve`) once a prior carve has populated
+    # other VGs, misidentifying the data disk AS the boot disk and
+    # silently excluding it from selector resolution.
+    pv=$(pvs --noheadings -o pv_name -S vg_name=pve | head -1 | awk '{print $1}')
+    [ -n "$pv" ] || { echo "no PV found in pve VG" >&2; exit 1; }
     lsblk -dno PKNAME "$pv"
   register: boot_disk_detect
   changed_when: false
