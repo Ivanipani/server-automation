@@ -119,6 +119,22 @@ tofu-apply: tofu-validate
 secret-encrypt name:
     ansible-vault encrypt_string --vault-password-file ansible-pass --stdin-name {{name}}
 
+# Decrypt & print a single value from group_vars/all/vault.yml.
+# Pass a name (e.g. `just secret-decrypt vault_postgres_pass`), or
+# omit it to fzf-pick from the vault's keys.
+secret-decrypt name="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    name="{{name}}"
+    if [ -z "$name" ]; then
+        name=$(grep -oE '^vault_[A-Za-z0-9_]+' group_vars/all/vault.yml | fzf)
+    fi
+    [ -n "$name" ] || { echo "No variable selected." >&2; exit 1; }
+    ansible localhost -i inventory.yaml \
+        -e @group_vars/all/vault.yml \
+        --vault-password-file ansible-pass \
+        -m debug -a "var=$name" 2>/dev/null
+
 # Clear and re-seed SSH host keys for every host in the inventory
 ssh-refresh:
     #!/usr/bin/env bash
