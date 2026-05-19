@@ -129,14 +129,18 @@ baremetal:
           ansible_host: pve-home-02.lan
           ip_address: 10.1.1.106
           mac_address: "3c:7c:3f:1f:96:af"
-          # Two disks: 256 GB SSD (boot/root, via answer-file sda) + a
-          # whole 1 TB HDD. vm-storage lives on the SSD tail; longhorn
-          # claims the entire HDD.
+          # Two disks (from `just disk-ids` 2026-05-19):
+          #   - Samsung 970 EVO 250 GB NVMe (nvme0n1) → intended boot/root
+          #     + `vms` (SSD tail after lvm.hdsize=100)
+          #   - WDC WD10EZEX 1 TB HDD (sda, wwn-0x50014ee2668a3683)
+          #     → whole-disk `longhorn`
           #
-          # REPLACE the by_id values below with the REAL paths from
-          # `just disk-ids` (run against pve-home-02 once it is built).
-          # preflight refuses to run until each declared by_id resolves
-          # to a present block device — hardware must match inventory.
+          # ⚠ CURRENT STATE MISMATCH: PVE is presently installed on the
+          # 1 TB HDD (sda3 is the only LVM PV; the NVMe is blank) — the
+          # OPPOSITE of the answer file (disk-list = ["nvme0n1"]). Until
+          # pve-home-02 is RE-INSTALLED onto the NVMe, preflight will
+          # (correctly) refuse: longhorn's whole_disk resolves to the
+          # current boot disk. Reinstall, then this layout is valid.
           storage:
             pools:
               - pool: vm-storage
@@ -152,7 +156,7 @@ baremetal:
                 content: images
                 backing:
                   strategy: whole_disk
-                  by_id: "REPLACE-ME-1tb-hdd-by-id"   # e.g. wwn-0x5000c500... or ata-ST1000..._SERIAL
+                  by_id: "wwn-0x50014ee2668a3683"   # WDC WD10EZEX 1 TB HDD (→ sda)
     pve_cluster:
       # Parent of all corosync clusters. Each child group is ONE cluster
       # (group name = cluster name; set proxmox_cluster_name in

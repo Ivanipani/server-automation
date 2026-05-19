@@ -22,6 +22,6 @@ proxmox_api_token: "{{ vault_proxmox_api_token }}"
 # existing vault secret; pve-home-02 needs `vault_proxmox_api_token_pve_home_02`
 # added to vault.yml (see the 05 playbook header for the bootstrap steps).
 proxmox_api_tokens:
-  pve-home-01: "{{ vault_proxmox_api_token }}"
+  pve-home-01: "{{ vault_proxmox_api_token_pve_home_01 }}"
   pve-home-02: "{{ vault_proxmox_api_token_pve_home_02 }}"
 k3s_cluster_token: "{{ vault_k3s_cluster_token }}"

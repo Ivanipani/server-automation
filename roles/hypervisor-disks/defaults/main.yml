@@ -46,3 +46,15 @@
 # DESTRUCTIVE: setting this true authorizes sgdisk to write the GPT.
 # Per-host opt-in lives in group_vars/baremetal.yml or host_vars.
 confirm_carve_data_disk: false
+
+# EXTRA-DESTRUCTIVE escape hatch. By default a `whole_disk` pool whose
+# target device already holds ANY signature (old GPT/MBR/FS/LVM) is
+# REFUSED — the operator must clear it deliberately. Set this true to
+# instead force-wipe (`sgdisk --zap-all` + `wipefs -a`) that device
+# before carving. It does NOT bypass `confirm_carve_data_disk` (both are
+# required) and only ever touches `whole_disk` targets — never the boot
+# disk (boot_tail is unaffected; the device was already validated by
+# preflight as the declared by-id, a whole disk, and not the boot disk).
+# Keep this false in group_vars/host_vars; pass it per-run only when you
+# mean it: `-e hypervisor_disks_force_wipe=true`.
+hypervisor_disks_force_wipe: false

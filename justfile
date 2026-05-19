@@ -152,47 +152,30 @@ do-hypervisor-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/07-users.yml
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/08-dev-tools.yml
 
-# Form corosync clusters PER GROUP (run after do-hypervisor-init).
-# Scoped to hosts under `pve_cluster` child groups; a NO-OP when every
-# node is standalone (poochella's current state). Stays in the bootstrap
-# so adding a cluster group is the only change required.
+# Form the Proxmox cluster (run after do-hypervisor-init)
 do-cluster-init:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02b-cluster-hypervisor.yml
 
-# List /dev/disk/by-id for every baremetal node (read-only). Use this to
-# fill the `storage.pools[].backing.by_id` values in inventory.yaml —
-# the disk layout is DECLARED, never auto-discovered.
-disk-ids:
-    ansible baremetal --vault-password-file ansible-pass -b -m shell \
-      -a "ls -l /dev/disk/by-id/ | awk '/->/ && !/-part[0-9]/ {print \$9, \$10, \$11}'"
-
-# Carve a GPT partition per declared `storage.pools` entry (boot_tail or
-# whole_disk by-id; see inventory.yaml). DESTRUCTIVE on first run —
-# requires `confirm_carve_data_disk: true` in group_vars/baremetal.yml,
-# PVE installed with `lvm.hdsize = 100`, and every declared by_id
-# physically present (preflight fails loudly otherwise).
+# Carve the boot disk into a single ceph-osd partition spanning the
+# unallocated tail. DESTRUCTIVE on first run — requires
+# `confirm_carve_data_disk: true` in group_vars/baremetal.yml AND PVE
+# installed with `lvm.hdsize = 100`.
 do-partition-disks:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03-partition-disks.yml
 
-# Build node-local LVM-thin pools on the carved partitions and register
-# each declared pool as PVE storage (per-node storage.cfg). Requires
-# `do-partition-disks` to have been run first.
-do-provision-storage:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03b-provision-storage.yml
+# Bootstrap Ceph storage (RBD/CephFS/RGW). Requires `do-partition-disks`
+# to have been run first.
+do-ceph-init:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03b-install-ceph.yml
 
-# Format + mount the k3s workers' second disk at /var/lib/longhorn
-# (ground-prep for a future Longhorn install). Requires worker VMs
-# provisioned with a `vm.data_disk_size` declared in inventory.yaml.
-do-longhorn-storage:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/09b-longhorn-storage.yml
+# Install ceph-csi-rbd against the cluster (Helm release + StorageClass).
+# Requires k3s cluster up and kubeconfig present at repo root.
+do-ceph-csi:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/10-install-ceph-csi.yml
 
 # Configure OPNsense dnsmasq static leases for baremetal
 do-router-dhcp:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/01b-router-dnsmasq.yml
-
-# Configure OPNsense Unbound host overrides (wildcard DNS for k8s ingress)
-do-router-dns:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/01c-router-unbound.yml
 
 # Install Prometheus node_exporter on Proxmox baremetal hosts
 do-node-exporter:

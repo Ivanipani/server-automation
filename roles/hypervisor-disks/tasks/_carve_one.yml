@@ -27,14 +27,69 @@
     path: "/dev/disk/by-partlabel/{{ partition.pool }}"
   register: part_stat
 
-- name: "[{{ partition.pool }}] Refuse a whole_disk that holds foreign data"
+- name: "[{{ partition.pool }}] Scan a whole_disk for pre-existing signatures"
   ansible.builtin.command: "wipefs -n {{ partition.device }}"
   register: whole_disk_sig
   changed_when: false
-  failed_when: whole_disk_sig.stdout | length > 0
   when:
     - not part_stat.stat.exists
     - partition.backing.strategy == 'whole_disk'
+
+- name: "[{{ partition.pool }}] Refuse a whole_disk that holds foreign data"
+  ansible.builtin.fail:
+    msg: >-
+      {{ partition.device }}
+      ({{ partition.backing.by_id | default('whole_disk') }}) holds
+      existing signatures and is NOT empty:
+      {{ whole_disk_sig.stdout_lines | join(' | ') }}.
+      Refusing to destroy it. Clear it by hand, or — if this disk is
+      genuinely disposable — re-run with
+      `-e hypervisor_disks_force_wipe=true` (EXTRA-DESTRUCTIVE: wipes ALL
+      data on {{ partition.device }}).
+  when:
+    - not part_stat.stat.exists
+    - partition.backing.strategy == 'whole_disk'
+    - whole_disk_sig.stdout | default('') | length > 0
+    - not (hypervisor_disks_force_wipe | default(false) | bool)
+
+- name: "[{{ partition.pool }}] FORCE-WIPE the whole_disk (hypervisor_disks_force_wipe=true)"
+  ansible.builtin.shell: |
+    set -uo pipefail
+    dev={{ partition.device }}
+    # Deactivate any LVM VG that is a stale leftover on THIS disk. Only
+    # touch a VG whose every PV is on $dev — never one that also spans
+    # other disks (that would be the live root VG, even if it shares the
+    # name `pve`). This is what frees the EBUSY hold on the old sda3 PV.
+    for vg in $(pvs --noheadings -o vg_name,pv_name 2>/dev/null \
+                | awk -v d="$dev" 'index($2,d)==1 && $1!="" {print $1}' \
+                | sort -u); do
+      outside=$(pvs --noheadings -o pv_name,vg_name 2>/dev/null \
+                | awk -v d="$dev" -v v="$vg" '$2==v && index($1,d)!=1 {c++} END{print c+0}')
+      [ "$outside" -eq 0 ] && vgchange -an "$vg" || true
+    done
+    # Destroy on-disk tables/signatures, then make the kernel forget the
+    # stale partition table (the EBUSY + "kernel still using old table").
+    sgdisk --zap-all "$dev" || true
+    wipefs -a "$dev"        || true
+    partprobe "$dev" 2>/dev/null || partx -u "$dev" || true
+    udevadm settle || true
+  changed_when: true
+  when:
+    - not part_stat.stat.exists
+    - partition.backing.strategy == 'whole_disk'
+    - whole_disk_sig.stdout | default('') | length > 0
+    - hypervisor_disks_force_wipe | default(false) | bool
+
+- name: "[{{ partition.pool }}] Verify the force-wiped disk is now clean and free"
+  ansible.builtin.command: "wipefs -n {{ partition.device }}"
+  register: post_force_wipe
+  changed_when: false
+  failed_when: post_force_wipe.stdout | default('') | length > 0
+  when:
+    - not part_stat.stat.exists
+    - partition.backing.strategy == 'whole_disk'
+    - whole_disk_sig.stdout | default('') | length > 0
+    - hypervisor_disks_force_wipe | default(false) | bool
 
 - name: "[{{ partition.pool }}] Create the partition and refresh kernel"
   ansible.builtin.shell: |
