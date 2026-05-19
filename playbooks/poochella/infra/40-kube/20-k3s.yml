@@ -74,8 +74,16 @@
         tasks_from: server_join.yml
       when: inventory_hostname != groups['kube_control_plane'][0]
 
-- name: Install k3s agent on workers
-  hosts: kube_workers
+# Every non-control-plane kube node is a k3s agent. Scoped by ROLE
+# (kubernetes minus the control planes), NOT by the `kube_workers`
+# storage group: `kube_workers` carries the Longhorn storage identity
+# (the create-default-disk label + the /dev/vdb disk-prep), so a
+# diskless compute group must stay OUT of it — yet must still get the
+# agent. Expressing the real predicate keeps this group-driven: a future
+# `kube_compute` child of `kubernetes` joins as an agent with no edit
+# here. Resolves to exactly `kube_workers` today (no behavior change).
+- name: Install k3s agent on all non-control-plane nodes
+  hosts: kubernetes:!kube_control_plane
   become: true
   tasks:
     - ansible.builtin.import_role:

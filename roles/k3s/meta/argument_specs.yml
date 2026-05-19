@@ -24,6 +24,10 @@
     type: list
     elements: str
     default: []
+  k3s_node_labels:
+    type: list
+    elements: str
+    default: []
   k3s_install_script_url:
     type: str
     default: "https://get.k3s.io"

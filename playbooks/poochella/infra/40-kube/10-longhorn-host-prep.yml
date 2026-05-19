@@ -1,42 +1,51 @@
 ---
-# Prepare each k3s worker as a Longhorn (v1 data engine) host:
-#   1. install the host prerequisites Longhorn needs — open-iscsi/iscsid
-#      (Longhorn attaches every volume to its consumer over iSCSI) and the
-#      NFSv4 client (required for RWX volumes and backups), and
-#   2. prepare the worker's second virtio disk (/dev/vdb, backed by the
-#      node-local `longhorn-data` LVM-thin pool) as the Longhorn data
-#      volume: ext4-format it and mount it at /var/lib/longhorn (by UUID,
-#      via fstab).
+# Longhorn (v1 data engine) host ground-prep. HOST prep ONLY —
+# installing Longhorn itself (Helm chart / k8s manifests) is done by the
+# separate FluxCD repo, not here.
 #
-# HOST ground-prep ONLY — installing Longhorn itself (the Helm chart /
-# k8s manifests) is out of scope and handled separately later.
+# TWO SCOPES, on purpose (the data-safety model depends on this split):
 #
-# iSCSI lives on the *guest OS of these VMs*, never the Proxmox hosts:
-# Longhorn's iSCSI initiator runs on whichever node the volume-consuming
-# pod is scheduled, using the host's iscsiadm (k3s ships no iscsi stack).
+#   1. CONSUMER prereqs — open-iscsi/iscsid + the NFSv4 client — on the
+#      WHOLE `kubernetes` group (control planes AND workers, plus any
+#      future child group e.g. kube_compute). Longhorn is true
+#      network-attached storage: a volume's replicas live only on the
+#      storage workers, but the volume attaches over iSCSI on *whichever
+#      node runs the consuming pod*, and that node mounts it (NFSv4 for
+#      RWX / share-manager). k3s control planes here are SCHEDULABLE (no
+#      --node-taint), so a PVC-consuming pod can legitimately land on a
+#      CP — it must be able to attach. Decision (operator, explicit): a
+#      PVC workload may run on whichever node the scheduler picks; the
+#      iSCSI/NFS initiator stack therefore belongs cluster-wide. iSCSI
+#      lives on the VM guest OS, never the Proxmox hosts (k3s ships no
+#      iscsi stack).
 #
-# WORKERS-ONLY BY DESIGN: only kube_workers declare `vm.data_disk_size`
-# (longhorn-data disk), and the future Longhorn install must pin storage
-# scheduling to them (createDefaultDiskLabeledNodes + label only workers)
-# so replica-rebuild IO never lands on the schedulable etcd control
-# planes. This stays correct only while every Longhorn-PVC-consuming pod
-# is constrained to the workers; if a stateful workload is ever allowed
-# onto a control plane, widen `hosts:` to the full kubernetes group (the
-# disk-prep tasks must stay workers-only — only workers have /dev/vdb).
+#   2. DATA-disk prep — assert/ext4/mount the second virtio disk
+#      (/dev/vdb, backed by the node-local `longhorn-data` LVM-thin
+#      pool) at /var/lib/longhorn — stays `kube_workers` ONLY. Only
+#      kube_workers declare `vm.data_disk_size`, so only they have
+#      /dev/vdb; and only they carry node.longhorn.io/create-default-disk
+#      (group_vars/kube_workers.yml) so Longhorn places REPLICA data
+#      (and rebuild IO) on workers only — never on the schedulable etcd
+#      control planes. Replica DATA is workers-only; volume CONSUMPTION
+#      is cluster-wide. These are independent and must not be conflated.
+#
+# OPERATIONAL CAVEAT (recorded, not an oversight): remote-attaching a
+# heavy-IO stateful pod onto a control plane puts that pod's app IO +
+# the iSCSI traffic to the worker-resident replicas on the CP's single
+# shared 1GbE NIC, alongside etcd. The capability is intentional ("run
+# on whichever node it can"); for IO-heavy workloads still PREFER the
+# storage/compute workers via soft node affinity rather than relying on
+# the scheduler's default spread.
 #
 # Pre-conditions:
 #   - 30-provision/10-opentofu.yml completed (worker VMs exist with a
 #     `vm.data_disk_size` declared in inventory.yaml → virtio1 disk)
-#   - 10-bootstrap.yml completed (ansible reachable on VMs)
+#   - 20-bootstrap.yml completed (ansible reachable on all kube VMs)
 
-- name: Prepare k3s workers as Longhorn hosts
-  hosts: kube_workers
+- name: Install Longhorn consumer prerequisites (every schedulable node)
+  hosts: kubernetes
   become: true
-  vars:
-    longhorn_data_device: /dev/vdb
-    longhorn_data_path: /var/lib/longhorn
   tasks:
-    # --- Longhorn host prerequisites -----------------------------------
     - name: Install Longhorn host prerequisites
       ansible.builtin.apt:
         name:
@@ -56,7 +65,13 @@
         enabled: true
         state: started
 
-    # --- Longhorn data disk --------------------------------------------
+- name: Prepare the Longhorn data disk (storage workers only)
+  hosts: kube_workers
+  become: true
+  vars:
+    longhorn_data_device: /dev/vdb
+    longhorn_data_path: /var/lib/longhorn
+  tasks:
     - name: Assert the Longhorn data disk is present
       ansible.builtin.stat:
         path: "{{ longhorn_data_device }}"

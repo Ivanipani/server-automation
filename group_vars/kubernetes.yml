@@ -23,3 +23,26 @@ k3s_kubeconfig_local_path: "{{ playbook_dir }}/../../../../kubeconfig"
 # cluster/context/user identifiers in the local copy are renamed to
 # k3s_cluster_name (k3s hard-codes "default" on the server side).
 k3s_cluster_name: "doghouse"
+
+# --- Physical-node failure domain (the Longhorn data-safety linchpin) -
+#
+# Stamp every k8s node with the PHYSICAL Proxmox node it runs on, as the
+# well-known zone label. Longhorn (deployed by the separate FluxCD repo,
+# NOT here) reads topology.kubernetes.io/zone for replica placement:
+# with "Replica Zone Level Soft Anti-Affinity" = false (HARD) it refuses
+# to put two replicas of a volume in the same zone, so every volume
+# always has a copy on a different physical box. This survives a node
+# being power-cycled, re-imaged (the DESTRUCTIVE storage carve), or
+# disk-swapped — the events that actually destroy data here.
+#
+# This MUST live in infra: only inventory knows the VM→physical-node
+# mapping (`vm.proxmox_node`), and Longhorn's anti-affinity is otherwise
+# blind to the fact that several VM "nodes" share one Proxmox host.
+# Evaluated per-host (vm.proxmox_node resolves to each host's own
+# value); consumed by the k3s role's k3s_node_labels → --node-label in
+# server_init / server_join / agent. Note k3s applies --node-label only
+# at FIRST registration: relabel any already-joined node by hand once
+# (see roles/k3s/defaults/main.yml).
+k3s_zone_label: "topology.kubernetes.io/zone={{ vm.proxmox_node }}"
+k3s_node_labels:
+  - "{{ k3s_zone_label }}"

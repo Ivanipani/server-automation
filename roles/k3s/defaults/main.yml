@@ -27,6 +27,17 @@ k3s_tls_sans: []
 # default keeps the k3s defaults (Traefik enabled).
 k3s_disable_components: []
 
+# Extra `--node-label key=value` entries stamped onto the kubelet at
+# registration. The role is generic; poochella drives this from
+# inventory in group_vars/{kubernetes,kube_workers}.yml to map each k8s
+# node onto its PHYSICAL Proxmox node (topology.kubernetes.io/zone =
+# vm.proxmox_node) so Longhorn replica anti-affinity tracks the real
+# failure domain, not the VM. CAVEAT: k3s applies --node-label only at
+# FIRST registration — an already-joined node is not relabelled by a
+# re-run; relabel it once by hand:
+#   kubectl label node <n> topology.kubernetes.io/zone=<proxmox_node> --overwrite
+k3s_node_labels: []
+
 # kubeconfig file mode on control planes. 0644 makes it readable by the
 # `ansible` user without sudo, which is convenient for fetch-back patterns.
 k3s_kubeconfig_mode: "0644"

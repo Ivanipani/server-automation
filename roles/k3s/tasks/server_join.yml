@@ -17,6 +17,9 @@
       {% for c in k3s_disable_components %}
       --disable {{ c }}
       {% endfor %}
+      {% for lbl in k3s_node_labels %}
+      --node-label {{ lbl }}
+      {% endfor %}
 
 - ansible.builtin.include_tasks: _install.yml
 

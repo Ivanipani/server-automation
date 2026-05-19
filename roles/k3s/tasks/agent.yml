@@ -5,7 +5,11 @@
 
 - name: Compose INSTALL_K3S_EXEC for agent
   ansible.builtin.set_fact:
-    k3s_install_exec: "agent"
+    k3s_install_exec: >-
+      agent
+      {% for lbl in k3s_node_labels %}
+      --node-label {{ lbl }}
+      {% endfor %}
 
 - ansible.builtin.include_tasks: _install.yml
 

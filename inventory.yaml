@@ -130,17 +130,17 @@ baremetal:
           ip_address: 10.1.1.106
           mac_address: "3c:7c:3f:1f:96:af"
           # Two disks (from `just disk-ids` 2026-05-19):
-          #   - Samsung 970 EVO 250 GB NVMe (nvme0n1) → intended boot/root
-          #     + `vms` (SSD tail after lvm.hdsize=100)
+          #   - Samsung 970 EVO 250 GB NVMe (nvme0n1) → boot/root + `vms`
+          #     (SSD tail after lvm.hdsize=100)
           #   - WDC WD10EZEX 1 TB HDD (sda, wwn-0x50014ee2668a3683)
-          #     → whole-disk `longhorn`
+          #     → whole-disk `longhorn` (the Longhorn data disk for
+          #       kube-worker-01, which is pinned to this node)
           #
-          # ⚠ CURRENT STATE MISMATCH: PVE is presently installed on the
-          # 1 TB HDD (sda3 is the only LVM PV; the NVMe is blank) — the
-          # OPPOSITE of the answer file (disk-list = ["nvme0n1"]). Until
-          # pve-home-02 is RE-INSTALLED onto the NVMe, preflight will
-          # (correctly) refuse: longhorn's whole_disk resolves to the
-          # current boot disk. Reinstall, then this layout is valid.
+          # State (operator-reported 2026-05-19): RE-INSTALLED onto the
+          # NVMe per the answer file, HDD freed for whole-disk longhorn —
+          # the earlier boot-disk mismatch is resolved, so storage
+          # preflight no longer refuses. Re-run `just disk-ids` after any
+          # hardware change and re-verify before carving.
           storage:
             pools:
               - pool: vm-storage
@@ -236,7 +236,14 @@ kubernetes:
           ip_address: 10.1.1.112
           mac_address: "02:00:00:00:02:03"
           vm:
-            proxmox_node: pve-home-02
+            # On pve-home-01 (the other CPs are on pve-home-02) so the
+            # control plane spans two physical nodes. NOTE: a 3-member
+            # etcd on 2 physical hosts survives losing pve-home-01 (2/3
+            # quorum stays) but NOT pve-home-02 (loses 2/3) — true CP HA
+            # needs one CP per physical node; move a CP here when the
+            # 3rd node lands. (Longhorn DATA safety is independent of
+            # this — it rides the per-node workers + zone anti-affinity.)
+            proxmox_node: pve-home-01
             cores: 4
             memory: 8192
             disk_size: 30
@@ -254,25 +261,44 @@ kubernetes:
             disk_size: 50
             data_disk_size: 600
             tags: [kube, worker]
-        # kube-worker-02:
-        #   ansible_host: kube-worker-02.lan
-        #   ip_address: 10.1.1.114
-        #   mac_address: "02:00:00:00:03:02"
-        #   vm:
-        #     proxmox_node: pve-home-02
-        #     cores: 2
-        #     memory: 8192
-        #     disk_size: 50
-        #     data_disk_size: 600
-        #     tags: [kube, worker]
+        kube-worker-02:
+          ansible_host: kube-worker-02.lan
+          ip_address: 10.1.1.114
+          mac_address: "02:00:00:00:03:02"
+          vm:
+            # On pve-home-01 → one Longhorn worker per PHYSICAL node
+            # (kube-worker-01 is on pve-home-02). With replica 2 + HARD
+            # zone anti-affinity (zone = vm.proxmox_node, set in
+            # group_vars/kubernetes.yml) every volume keeps one copy per
+            # box → survives losing either node, rebuilds when it
+            # returns. Resources match kube-worker-01 deliberately: if
+            # one box dies its workloads must reschedule onto the
+            # survivor, so an undersized peer would just move the
+            # co-location starvation, not remove it. ASSUMPTION: confirm
+            # pve-home-01 has 16 GiB to spare; lower memory/cores if not.
+            # data_disk_size 600 fits pve-home-01's ~700 GiB boot_tail
+            # `longhorn` pool with thin-pool headroom and matches
+            # kube-worker-01 so replica-2 usable capacity is symmetric
+            # (~600 GiB). Longhorn — NOT LVM — is what presents the two
+            # nodes' longhorn-data disks as one storage system.
+            proxmox_node: pve-home-01
+            cores: 4
+            memory: 16000
+            disk_size: 50
+            data_disk_size: 600
+            tags: [kube, worker]
+        # kube-worker-03: enable on the 3rd PHYSICAL node when it
+        # arrives, then raise the Longhorn replica count to 3 (Flux
+        # side). proxmox_node was pve-home-03 (RETIRED) — re-pin to the
+        # new node's name. Keep resources at parity with the others.
         # kube-worker-03:
         #   ansible_host: kube-worker-03.lan
         #   ip_address: 10.1.1.115
         #   mac_address: "02:00:00:00:03:03"
         #   vm:
-        #     proxmox_node: pve-home-03
-        #     cores: 2
-        #     memory: 8192
+        #     proxmox_node: <3rd-physical-node>
+        #     cores: 4
+        #     memory: 16000
         #     disk_size: 50
         #     data_disk_size: 600
         #     tags: [kube, worker]

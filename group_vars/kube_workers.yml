@@ -18,3 +18,24 @@
 firewall_inbound_allow:
   - { port: 10250, proto: tcp }      # kubelet API
   - { port: 8472, proto: udp }       # flannel VXLAN
+
+# --- Longhorn storage scheduling (workers only) ----------------------
+#
+# kube_workers is a CHILD of `kubernetes`, so this k3s_node_labels list
+# REPLACES (does not merge) the parent's. Keep the zone label
+# (k3s_zone_label is defined in group_vars/kubernetes.yml and is in
+# scope here — workers are also in the `kubernetes` group) and add the
+# Longhorn marker so storage lands ONLY on workers.
+#
+# node.longhorn.io/create-default-disk=true: when the Flux-side Longhorn
+# sets `createDefaultDiskLabeledNodes: true`, Longhorn creates its
+# default disk ONLY on nodes carrying this label, at the default data
+# path /var/lib/longhorn — which is exactly the dedicated longhorn-data
+# disk that 40-kube/10-longhorn-host-prep.yml ext4-mounts there. Result:
+# replica storage + rebuild IO stay on the workers and OFF the
+# schedulable etcd control planes (the co-location starvation risk).
+# Contract: Flux MUST set createDefaultDiskLabeledNodes=true, else
+# Longhorn would make a default disk on EVERY node, defeating this.
+k3s_node_labels:
+  - "{{ k3s_zone_label }}"
+  - "node.longhorn.io/create-default-disk=true"
