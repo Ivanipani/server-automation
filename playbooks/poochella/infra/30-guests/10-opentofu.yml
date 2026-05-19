@@ -65,7 +65,10 @@
   tasks:
     - name: Run tofu init and apply
       community.general.terraform:
-        project_path: "{{ playbook_dir }}/../../../tofu"
+        # playbook_dir is this file's own dir (deterministic under both
+        # direct-run and import_playbook): infra/30-provision → repo root
+        # is four levels up.
+        project_path: "{{ playbook_dir }}/../../../../tofu"
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true

@@ -29,8 +29,8 @@
 # ~/.ssh/ansible.pub on the controller) and reset machine-id / SSH host
 # keys so every clone gets a unique DHCP client-id and host identity.
 #
-# Pre-condition: 03b-provision-storage.yml has run (the `vms` LVM-thin
-# storage exists on every node — the imported disk lands on it).
+# Pre-condition: 30-storage.yml has run (the `vms` LVM-thin storage
+# exists on every node — the imported disk lands on it).
 #
 # Flags:
 #   build_lxc_templates      – run the LXC template build phase.
@@ -51,8 +51,8 @@
 #                              local ISO storage so the next run
 #                              re-downloads fresh upstream and re-bakes.
 #
-# After re-baking, re-provision any existing clones via
-# 05-provision-infrastructure.yml.
+# After re-baking, re-provision any existing clones via the
+# 30-provision tier (30-provision/10-opentofu.yml).
 
 - name: Bake VM/LXC templates on every Proxmox node (independent)
   hosts: baremetal
@@ -176,7 +176,7 @@
           changed_when: true
 
         - name: Create LXC templates
-          ansible.builtin.include_tasks: tasks/create-lxc-template.yml
+          ansible.builtin.include_tasks: ../tasks/create-lxc-template.yml
           loop: "{{ lxc_templates }}"
           loop_control:
             loop_var: lxc_template
@@ -192,7 +192,7 @@
             state: present
 
         - name: Create VM templates
-          ansible.builtin.include_tasks: tasks/create-vm-template.yml
+          ansible.builtin.include_tasks: ../tasks/create-vm-template.yml
           loop: "{{ vm_templates }}"
           loop_control:
             loop_var: vm_template

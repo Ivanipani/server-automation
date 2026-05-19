@@ -1,0 +1,17 @@
+---
+# Tier H — Proxmox hypervisor fabric (baremetal).
+#
+# Critical path (hard deps): 10-bootstrap → 20-cluster (no-op while
+# standalone) → 30-storage (DESTRUCTIVE carve + LVM-thin + PVE
+# register, merged) → 40-templates. 40-templates must finish before
+# the 30-provision tier (Tofu clones the templates).
+#
+# 50-tailscale / 60-node-exporter are order-independent baremetal
+# day-2 services (depend only on 10-bootstrap, nothing depends on
+# them) — last in the tier so the critical chain reads contiguously.
+- import_playbook: 10-bootstrap.yml
+- import_playbook: 20-cluster.yml
+- import_playbook: 30-storage.yml
+- import_playbook: 40-templates.yml
+- import_playbook: 50-tailscale.yml
+- import_playbook: 60-node-exporter.yml

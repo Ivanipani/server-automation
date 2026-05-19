@@ -41,8 +41,8 @@ k3s_kube_vip_interface: ""              # blank → auto-detect via ansible_defa
 k3s_kube_vip_rbac_url: "https://kube-vip.io/manifests/rbac.yaml"
 
 # Local destination for the rewritten kubeconfig. Empty → fetch step is a
-# no-op. Set to e.g. "{{ playbook_dir }}/../../../kubeconfig" or
-# "~/.kube/config-poochella" to enable.
+# no-op. Set to e.g. "{{ playbook_dir }}/../../../../kubeconfig" (repo
+# root from infra/40-guests) or "~/.kube/config-poochella" to enable.
 k3s_kubeconfig_local_path: ""
 
 # Identifier used for cluster/context/user names in the rewritten kubeconfig

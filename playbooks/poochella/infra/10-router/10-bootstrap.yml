@@ -9,7 +9,7 @@
   tasks:
     - name: Detect bootstrap user
       ansible.builtin.include_tasks:
-        file: tasks/detect-bootstrap-user.yml
+        file: ../tasks/detect-bootstrap-user.yml
       vars:
         fallback_user: root
 
@@ -54,25 +54,10 @@
     - name: Set permissions on sudoers file
       ansible.builtin.raw: chmod 440 /usr/local/etc/sudoers.d/ansible
 
-# Set root password via the OPNsense API so it persists in config.xml
-# (changing it via `pw` would only update the system shadow file and could
-# be reverted by an OPNsense config reload).
-- name: Set OPNsense root password from vault
-  hosts: router
-  gather_facts: false
-  connection: local
-  module_defaults:
-    group/oxlorg.opnsense.user:
-      firewall: "{{ ansible_host }}"
-      api_key: "{{ opnsense_api_key }}"
-      api_secret: "{{ opnsense_api_secret }}"
-      ssl_verify: false
-  vars:
-    ansible_python_interpreter: "{{ ansible_playbook_python }}"
-  tasks:
-    - name: Update root user password
-      oxlorg.opnsense.user:
-        name: root
-        password: "{{ router_root_pass }}"
-        update_password: always
-      no_log: true
+# NOTE: a former 3rd play set the OPNsense root password via
+# oxlorg.opnsense.user. It was removed: OPNsense's Usermanager API
+# refuses edits to the authenticated root account ("User root can not
+# lock itself out", HTTP 500), so it never worked. This bootstrap's
+# job is the `ansible` automation user (above); managing the router
+# root password is a separate, manual concern (console / supported
+# path), not something to drive through /api/auth/user/set on root.

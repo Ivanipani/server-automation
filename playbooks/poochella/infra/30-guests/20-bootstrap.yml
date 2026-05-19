@@ -9,7 +9,7 @@
   tasks:
     - name: Detect bootstrap user
       ansible.builtin.include_tasks:
-        file: tasks/detect-bootstrap-user.yml
+        file: ../tasks/detect-bootstrap-user.yml
       vars:
         fallback_user: temp
         ssh_extra_flags: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
@@ -39,7 +39,7 @@
   tasks:
     - name: Detect bootstrap user
       ansible.builtin.include_tasks:
-        file: tasks/detect-bootstrap-user.yml
+        file: ../tasks/detect-bootstrap-user.yml
       vars:
         fallback_user: root
         ssh_extra_flags: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"

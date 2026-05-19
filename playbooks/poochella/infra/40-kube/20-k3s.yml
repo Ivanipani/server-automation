@@ -13,6 +13,36 @@
 #     once the VM has DHCP'd at least once)
 #   - k3s_kube_vip_address (in group_vars/kubernetes.yml) is a free address
 #     on the same L2 segment as the control planes when kube-vip is enabled
+#
+# SINGLE-HOST / --limit SEMANTICS (read before piecemeal runs):
+#
+#   The "first control plane" is ALWAYS groups['kube_control_plane'][0]
+#   — the inventory-wide first member, computed from the full inventory,
+#   NOT from the --limit / serial subset. This is deliberate and MUST
+#   NOT be changed to elect from the limited set: electing the
+#   first-host-within-a-limit would let `--limit kube-ctl-03` run
+#   `--cluster-init` and bootstrap a SECOND, split-brain cluster.
+#   Election is therefore stable and idempotent under any --limit.
+#
+#   Consequences when scoping a run with --limit:
+#     - --limit <first-CP>            → inits (or no-ops if already up).
+#     - --limit <other-CP/worker>     → takes the JOIN/agent path. This
+#       only succeeds if the cluster is ALREADY up: the joiner waits on
+#       the API endpoint with the role's 60×10s gate (a legitimate full
+#       bootstrap genuinely needs minutes for etcd/kube-vip to settle —
+#       which is exactly why a short fast-fail probe is NOT added here:
+#       it could not tell "cluster down" from "cluster still settling"
+#       without false-failing real bootstraps). If the cluster is not up
+#       and the first CP is not in the run, expect the gate to exhaust
+#       (~10 min) then fail — bring the first CP up first.
+#     - the "Fetch kubeconfig" play targets the literal host pattern
+#       kube_control_plane[0]; under a --limit that excludes the first
+#       CP it matches no hosts and is SILENTLY skipped (no kubeconfig is
+#       refreshed). Expected, not a failure.
+#
+#   Rule of thumb for piecemeal dev: bring the cluster up once without
+#   --limit (or `--limit <first-CP>`), then iterate on any single other
+#   node freely — joins/agents are idempotent against a live cluster.
 
 - name: Initialize k3s on first control plane
   hosts: kube_control_plane

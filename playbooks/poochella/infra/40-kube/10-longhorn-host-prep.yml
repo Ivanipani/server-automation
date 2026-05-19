@@ -25,9 +25,9 @@
 # disk-prep tasks must stay workers-only — only workers have /dev/vdb).
 #
 # Pre-conditions:
-#   - 05-provision-infrastructure.yml completed (worker VMs exist with a
+#   - 30-provision/10-opentofu.yml completed (worker VMs exist with a
 #     `vm.data_disk_size` declared in inventory.yaml → virtio1 disk)
-#   - 06-bootstrap-ansible-global.yml completed (ansible reachable on VMs)
+#   - 10-bootstrap.yml completed (ansible reachable on VMs)
 
 - name: Prepare k3s workers as Longhorn hosts
   hosts: kube_workers

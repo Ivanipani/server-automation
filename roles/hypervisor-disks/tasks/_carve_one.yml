@@ -112,8 +112,49 @@
     path: "/dev/disk/by-partlabel/{{ partition.pool }}"
     timeout: 30
 
-- name: "[{{ partition.pool }}] Fail if the partition has pre-existing signatures"
-  ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ partition.pool }}"
-  register: wipefs_check
-  changed_when: false
-  failed_when: wipefs_check.stdout | length > 0
+# Signature handling validates ONLY space carved THIS run. On an
+# idempotent re-run the partition already existed (not created above), so
+# it legitimately carries the LVM2_member signature WE wrote via pvcreate
+# in 03b — not foreign data. Gating the whole block on
+# `not part_stat.stat.exists` keeps the play idempotent: a healthy,
+# already-provisioned node re-run is a no-op here.
+- name: "[{{ partition.pool }}] Validate the freshly carved partition"
+  when: not part_stat.stat.exists
+  block:
+    - name: "[{{ partition.pool }}] Scan the new partition for residual signatures"
+      ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ partition.pool }}"
+      register: wipefs_check
+      changed_when: false
+
+    # sgdisk only rewrites the partition TABLE — it never erases platter
+    # data. A full-disk whole_disk partition starts where the old
+    # layout's filesystems were, so a stale superblock (e.g. an old ESP's
+    # vfat) bleeds through. When the operator authorised a force-wipe,
+    # that residue IS the data they told us to destroy → clear it in
+    # place (also stops pvcreate in 03b choking on the signature later).
+    - name: "[{{ partition.pool }}] Erase residual signatures on the force-wiped partition"
+      ansible.builtin.command: "wipefs -a /dev/disk/by-partlabel/{{ partition.pool }}"
+      changed_when: true
+      when:
+        - wipefs_check.stdout | default('') | length > 0
+        - partition.backing.strategy == 'whole_disk'
+        - hypervisor_disks_force_wipe | default(false) | bool
+
+    # Strict refusal for every other case: boot_tail, or a non-force
+    # whole_disk. Unexpected signatures here mean we'd clobber real data.
+    - name: "[{{ partition.pool }}] Fail if the partition has pre-existing signatures"
+      ansible.builtin.fail:
+        msg: >-
+          /dev/disk/by-partlabel/{{ partition.pool }} carries existing
+          signatures: {{ wipefs_check.stdout_lines | join(' | ') }}.
+          Refusing to use it. For a disposable whole_disk, re-run with
+          `-e hypervisor_disks_force_wipe=true`.
+      when:
+        - wipefs_check.stdout | default('') | length > 0
+        - not (partition.backing.strategy == 'whole_disk' and (hypervisor_disks_force_wipe | default(false) | bool))
+
+    - name: "[{{ partition.pool }}] Verify the partition is now signature-free"
+      ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ partition.pool }}"
+      register: wipefs_recheck
+      changed_when: false
+      failed_when: wipefs_recheck.stdout | default('') | length > 0

@@ -1,8 +1,0 @@
----
-# Trunk — sessions, dev tools, users, services
-
-- import_playbook: 07-users.yml
-- import_playbook: 07-sessions-and-shell.yml
-- import_playbook: 08-dev-tools.yml
-- import_playbook: 10-install-caddy.yml
-- import_playbook: 11-configure-postgres.yml

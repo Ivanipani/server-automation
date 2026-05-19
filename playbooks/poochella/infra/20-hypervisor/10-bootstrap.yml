@@ -9,7 +9,7 @@
   tasks:
     - name: Detect bootstrap user
       ansible.builtin.include_tasks:
-        file: tasks/detect-bootstrap-user.yml
+        file: ../tasks/detect-bootstrap-user.yml
       vars:
         fallback_user: root
 
@@ -22,8 +22,9 @@
   roles:
     - role: hypervisor
 
-- name: Install Tailscale on hypervisors
-  hosts: baremetal
-  become: true
-  roles:
-    - role: tailscale
+# Tailscale is intentionally NOT installed here. It is a baremetal day-2
+# service (not a bootstrap prerequisite — Ansible reaches hosts over the
+# LAN, not the tailnet), kept in its own idempotent, standalone playbook
+# (50-tailscale.yml) so it can be re-run in isolation for piecemeal dev
+# (key rotation, re-auth) without re-running the whole hypervisor
+# bootstrap. site.yml still runs it; so does `just do-hypervisor-init`.

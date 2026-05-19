@@ -5,7 +5,7 @@
 # plugin's API rejects host overrides with an empty hostname.
 #
 # Pre-condition: OPNsense API credentials in vault as `vault_opnsense_api_key`
-# and `vault_opnsense_api_secret`. Same key/secret as 01b-router-dnsmasq.yml.
+# and `vault_opnsense_api_secret`. Same key/secret as 20-dnsmasq.yml.
 #
 # Talks to the OPNsense API from the controller; no SSH into the router.
 - name: Configure OPNsense Unbound host overrides

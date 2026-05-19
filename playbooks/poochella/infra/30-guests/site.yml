@@ -1,0 +1,11 @@
+---
+# Tier P — the provisioning barrier.
+#
+# The single point where the router and hypervisor tracks converge:
+# OpenTofu creates the guests. NOTHING in tier G (40-guests) exists
+# before this runs. Kept as its own tier (one playbook today) precisely
+# so the barrier is visible in the structure, not implied by a number.
+- import_playbook: 10-opentofu.yml
+- import_playbook: 20-bootstrap.yml
+- import_playbook: 30-disable-auto-upgrades.yml
+- import_playbook: 40-firewall.yml

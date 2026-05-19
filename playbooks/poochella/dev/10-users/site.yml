@@ -1,0 +1,3 @@
+- import_playbook: 10-users.yml
+- import_playbook: 20-sessions-and-shell.yml
+- import_playbook: 30-pani-ssh-key.yml

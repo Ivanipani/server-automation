@@ -1,0 +1,23 @@
+---
+# Install + bring up Tailscale on the Proxmox baremetal hosts.
+#
+# Baremetal day-2 service, NOT a bootstrap prerequisite: Ansible reaches
+# every host over the LAN (`ansible_host`), never over the tailnet, so
+# this can run any time after the `ansible` user exists and is safe to
+# re-run in isolation (`just run --limit pve-home-02`) for piecemeal dev
+# — key rotation, re-auth, adding a node — without touching the rest of
+# the hypervisor bootstrap. The `tailscale` role is idempotent.
+#
+# Order within the hypervisor tier is irrelevant: it depends on nothing
+# past 10-bootstrap and nothing depends on it — placed at 50 (after the
+# critical storage→templates chain) purely so that chain reads
+# contiguously.
+#
+# Pre-condition: 10-bootstrap.yml has run (the `ansible` user with
+# passwordless sudo exists; connects as `ansible`).
+
+- name: Install Tailscale on hypervisors
+  hosts: baremetal
+  become: true
+  roles:
+    - role: tailscale

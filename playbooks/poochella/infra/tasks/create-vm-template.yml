@@ -73,13 +73,14 @@
           - --chmod
           - "0440:/etc/sudoers.d/90-ansible"
           # Bake the automatic-apt-upgrade kill-switch into the image so
-          # clones never auto-upgrade — even before Ansible (06b) reaches
-          # them. APT::Periodic::Unattended-Upgrade "0" is authoritative;
-          # 06b-disable-auto-upgrades.yml additionally masks the apt-daily
-          # timers on the running VMs (roles/apt-no-auto-upgrades).
+          # clones never auto-upgrade — even before Ansible (the guests
+          # tier) reaches them. APT::Periodic::Unattended-Upgrade "0" is
+          # authoritative; 40-guests/20-disable-auto-upgrades.yml
+          # additionally masks the apt-daily timers on the running VMs
+          # (roles/apt-no-auto-upgrades).
           - --write
           - |
-            /etc/apt/apt.conf.d/20auto-upgrades:// Baked by 04-prepare-templates.yml — automatic apt upgrading off.
+            /etc/apt/apt.conf.d/20auto-upgrades:// Baked by 20-hypervisor/40-templates.yml — automatic apt upgrading off.
             APT::Periodic::Update-Package-Lists "0";
             APT::Periodic::Unattended-Upgrade "0";
             APT::Periodic::Download-Upgradeable-Packages "0";

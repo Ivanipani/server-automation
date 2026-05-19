@@ -1,19 +1,19 @@
 ---
-# Baseline infrastructure — bootstrap, templates, provisioning, firewall
-
-- import_playbook: 01-bootstrap-router.yml
-- import_playbook: 01b-router-dnsmasq.yml
-- import_playbook: 01c-router-unbound.yml
-- import_playbook: 02-bootstrap-hypervisor.yml
-- import_playbook: 02b-cluster-hypervisor.yml
-- import_playbook: 03-partition-disks.yml
-- import_playbook: 03b-provision-storage.yml
-- import_playbook: 04-prepare-templates.yml
-- import_playbook: 05-provision-infrastructure.yml
-- import_playbook: 06-bootstrap-ansible-global.yml
-- import_playbook: 06b-disable-auto-upgrades.yml
-- import_playbook: 07-firewall.yml
-- import_playbook: 08-tailscale.yml
-- import_playbook: 09-node-exporter.yml
-- import_playbook: 10-longhorn-storage.yml
-- import_playbook: 11-install-kubernetes.yml
+# poochella infra — four ordered tiers, each a directory with its own
+# ordered site.yml. The directory IS the target tier, so "what runs
+# where" and "what order" stop fighting; ordinals are gap-10 within a
+# tier so steps insert without renumbering.
+#
+#   10-router      → OPNsense DNS/DHCP foundation (precedes everything)
+#   20-hypervisor  → Proxmox baremetal fabric (the critical path)
+#   30-guests      → OpenTofu barrier (router + hypervisor converge)
+#   40-guests      → VM/container config + k3s
+#
+# Single-host piecemeal dev: fzf-pick any one tier playbook via
+# `just run --limit <host>`. Each playbook self-bootstraps
+# (../tasks/detect-bootstrap-user.yml) and asserts its own
+# pre-conditions, so this ordering is the happy path, not the only one.
+- import_playbook: 10-router/site.yml
+- import_playbook: 20-hypervisor/site.yml
+- import_playbook: 30-guests/site.yml
+- import_playbook: 40-kube/site.yml

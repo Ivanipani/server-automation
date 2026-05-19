@@ -8,7 +8,7 @@ Declarative homelab automation for **poochella**: a small Proxmox VE fleet runni
 
 **Proxmox topology is per-group, and clustered + standalone can coexist** (see the `inventory.yaml` header). Today poochella runs **two independent, non-clustered nodes** — `pve-home-01` (original hardware) and `pve-home-02` (new gaming-PC hardware that replaced the old crash-looping unit); `pve-home-03` was retired. There is **no corosync, no shared storage, no HA, no live-migration**. The corosync path is still fully wired and supported for any node placed under a `pve_cluster` child group; it is simply a no-op while every node is standalone.
 
-(Ceph was removed in favour of node-local storage; the `ceph`/`ceph-csi` roles and `03b-install-ceph.yml`/`10-install-ceph-csi.yml` remain on disk as dormant reference but are no longer wired into any playbook or recipe.)
+(Ceph was removed in favour of node-local storage; the `ceph`/`ceph-csi` roles remain on disk as dormant reference, and the old ceph playbooks were lifted out of `infra/` into `playbooks/wip/`. Nothing wires ceph into any playbook or recipe.)
 
 ## Common commands
 
@@ -23,16 +23,23 @@ All workflows are wrapped in `justfile` recipes — prefer `just <recipe>` over 
 - `just secret-encrypt <name>` — `ansible-vault encrypt_string` for adding values to `group_vars/all/vault.yml`
 - `just tofu-{validate,init,plan,apply}` — OpenTofu wrappers (operate from `tofu/`)
 
-**Bootstrap ordering** (poochella infra is staged; recipes encode the dependencies):
+**Infra layout (tier directories).** `playbooks/poochella/infra/` is four ordered tiers, each a directory with its own ordered `site.yml`; ordinals are gap-10 *within* a tier so steps insert without renumbering. The directory **is** the target tier:
+- `10-router/` — OPNsense DNS/DHCP foundation (precedes everything)
+- `20-hypervisor/` — Proxmox baremetal fabric, the critical path: `10-bootstrap → 20-cluster (no-op standalone) → 30-storage (DESTRUCTIVE carve + LVM-thin + PVE register, merged) → 40-templates`; `50-tailscale`/`60-node-exporter` are order-independent day-2 services
+- `30-provision/` — the OpenTofu barrier (`10-opentofu.yml`); the single point where the router + hypervisor tracks converge and guests come into existence
+- `40-guests/` — guest config: `10-bootstrap (ansible user) → 20-disable-auto-upgrades → 30-firewall (opens k3s ports) → 40-longhorn-host-prep → 50-k3s`
+
+Each playbook self-bootstraps (`../tasks/detect-bootstrap-user.yml`) and asserts its own pre-conditions, so the ordering is the happy path, not the only path — any single tier playbook is runnable in isolation for piecemeal dev (`just run --limit <host>` then fzf-pick it).
+
+**Bootstrap ordering** (recipes encode the dependencies):
 1. `just do-router-dhcp` — push dnsmasq static leases onto OPNsense for baremetal MACs
-2. `just do-hypervisor-init` — bootstrap PVE nodes, shell, users, dev tools
+2. `just do-hypervisor-init` — bootstrap PVE nodes (+tailscale), shell, users, dev tools
 3. `just do-cluster-init` — form corosync clusters **per group**. Scoped to hosts under `pve_cluster` child groups; a **no-op when every node is standalone** (poochella's current state). Kept in the bootstrap so adding a cluster group is the only change needed.
-4. `just do-partition-disks` — **DESTRUCTIVE**, see warning below
-5. `just do-provision-storage` — build node-local LVM-thin pools on the carved partitions and register them as PVE storage (`vms`, `longhorn-data`)
+4. `just do-storage` — **DESTRUCTIVE** carve, then LVM-thin pools + PVE storage registration (`vms`, `longhorn-data`) — one merged playbook (`20-hypervisor/30-storage.yml`), see warning below
 
 (After VM provisioning + k3s, `just do-longhorn-storage` formats/mounts the workers' second disk at `/var/lib/longhorn`.)
 
-Full end-to-end is `playbooks/poochella/site.yml` (imports `infra/site.yml` then `trunk/site.yml`); the numbered playbooks under those directories are run in lexical order.
+Full end-to-end is `playbooks/poochella/site.yml` (imports `infra/site.yml` then `trunk/site.yml`); `infra/site.yml` imports the four tier `site.yml`s in order, and each tier `site.yml` imports its playbooks in ordinal order.
 
 ### Vault
 

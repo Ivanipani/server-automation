@@ -14,11 +14,19 @@
 # proxmox_cluster_name]`. Idempotent: re-running a healthy cluster is a
 # no-op; adding a host to a cluster group joins it on the next run.
 #
+# --limit semantics (same contract as 40-guests/50-k3s.yml): the
+# cluster creator is the inventory-wide (groups[...] | sort)[0], NOT the
+# first host within a --limit subset — so `--limit <non-first-node>`
+# always takes the JOIN path and only succeeds against an already-created
+# cluster. Never elect from the limited set (would create a split
+# cluster). No-op while standalone, but the rule holds the day a
+# pve_cluster child group gains members.
+#
 # NO-OP when `pve_cluster` has no members (poochella runs standalone) —
 # the playbook stays wired in infra/site.yml and simply matches no hosts.
 #
-# Pre-condition: 02-bootstrap-hypervisor.yml has run (the `ansible` user
-# with sudo NOPASSWD exists on each host). Joiners must be fresh PVE
+# Pre-condition: 10-bootstrap.yml has run (the `ansible` user with
+# sudo NOPASSWD exists on each host). Joiners must be fresh PVE
 # installs (no VMs/CTs, no custom storage.cfg) — `pvecm add` rewrites
 # /etc/pve on the joiner.
 

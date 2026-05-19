@@ -26,7 +26,7 @@
         - { port: 80, proto: tcp }
 
 # Virtual machines — per-host open ports, plus k3s ports for any host in
-# the kube groups (so 11-install-kubernetes.yml can form the cluster
+# the kube groups (so 50-k3s.yml can form the cluster
 # behind this default-deny-incoming firewall).
 #
 # k3s ports are GROUP-DRIVEN, not host-enumerated: membership in

@@ -147,36 +147,33 @@ ssh-refresh:
 
 # Init hypervisor for development
 do-hypervisor-init:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02-bootstrap-hypervisor.yml
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/10-bootstrap.yml
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/50-tailscale.yml
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/07-sessions-and-shell.yml
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/07-users.yml
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/08-dev-tools.yml
 
-# Form the Proxmox cluster (run after do-hypervisor-init)
+# Form the Proxmox cluster (run after do-hypervisor-init). No-op while
+# every node is standalone (poochella's current state).
 do-cluster-init:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/02b-cluster-hypervisor.yml
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/20-cluster.yml
 
-# Carve the boot disk into a single ceph-osd partition spanning the
-# unallocated tail. DESTRUCTIVE on first run — requires
+# Node-local storage, end to end (merged carve + LVM-thin pool + PVE
+# storage registration). DESTRUCTIVE carve on first run — requires
 # `confirm_carve_data_disk: true` in group_vars/baremetal.yml AND PVE
-# installed with `lvm.hdsize = 100`.
-do-partition-disks:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03-partition-disks.yml
+# installed with `lvm.hdsize = 100`. Idempotent on re-run.
+do-storage:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/30-storage.yml
 
-# Bootstrap Ceph storage (RBD/CephFS/RGW). Requires `do-partition-disks`
-# to have been run first.
-do-ceph-init:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/03b-install-ceph.yml
-
-# Install ceph-csi-rbd against the cluster (Helm release + StorageClass).
-# Requires k3s cluster up and kubeconfig present at repo root.
-do-ceph-csi:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/10-install-ceph-csi.yml
+# (Ceph is removed — node-local LVM-thin storage replaced it. The
+# ceph / ceph-csi roles remain on disk as dormant reference but are
+# not wired into any playbook or recipe; see CLAUDE.md. The former
+# `do-ceph-init` / `do-ceph-csi` recipes are intentionally gone.)
 
 # Configure OPNsense dnsmasq static leases for baremetal
 do-router-dhcp:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/01b-router-dnsmasq.yml
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/10-router/20-dnsmasq.yml
 
 # Install Prometheus node_exporter on Proxmox baremetal hosts
 do-node-exporter:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/11-node-exporter.yml
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/60-node-exporter.yml

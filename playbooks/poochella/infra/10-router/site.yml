@@ -1,0 +1,10 @@
+---
+# Tier R — router / network foundation (OPNsense).
+#
+# Must precede every other tier: dnsmasq reservations + DNS are how
+# baremetal hosts become reachable by name and how each VM lands on its
+# reserved IP the moment it DHCPs (see 30-provision). Self-contained —
+# talks to the OPNsense API / SSHes the router only.
+- import_playbook: 10-bootstrap.yml
+- import_playbook: 20-dnsmasq.yml
+- import_playbook: 30-unbound.yml
