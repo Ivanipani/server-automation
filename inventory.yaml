@@ -48,11 +48,13 @@ all:
     template_vm_ids:
       pve-home-01: 9001
       pve-home-02: 9011
-      pve-home-03: 9021
+      # pve-home-03: 9021
+      # pve-home-04: 9031
     template_ct_ids:
       pve-home-01: 9101
       pve-home-02: 9111
-      pve-home-03: 9121
+      # pve-home-03: 9121
+      # pve-home-04: 9131
 
 router:
   hosts:
@@ -70,11 +72,15 @@ baremetal:
     pve-home-02:
       ansible_host: pve-home-02.lan
       ip_address: 10.1.1.106
-      mac_address: "b0:0c:d1:6f:a6:7d"
-    pve-home-03:
-      ansible_host: pve-home-03.lan
-      ip_address: 10.1.1.107
-      mac_address: "e4:e7:49:47:dc:bf"
+      mac_address: "3c:7c:3f:1f:96:af"
+    # pve-home-03:
+    #   ansible_host: pve-home-03.lan
+    #   ip_address: 10.1.1.107
+    #   mac_address: "e4:e7:49:47:dc:bf"
+    # pve-home-04:
+    #   ansible_host: pve-home-04.lan
+    #   ip_address: 10.1.1.108
+    #   mac_address: "3c:7c:3f:1f:96:af"
 
 switches:
   hosts:
@@ -90,7 +96,7 @@ virtual-machines:
       ip_address: 10.1.1.120
       mac_address: "02:00:00:00:01:01"
       vm:
-        proxmox_node: pve-home-01
+        proxmox_node: pve-home-02
         cores: 4
         memory: 8192
         disk_size: 100
@@ -108,7 +114,7 @@ kubernetes:
           ip_address: 10.1.1.110
           mac_address: "02:00:00:00:02:01"
           vm:
-            proxmox_node: pve-home-01
+            proxmox_node: pve-home-02
             cores: 4
             memory: 8192
             disk_size: 30
@@ -128,7 +134,7 @@ kubernetes:
           ip_address: 10.1.1.112
           mac_address: "02:00:00:00:02:03"
           vm:
-            proxmox_node: pve-home-03
+            proxmox_node: pve-home-02
             cores: 4
             memory: 8192
             disk_size: 30
@@ -140,34 +146,34 @@ kubernetes:
           ip_address: 10.1.1.113
           mac_address: "02:00:00:00:03:01"
           vm:
-            proxmox_node: pve-home-01
-            cores: 2
-            memory: 8192
-            disk_size: 50
-            data_disk_size: 600
-            tags: [kube, worker]
-        kube-worker-02:
-          ansible_host: kube-worker-02.lan
-          ip_address: 10.1.1.114
-          mac_address: "02:00:00:00:03:02"
-          vm:
             proxmox_node: pve-home-02
-            cores: 2
-            memory: 8192
+            cores: 4
+            memory: 16000
             disk_size: 50
             data_disk_size: 600
             tags: [kube, worker]
-        kube-worker-03:
-          ansible_host: kube-worker-03.lan
-          ip_address: 10.1.1.115
-          mac_address: "02:00:00:00:03:03"
-          vm:
-            proxmox_node: pve-home-03
-            cores: 2
-            memory: 8192
-            disk_size: 50
-            data_disk_size: 600
-            tags: [kube, worker]
+        # kube-worker-02:
+        #   ansible_host: kube-worker-02.lan
+        #   ip_address: 10.1.1.114
+        #   mac_address: "02:00:00:00:03:02"
+        #   vm:
+        #     proxmox_node: pve-home-02
+        #     cores: 2
+        #     memory: 8192
+        #     disk_size: 50
+        #     data_disk_size: 600
+        #     tags: [kube, worker]
+        # kube-worker-03:
+        #   ansible_host: kube-worker-03.lan
+        #   ip_address: 10.1.1.115
+        #   mac_address: "02:00:00:00:03:03"
+        #   vm:
+        #     proxmox_node: pve-home-03
+        #     cores: 2
+        #     memory: 8192
+        #     disk_size: 50
+        #     data_disk_size: 600
+        #     tags: [kube, worker]
 
 containers:
   children:
