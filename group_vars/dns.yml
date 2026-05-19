@@ -1,0 +1,15 @@
+---
+# Inbound firewall policy for DNS/DHCP LXCs (the `dns` leaf group under
+# containers — pihole). Both the group and its host are commented-out
+# templates in inventory.yaml today; this policy is kept in lockstep so
+# uncommenting pihole there opens exactly these ports, no edit here.
+#
+# Consumed by playbooks/poochella/infra/30-guests/40-firewall.yml; the
+# uniform baseline (default-deny in, allow SSH, deny SSH out) is set
+# there. Ports carried over verbatim from the prior host-keyed
+# _container_inbound map for pihole02.
+firewall_inbound_allow:
+  - { port: 53, proto: tcp }    # DNS
+  - { port: 53, proto: udp }    # DNS
+  - { port: 67, proto: udp }    # DHCP
+  - { port: 80, proto: tcp }    # admin UI

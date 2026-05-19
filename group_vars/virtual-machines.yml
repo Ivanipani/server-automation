@@ -1,1 +1,8 @@
 ---
+# Parent (umbrella) group for all VMs — intentionally NOT a place for
+# per-host/per-service firewall openings. `firewall_inbound_allow` is
+# defined ONLY in the LEAF child groups (group_vars/dev.yml,
+# databases.yml, kube_control_plane.yml, kube_workers.yml) so each VM
+# resolves exactly one policy. The uniform baseline (default-deny in,
+# allow SSH, deny SSH out) is applied to this whole group by
+# playbooks/poochella/infra/30-guests/40-firewall.yml.

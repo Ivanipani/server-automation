@@ -1,0 +1,20 @@
+---
+# Inbound firewall policy for k3s worker VMs (the `kube_workers` leaf
+# group).
+#
+# Consumed by playbooks/poochella/infra/30-guests/40-firewall.yml. The
+# uniform baseline (default-deny in, allow SSH, deny SSH out) is set by
+# that play; this list is ONLY the per-group extra openings. Must be
+# open BEFORE 40-kube/20-k3s.yml so workers can join the cluster behind
+# the default-deny-incoming firewall.
+#
+# GROUP-DRIVEN, not host-enumerated: uncommenting kube-worker-02/03 in
+# inventory needs no edit here. See group_vars/kube_control_plane.yml
+# for the full port rationale and the source-CIDR STOPGAP note.
+#
+# Ports (see roles/k3s):
+#   10250/tcp  kubelet API
+#   8472/udp   flannel VXLAN
+firewall_inbound_allow:
+  - { port: 10250, proto: tcp }      # kubelet API
+  - { port: 8472, proto: udp }       # flannel VXLAN

@@ -1,1 +1,7 @@
 ---
+# Parent (umbrella) group for all LXCs — intentionally NOT a place for
+# per-host/per-service firewall openings. `firewall_inbound_allow` is
+# defined ONLY in the LEAF child groups (group_vars/webservers.yml,
+# dns.yml) so each container resolves exactly one policy. The uniform
+# baseline (default-deny in, allow SSH, deny SSH out) is applied to this
+# whole group by playbooks/poochella/infra/30-guests/40-firewall.yml.

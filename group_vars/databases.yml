@@ -1,0 +1,24 @@
+---
+# Inbound firewall policy for database VMs (the `databases` leaf group
+# under virtual-machines).
+#
+# NOTE: `databases` has no hosts yet (postgres01 is not in inventory).
+# This is the upside of the group-driven model over the old host-keyed
+# map: the policy exists now and a DB VM inherits it automatically the
+# moment it is added to the group — no edit to the firewall playbook.
+#
+# Consumed by playbooks/poochella/infra/30-guests/40-firewall.yml. The
+# uniform baseline (default-deny in, allow SSH, deny SSH out) is set by
+# that play; this list is ONLY the per-group extra openings.
+#
+# STOPGAP / known limitation: firewall-basic has no source-CIDR support,
+# so 5432 is exposed to the whole LAN, not just app clients. Acceptable
+# behind the OPNsense WAN default-deny on a single L2; the robust fix is
+# a source-restricted allow in firewall-basic — tracked as a follow-up,
+# not silently accepted.
+firewall_inbound_allow:
+  - { port: 5432, proto: tcp }            # PostgreSQL
+  # Carried over verbatim from the prior host-keyed _vm_inbound map for
+  # postgres01 (dev/scratch range; confirm still wanted when a DB VM
+  # actually lands here).
+  - { port: "50000:50100", proto: tcp }

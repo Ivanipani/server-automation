@@ -1,0 +1,13 @@
+---
+# Inbound firewall policy for developer/scratch VMs (the `dev` leaf
+# group under virtual-machines — currently devbox01).
+#
+# Consumed by playbooks/poochella/infra/30-guests/40-firewall.yml, which
+# runs the firewall-basic role per host with
+#   inbound_allow: "{{ firewall_inbound_allow | default([]) }}"
+# Baseline (default-deny in, allow SSH, deny SSH out) is uniform and set
+# by that play; this list is ONLY the per-group extra openings.
+firewall_inbound_allow:
+  # Dev/scratch range (port-forwards, ad-hoc services). Carried over
+  # verbatim from the prior host-keyed _vm_inbound map for devbox01.
+  - { port: "50000:50100", proto: tcp }

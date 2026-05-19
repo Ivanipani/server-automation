@@ -183,18 +183,27 @@ switches:
       mac_address: "04:f4:1c:82:e0:ff"
 
 virtual-machines:
-  hosts:
-    devbox01:
-      ansible_host: devbox01.lan
-      ip_address: 10.1.1.120
-      mac_address: "02:00:00:00:01:01"
-      vm:
-        proxmox_node: pve-home-02
-        cores: 4
-        memory: 8192
-        disk_size: 100
-        tags: [dev, ivan]
+  # No loose `hosts:` here on purpose. Every VM lives in a LEAF child
+  # group so its inbound firewall policy comes from that group's
+  # group_vars/<group>.yml (`firewall_inbound_allow`); see
+  # playbooks/poochella/infra/30-guests/40-firewall.yml. Deeper nesting
+  # is safe: tofu/locals.tf walks the inventory tree (depth 3, this is
+  # depth 2) and the dnsmasq playbook walks groups['all'], so neither
+  # the VM-provisioning nor the DHCP-reservation path is affected.
   children:
+    dev:
+      # Developer/scratch VMs (Ivan's devbox). Policy: group_vars/dev.yml
+      hosts:
+        devbox01:
+          ansible_host: devbox01.lan
+          ip_address: 10.1.1.120
+          mac_address: "02:00:00:00:01:01"
+          vm:
+            proxmox_node: pve-home-02
+            cores: 4
+            memory: 8192
+            disk_size: 100
+            tags: [dev, ivan]
     databases:
     kubernetes:
 
@@ -269,5 +278,15 @@ kubernetes:
         #     tags: [kube, worker]
 
 containers:
+  # LXC guests. Like VMs, each leaf group owns its inbound firewall
+  # policy in group_vars/<group>.yml. Both children are empty templates
+  # for future LXCs; the policies already exist so a host inherits them
+  # the moment it is added.
   children:
-    webservers:
+    webservers:   # caddy/nginx — policy: group_vars/webservers.yml (80/443)
+    # dns:        # pihole — policy: group_vars/dns.yml (53, 67, 80)
+    #   hosts:
+    #     pihole02:
+    #       ansible_host: pihole02.lan
+    #       ip_address: 10.1.1.53
+    #       mac_address: "02:00:00:00:04:01"
