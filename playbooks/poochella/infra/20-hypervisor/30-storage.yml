@@ -1,49 +1,64 @@
 ---
-# Node-local storage, end to end, in one playbook (the former
-# partition-disks + provision-storage merged): for each baremetal
-# node's declared `storage.pools` (inventory.yaml) it (1) preflights,
-# (2) carves a GPT partition, (3) builds the LVM-thin pool, then
-# (4) registers it as PVE storage. The storage IDs (`vms`,
+# Node-local storage, end to end, in one playbook: for each baremetal
+# node's declared `storage.disks` (inventory.yaml) it (1) preflights +
+# resolves selectors, (2) gates each disk then carves its GPT
+# partition(s) in declared order, (3) builds the LVM-thin pool(s), then
+# (4) registers each as PVE storage. The storage IDs (`vms`,
 # `longhorn-data`) are a FROZEN CONTRACT (tofu/modules/vm hardcodes
 # them), so the 30-provision tier needs no datastore changes.
 #
-# Per pool the backing is either:
-#   - boot_tail  → carve `size` at the end of the PVE boot disk (root/swap
-#     — the first ~100 GiB — is already the `pve` VG from the installer's
-#     `lvm.hdsize = 100`)
-#   - whole_disk → claim the entire disk named by /dev/disk/by-id
+# DISK-CENTRIC + STABLE SELECTORS. Each disk is declared with a
+# `select:` that names it by *intent*, never by a kernel device name:
+#   - select: boot                 → the auto-detected PVE boot disk
+#     (root/swap — first ~100 GiB — is already the `pve` VG from the
+#     installer's `lvm.hdsize = 100`; its free tail is carved)
+#   - select: { model, serial }    → one exact physical drive
+#   - select: { min_size_gib|size_gib, rotational } → attribute match
+# Each disk carries an ordered `partitions:` list; several partitions
+# (on different physical disks) may share one vg/thinpool/pve_storage —
+# that is how a NVMe + HDD present as a single, larger `longhorn-data`.
 #
-# DECLARED, NOT DISCOVERED: preflight refuses to run unless every declared
-# by_id is physically present (and not the boot disk). A hardware swap
-# means a new by_id — update inventory.yaml first, then re-run.
+# DECLARED, NOT DISCOVERED: a selector MUST resolve to exactly one
+# non-boot, non-removable disk. Zero or many matches is a HARD preflight
+# failure — the role never guesses. Kernel renames (sdX/nvmeXnY shuffle
+# when a disk is added) are irrelevant. Swapping a disk for an identical
+# or larger one needs NO inventory edit when the selector is
+# attribute-based; `just disk-plan` prints every disk + a paste-ready
+# block when you do need to change one.
 #
 # DESTRUCTIVE on first run (plays 1-2, the carve). Refuses unless
 # `confirm_carve_data_disk: true` is set per host. Idempotent on the GPT
-# partlabel and on the storage-id, so re-runs (incl. site.yml) are safe;
-# plays 3-4 (LVM-thin build + `pvesm add`) are independently idempotent.
-# Independent nodes ⇒ per-node /etc/pve/storage.cfg, registered scoped
-# to `--nodes <self>`.
+# partlabel, the VG/thinpool and the storage-id, so re-runs (incl.
+# site.yml) are safe; plays 3-4 are independently idempotent and play 3
+# also GROWS an existing thin pool onto a newly-fitted larger disk.
+# Independent nodes ⇒ per-node /etc/pve/storage.cfg, scoped --nodes self.
 #
-# A `whole_disk` target that still holds old signatures (stale GPT/MBR/
-# FS/LVM) is REFUSED by default — clear it deliberately. To force it in
-# one run (EXTRA-DESTRUCTIVE — `sgdisk --zap-all` + `wipefs -a` that
-# disk): add `-e hypervisor_disks_force_wipe=true`. It still requires
-# `confirm_carve_data_disk` and only ever wipes the validated, declared,
-# non-boot whole_disk device. e.g.:
+# A data disk that still holds old signatures (stale GPT/MBR/FS/LVM) is
+# REFUSED unless that disk declares `wipe: force` in inventory.yaml
+# (DECLARED + scoped + self-documenting — the preferred way; it only
+# acts when the disk holds foreign signatures and none of our partlabels
+# exist yet). The boot disk is never wiped. Emergency fleet-wide
+# override (avoid; prefer the per-disk field):
 #   ansible-playbook --vault-password-file ansible-pass \
 #     playbooks/poochella/infra/20-hypervisor/30-storage.yml \
 #     -e hypervisor_disks_force_wipe=true --limit pve-home-02
 #
+# Disk swap / capacity-expansion runbook: docs/storage-disk-runbook.md
+# (drain the Longhorn worker → verify the volume's replica is healthy on
+# the PEER physical node → swap → re-run this playbook → Longhorn rebuilds
+# the replica). Data safety lives at the Longhorn layer (separate Flux
+# repo), NOT here — this playbook only makes the empty re-init safe.
+#
 # Pre-conditions:
 #   - 20-hypervisor/10-bootstrap.yml completed (ansible user, repos staged)
 #   - PVE installed with LVM/ext4 root AND `lvm.hdsize = 100` so the boot
-#     disk has an unpartitioned tail for any boot_tail pools. See the
-#     answer files under scripts/images/proxmox/pve-home-0X.toml.
-#   - `storage.pools` declared for each baremetal host in inventory.yaml,
-#     with real /dev/disk/by-id paths for whole_disk pools (`just disk-ids`)
+#     disk has an unpartitioned tail for the boot pool. See the answer
+#     files under scripts/images/proxmox/pve-home-0X.toml.
+#   - `storage.disks` declared for each baremetal host in inventory.yaml
+#     (preview the resolution with `just disk-plan`)
 #   - No VMs or containers exist yet on any node
 
-- name: Disk preflight (gates + boot-disk detection + pool resolution)
+- name: Disk preflight (gates + boot detection + selector resolution)
   hosts: baremetal
   become: true
   tasks:
@@ -51,7 +66,7 @@
         name: hypervisor-disks
         tasks_from: preflight.yml
 
-- name: Carve a GPT partition for each declared pool
+- name: Wipe-gate each disk, then carve its partitions in order
   hosts: baremetal
   become: true
   tasks:
@@ -59,7 +74,7 @@
         name: hypervisor-disks
         tasks_from: carve.yml
 
-- name: Build LVM-thin pools on every baremetal node
+- name: Build / grow LVM-thin pools on every baremetal node
   hosts: baremetal
   become: true
   tasks:
@@ -77,13 +92,19 @@
       register: storage_cfg
       changed_when: false
 
-    - name: Register each declared pool as PVE lvmthin storage
+    # One registration per UNIQUE pve_storage (several partitions/disks
+    # may back the same storage id — register it once). vg/thinpool/
+    # content are guaranteed consistent across those partitions by the
+    # preflight assert. Idempotent on the storage.cfg `lvmthin:` line.
+    - name: Register each declared pve_storage as PVE lvmthin storage
       ansible.builtin.command: >-
         pvesm add lvmthin {{ item.pve_storage }}
         --vgname {{ item.vg }} --thinpool {{ item.thinpool }}
         --content {{ item.content }}
         --nodes {{ inventory_hostname }}
-      loop: "{{ storage.pools }}"
+      loop: >-
+        {{ storage.disks | map(attribute='partitions') | flatten
+           | unique(attribute='pve_storage') | list }}
       loop_control:
         label: "{{ item.pve_storage }} (vg={{ item.vg }})"
       when: "'lvmthin: ' + item.pve_storage not in storage_cfg.stdout"

@@ -181,6 +181,14 @@ do-cluster-init:
 do-storage:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/30-storage.yml
 
+# READ-ONLY: inspect every baremetal node's disks (model/serial/size/
+# rotational/signatures/partlabels) and print a paste-ready
+# `storage.disks` selector skeleton. Run after any disk add/swap, then
+# edit inventory.yaml deliberately and re-run `just do-storage`. Writes
+# nothing. (Replaces the never-implemented `just disk-ids`.)
+disk-plan:
+    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/30-storage-plan.yml
+
 # (Ceph is removed — node-local LVM-thin storage replaced it. The
 # ceph / ceph-csi roles remain on disk as dormant reference but are
 # not wired into any playbook or recipe; see CLAUDE.md. The former

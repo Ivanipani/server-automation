@@ -1,0 +1,149 @@
+---
+# Resolve ONE declared disk (`disk`, an entry of storage.disks) to the
+# single kernel device its partitions will be carved on, validating that
+# reality matches inventory. Appends:
+#   - one entry per partition  → hypervisor_disks_resolved
+#   - one entry for the disk   → hypervisor_disks_devices
+#
+# Read-only (lsblk only). Loop var: `disk`. Upstream fact: `boot_disk`.
+#
+# The core safety rule: a non-`boot` selector must match EXACTLY ONE
+# non-boot, non-removable disk. Zero or many matches → hard failure (we
+# never guess, never auto-claim, and the kernel name is never used).
+
+- name: "[{{ disk.select | string }}] Validate the disk declaration"
+  ansible.builtin.assert:
+    that:
+      - disk.select is defined
+      - disk.partitions is defined and disk.partitions | length > 0
+      - disk.wipe | default('refuse') in ['refuse', 'force']
+      - >-
+        disk.select is string
+        or (disk.select.exclude_boot | default(true)) | bool
+      - disk.partitions | map(attribute='label')        | select('undefined') | list | length == 0
+      - disk.partitions | map(attribute='vg')           | select('undefined') | list | length == 0
+      - disk.partitions | map(attribute='thinpool')     | select('undefined') | list | length == 0
+      - disk.partitions | map(attribute='pve_storage')  | select('undefined') | list | length == 0
+      - disk.partitions | map(attribute='content')      | select('undefined') | list | length == 0
+      - disk.partitions | map(attribute='size')         | select('undefined') | list | length == 0
+    fail_msg: >-
+      Bad storage.disks entry on {{ inventory_hostname }}:
+      {{ disk | to_json }}. Need `select`, a non-empty `partitions` list
+      (each with pool/vg/thinpool/pve_storage/content/size), optional
+      `wipe: refuse|force`, and `exclude_boot` may not be false (the OS
+      disk is never carved as a data disk).
+
+# ── select: boot — the auto-detected PVE boot disk ────────────────────
+
+- name: "[boot] Resolve the boot disk"
+  when: disk.select is string and disk.select == 'boot'
+  ansible.builtin.set_fact:
+    _dev: "/dev/{{ boot_disk }}"
+    _is_boot: true
+
+# ── select: { model/serial/size_gib/min_size_gib/rotational } ─────────
+# Selector match against stable hardware attributes, never the kernel
+# name. Excludes the boot disk and removable (USB) media structurally.
+
+- name: "[{{ disk.select | string }}] Resolve the selector to device(s)"
+  ansible.builtin.shell: |
+    set -eu
+    boot="{{ boot_disk }}"
+    lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}' | while read -r name; do
+      base="${name#/dev/}"
+      [ "$base" = "$boot" ] && continue
+      rm=$(lsblk -dno RM "$name" | tr -d ' ');     [ "$rm" = "1" ] && continue
+      rota=$(lsblk -dno ROTA "$name" | tr -d ' ')
+      size=$(lsblk -bdno SIZE "$name" | tr -d ' ')
+      model=$(lsblk -dno MODEL "$name" | sed -e 's/[[:space:]]\{1,\}$//')
+      serial=$(lsblk -dno SERIAL "$name" | tr -d ' ')
+      size_gib=$(( size / 1073741824 ))
+    {% if disk.select.model is defined %}
+      printf '%s' "$model" | grep -qiF -- "{{ disk.select.model }}" || continue
+    {% endif %}
+    {% if disk.select.serial is defined %}
+      [ "$serial" = "{{ disk.select.serial }}" ] || continue
+    {% endif %}
+    {% if disk.select.rotational is defined %}
+      [ "$rota" = "{{ 1 if disk.select.rotational else 0 }}" ] || continue
+    {% endif %}
+    {% if disk.select.size_gib is defined %}
+      lo={{ (disk.select.size_gib * 97) // 100 }}
+      hi={{ (disk.select.size_gib * 103) // 100 }}
+      { [ "$size_gib" -ge "$lo" ] && [ "$size_gib" -le "$hi" ]; } || continue
+    {% endif %}
+    {% if disk.select.min_size_gib is defined %}
+      [ "$size_gib" -ge "{{ disk.select.min_size_gib }}" ] || continue
+    {% endif %}
+      echo "$name"
+    done
+  register: _sel
+  changed_when: false
+  when: not (disk.select is string and disk.select == 'boot')
+
+- name: "[{{ disk.select | string }}] Assert the selector matched EXACTLY one disk"
+  when: not (disk.select is string and disk.select == 'boot')
+  ansible.builtin.assert:
+    that:
+      - _sel.stdout_lines | length == 1
+    fail_msg: >-
+      Selector {{ disk.select | to_json }} on {{ inventory_hostname }}
+      matched {{ _sel.stdout_lines | length }} disk(s):
+      {{ _sel.stdout_lines | default([]) }}. It must match EXACTLY one
+      non-boot, non-removable disk. Run `just disk-plan` to see every
+      disk's model/serial/size and tighten the selector — the role
+      refuses to guess.
+
+- name: "[{{ disk.select | string }}] Record the selected device"
+  when: not (disk.select is string and disk.select == 'boot')
+  ansible.builtin.set_fact:
+    _dev: "{{ _sel.stdout_lines[0] | trim }}"
+    _is_boot: false
+
+# ── Common: size, wipe policy, accumulate ─────────────────────────────
+
+- name: "[{{ _dev }}] Read the device size in bytes"
+  ansible.builtin.command: "lsblk -bdno SIZE {{ _dev }}"
+  register: _dev_size
+  changed_when: false
+
+- name: "[{{ _dev }}] Compute the effective wipe policy"
+  ansible.builtin.set_fact:
+    # boot disk is NEVER wiped (boot_tail only appends to its GPT). For a
+    # data disk: declared per-disk `wipe`, or 'force' if the fleet-wide
+    # emergency override is set this run.
+    _wipe: >-
+      {{ 'refuse' if _is_boot
+         else ('force'
+               if (disk.wipe | default('refuse')) == 'force'
+                  or (hypervisor_disks_force_wipe | default(false) | bool)
+               else 'refuse') }}
+
+- name: "[{{ _dev }}] Append this disk's partitions (carve order preserved)"
+  ansible.builtin.set_fact:
+    hypervisor_disks_resolved: >-
+      {{ hypervisor_disks_resolved + [
+           item | combine({
+             'device': _dev,
+             'is_boot': _is_boot,
+             'wipe': _wipe,
+             'size': item.size | string,
+             '_sig': (item.vg ~ '|' ~ item.thinpool ~ '|' ~ item.content),
+           })
+         ] }}
+  loop: "{{ disk.partitions }}"
+  loop_control:
+    label: "{{ item.label }} → {{ _dev }} ({{ item.size }})"
+
+- name: "[{{ _dev }}] Record the disk for the carve-time wipe pass"
+  ansible.builtin.set_fact:
+    hypervisor_disks_devices: >-
+      {{ hypervisor_disks_devices + [{
+           'device': _dev,
+           'is_boot': _is_boot,
+           'wipe': _wipe,
+           'select_label': (disk.select | string),
+           'capacity_b': (_dev_size.stdout | trim | int),
+           'partlabels': (disk.partitions | map(attribute='label') | list),
+           'pve_storages': (disk.partitions | map(attribute='pve_storage') | unique | list),
+         }] }}

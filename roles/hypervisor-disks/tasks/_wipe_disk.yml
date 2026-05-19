@@ -1,0 +1,84 @@
+---
+# Wipe gate for ONE disk (`wd`, an entry of hypervisor_disks_devices),
+# run before any partition is carved on it.
+#
+# Decision table (non-boot disks only):
+#   - any of OUR partlabels already on the disk  → SKIP (it is already
+#     ours; never destroy our own data — keeps re-runs idempotent)
+#   - no signatures at all (blank / fresh swap)  → SKIP (carve will write
+#     a fresh GPT)
+#   - foreign signatures present, wipe == force  → deliberate zap + verify
+#   - foreign signatures present, wipe == refuse → HARD FAIL (actionable)
+#
+# The boot disk is never touched here: boot_tail only appends partitions
+# to its existing GPT.
+
+- name: "[{{ wd.device }}] Skip wipe gate (boot disk — never wiped)"
+  ansible.builtin.debug:
+    msg: "boot disk {{ wd.device }} — boot_tail only appends; no wipe gate"
+  when: wd.is_boot | bool
+
+- name: "[{{ wd.device }}] Wipe gate"
+  when: not (wd.is_boot | bool)
+  block:
+    - name: "[{{ wd.device }}] Do any of our partlabels already exist here?"
+      ansible.builtin.stat:
+        path: "/dev/disk/by-partlabel/{{ item }}"
+      loop: "{{ wd.partlabels }}"
+      register: _our_pl
+
+    - name: "[{{ wd.device }}] Scan for existing signatures"
+      ansible.builtin.command: "wipefs -n {{ wd.device }}"
+      register: _sig
+      changed_when: false
+      when: not (_our_pl.results | map(attribute='stat.exists') | select | list | length > 0)
+
+    - name: "[{{ wd.device }}] REFUSE: foreign signatures, wipe=refuse"
+      ansible.builtin.fail:
+        msg: >-
+          {{ wd.device }} ({{ wd.select_label }}) on {{ inventory_hostname }}
+          holds existing signatures and is NOT one of ours:
+          {{ _sig.stdout_lines | join(' | ') }}. Refusing to destroy it.
+          Either clear the disk by hand, or — if it is genuinely
+          disposable — set `wipe: force` on THIS disk in inventory.yaml
+          (declared + scoped), then re-run. (Emergency fleet override:
+          `-e hypervisor_disks_force_wipe=true`.)
+      when:
+        - not (_our_pl.results | map(attribute='stat.exists') | select | list | length > 0)
+        - _sig.stdout | default('') | length > 0
+        - wd.wipe != 'force'
+
+    - name: "[{{ wd.device }}] FORCE-WIPE (wipe=force, foreign signatures present)"
+      ansible.builtin.shell: |
+        set -u
+        dev={{ wd.device }}
+        # Deactivate only a VG whose EVERY pv is on $dev — never one that
+        # also spans other disks (that would be the live root VG even if
+        # it shares the name `pve`). This frees the EBUSY hold from a
+        # stale LVM leftover on this disk.
+        for vg in $(pvs --noheadings -o vg_name,pv_name 2>/dev/null \
+                    | awk -v d="$dev" 'index($2,d)==1 && $1!="" {print $1}' \
+                    | sort -u); do
+          outside=$(pvs --noheadings -o pv_name,vg_name 2>/dev/null \
+                    | awk -v d="$dev" -v v="$vg" '$2==v && index($1,d)!=1 {c++} END{print c+0}')
+          [ "$outside" -eq 0 ] && vgchange -an "$vg" || true
+        done
+        sgdisk --zap-all "$dev" || true
+        wipefs -a "$dev"        || true
+        partprobe "$dev" 2>/dev/null || partx -u "$dev" || true
+        udevadm settle || true
+      changed_when: true
+      when:
+        - not (_our_pl.results | map(attribute='stat.exists') | select | list | length > 0)
+        - _sig.stdout | default('') | length > 0
+        - wd.wipe == 'force'
+
+    - name: "[{{ wd.device }}] Verify the force-wiped disk is now clean"
+      ansible.builtin.command: "wipefs -n {{ wd.device }}"
+      register: _post_wipe
+      changed_when: false
+      failed_when: _post_wipe.stdout | default('') | length > 0
+      when:
+        - not (_our_pl.results | map(attribute='stat.exists') | select | list | length > 0)
+        - _sig.stdout | default('') | length > 0
+        - wd.wipe == 'force'

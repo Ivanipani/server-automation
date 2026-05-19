@@ -1,26 +1,38 @@
 ---
-# Carve each resolved pool as a GPT partition labelled `pool.pool`:
-#   - boot_tail  → a `+size` partition at the end of the boot disk
-#   - whole_disk → one full-disk partition on the declared by-id device
-# Per-partition logic (existence check, foreign-data refusal, sgdisk
-# write, kernel refresh, signature check) is in _carve_one.yml; this file
-# is just the orchestration loop.
+# Two ordered passes over what preflight resolved:
+#   1. per-DISK wipe gate  (_wipe_disk.yml)  — foreign-signature refusal
+#      or, only when the disk declares `wipe: force`, a deliberate zap.
+#      Runs ONCE per disk, before any partition on it is created, and is
+#      a no-op on the boot disk and on any disk that already carries one
+#      of our partlabels (idempotent / safe re-run).
+#   2. per-PARTITION carve (_carve_one.yml)  — create the GPT partition,
+#      idempotent on its partlabel, in declared order so multi-partition
+#      disks (incl. the boot tail) lay out predictably.
 #
-# Idempotent: skips any partition whose GPT label already exists.
-# Requires: preflight.yml has built `hypervisor_disks_resolved`.
+# Requires: preflight.yml built hypervisor_disks_resolved (partitions)
+# and hypervisor_disks_devices (disks).
 
-- name: Assert preflight resolved at least one pool
+- name: Assert preflight resolved disks and partitions
   ansible.builtin.assert:
     that:
       - hypervisor_disks_resolved is defined
       - hypervisor_disks_resolved | length > 0
+      - hypervisor_disks_devices is defined
+      - hypervisor_disks_devices | length > 0
     fail_msg: >-
-      `hypervisor_disks_resolved` is empty — run preflight.yml first
-      (it validates storage.pools and resolves each to a device).
+      Resolution facts are empty — run preflight.yml first (it validates
+      storage.disks and resolves each selector to exactly one device).
 
-- name: Carve each resolved pool in order
+- name: "Pass 1 — wipe gate, once per disk"
+  ansible.builtin.include_tasks: _wipe_disk.yml
+  loop: "{{ hypervisor_disks_devices }}"
+  loop_control:
+    loop_var: wd
+    label: "{{ wd.device }} (wipe={{ wd.wipe }}, boot={{ wd.is_boot }})"
+
+- name: "Pass 2 — carve each partition in declared order"
   ansible.builtin.include_tasks: _carve_one.yml
   loop: "{{ hypervisor_disks_resolved }}"
   loop_control:
     loop_var: partition
-    label: "{{ partition.pool }} → {{ partition.device }} ({{ partition.backing.strategy }})"
+    label: "{{ partition.label }} → {{ partition.device }} ({{ partition.size }})"

@@ -8,13 +8,30 @@ tailscale_enabled: false
 # 02b-cluster-hypervisor.yml scopes corosync to that group's members.
 # Poochella runs standalone, so nothing is set here.
 
-# Storage partitioning (consumed by 03-partition-disks.yml).
-# DESTRUCTIVE: setting `confirm_carve_data_disk: true` authorizes the
-# playbook to carve the unallocated tail at the end of the boot disk
-# into two fixed-size GPT partitions: `vm-storage` (200 GiB) and
-# `longhorn` (fills the rest, ~700 GiB). 03b-provision-storage.yml then
-# turns each into a node-local LVM-thin pool registered as the PVE `vms`
-# and `longhorn-data` storages. Requires PVE installed with
-# `lvm.hdsize = 100` so that ~900 GiB is unpartitioned and available.
-# Only set this on a freshly-installed node with no VMs/containers.
+# ── Storage convention (consumed by 20-hypervisor/30-storage.yml) ─────
+#
+# Every baremetal node MUST yield BOTH frozen PVE storages — `vms` and
+# `longhorn-data` (Tofu/templates hardcode them). preflight.yml asserts
+# this; a node whose declared `storage.disks` would not produce both
+# fails loudly rather than silently dropping a storage.
+#
+# Baseline hardware = ONE ≥1 TB boot NVMe. PVE is installed with
+# `lvm.hdsize = 100` (the `pve` VG / hypervisor takes the first ~100
+# GiB); the free tail is carved into `vms` then `longhorn-data`. That
+# single disk satisfies the convention on its own (pve-home-01).
+#
+# ADDITIONAL disks are OPTIONAL and, by convention, extend
+# `longhorn-data`: declare each as another `storage.disks` entry whose
+# partition reuses vg=longhorndata / thinpool=longhornthin /
+# pve_storage=longhorn-data — the VG then spans every such disk and the
+# thin pool grows over all of them (pve-home-02 = boot NVMe→vms, plus a
+# 1 TB NVMe and a 1 TB HDD both → one larger longhorn-data). Disks are
+# named by STABLE SELECTOR, never /dev/disk/by-id; preview/derive a
+# host's block with `just disk-plan`.
+#
+# DESTRUCTIVE: `confirm_carve_data_disk: true` authorizes sgdisk to
+# write GPTs. A data disk that still holds foreign signatures is REFUSED
+# unless that disk declares `wipe: force` in inventory.yaml (scoped,
+# deliberate). The boot disk is never wiped. Only enable carving on a
+# freshly-installed node with no VMs/containers.
 confirm_carve_data_disk: true

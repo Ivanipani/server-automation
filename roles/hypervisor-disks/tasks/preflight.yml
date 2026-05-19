@@ -1,8 +1,9 @@
 ---
 # Hard gates before any sgdisk write. No auto-recovery on failure.
-# Also resolves each declared pool to the kernel device the carve will
-# operate on, building the `hypervisor_disks_resolved` fact consumed by
-# carve.yml / storage_pools.yml.
+# Resolves each declared `select:` to EXACTLY ONE device (in
+# _resolve_disk.yml), building two facts consumed downstream:
+#   hypervisor_disks_resolved  — one entry per PARTITION, in carve order
+#   hypervisor_disks_devices   — one entry per unique DISK to act on
 
 - name: Assert opt-in flag is set (refuses to run without explicit confirmation)
   ansible.builtin.assert:
@@ -17,12 +18,14 @@
   ansible.builtin.assert:
     that:
       - storage is defined
-      - storage.pools is defined
-      - storage.pools | length > 0
+      - storage.disks is defined
+      - storage.disks | length > 0
+      - storage.disks | map(attribute='partitions') | map('length') | min > 0
     fail_msg: >-
-      No `storage.pools` declared for {{ inventory_hostname }} in
-      inventory.yaml. The disk layout is declared, not discovered — add a
-      `storage:` block to this host (see the inventory.yaml header).
+      No `storage.disks` (with non-empty `partitions`) declared for
+      {{ inventory_hostname }} in inventory.yaml. The disk layout is
+      declared, not discovered — add a `storage:` block to this host (see
+      the inventory.yaml header / hypervisor-disks role defaults).
 
 - name: List existing VMs (qm list)
   ansible.builtin.command: qm list
@@ -51,7 +54,7 @@
 
 - name: Detect the boot disk (parent of the PVE LVM PV)
   ansible.builtin.shell: |
-    set -euo pipefail
+    set -eu
     pv=$(pvs --noheadings -o pv_name | head -1 | awk '{print $1}')
     lsblk -dno PKNAME "$pv"
   register: boot_disk_detect
@@ -69,27 +72,90 @@
       Could not detect the PVE boot disk on {{ inventory_hostname }}
       (got '{{ boot_disk }}'). Check `pvs` and `lsblk`.
 
-# Resolve + validate every declared pool. Builds hypervisor_disks_resolved
-# as a list of {pool} dicts each annotated with `device` (the full path
-# the carve operates on). For whole_disk this enforces the core safety
-# rule: a declared by_id MUST be physically present and MUST NOT be the
-# boot disk, or we fail loudly — hardware has to match inventory.
-- name: Reset resolved-pools accumulator
+- name: Reset resolved accumulators
   ansible.builtin.set_fact:
-    hypervisor_disks_resolved: []
+    hypervisor_disks_resolved: []      # one entry per PARTITION (carve order)
+    hypervisor_disks_devices: []       # one entry per unique DISK to act on
 
-- name: Resolve and validate each declared pool
-  ansible.builtin.include_tasks: _resolve_pool.yml
-  loop: "{{ storage.pools }}"
+- name: Resolve and validate each declared disk
+  ansible.builtin.include_tasks: _resolve_disk.yml
+  loop: "{{ storage.disks }}"
   loop_control:
-    loop_var: pool
-    label: "{{ pool.pool }} ({{ pool.backing.strategy }})"
+    loop_var: disk
+    label: "{{ disk.select | string }}"
 
-- name: Assert pool partlabels are unique on this node
+# ── Cross-pool sanity (content-addressed contract) ────────────────────
+
+- name: Assert partition labels are unique on this node
   ansible.builtin.assert:
     that:
-      - (hypervisor_disks_resolved | map(attribute='pool') | list) ==
-        (hypervisor_disks_resolved | map(attribute='pool') | unique | list)
+      - (hypervisor_disks_resolved | map(attribute='label') | list) ==
+        (hypervisor_disks_resolved | map(attribute='label') | unique | list)
     fail_msg: >-
-      Duplicate `pool` (GPT partlabel) in {{ inventory_hostname }}'s
-      storage.pools. Each partlabel must be unique per node.
+      Duplicate `label` (GPT partlabel) in {{ inventory_hostname }}'s
+      storage.disks. Each partlabel must be unique per node (it is the
+      GPT label and the idempotency key).
+
+- name: "Assert every partition of one pve_storage shares vg/thinpool/content"
+  ansible.builtin.assert:
+    that:
+      - >-
+        hypervisor_disks_resolved
+        | selectattr('pve_storage', 'equalto', item)
+        | map(attribute='_sig') | unique | length == 1
+    fail_msg: >-
+      On {{ inventory_hostname }} partitions naming pve_storage '{{ item }}'
+      disagree on vg/thinpool/content. Multiple disks may back ONE
+      pve_storage (that is how a NVMe + HDD become one larger pool) but
+      they must share vg, thinpool and content. (`_sig` =
+      "vg|thinpool|content", set in _resolve_disk.yml.)
+  loop: "{{ hypervisor_disks_resolved | map(attribute='pve_storage') | unique | list }}"
+
+- name: Assert the frozen PVE storage contract is satisfied
+  ansible.builtin.assert:
+    that:
+      - "'vms' in (hypervisor_disks_resolved | map(attribute='pve_storage') | list)"
+      - "'longhorn-data' in (hypervisor_disks_resolved | map(attribute='pve_storage') | list)"
+    fail_msg: >-
+      {{ inventory_hostname }} would NOT produce both frozen PVE storages
+      `vms` and `longhorn-data` (Tofu/templates hardcode them). Convention:
+      every baremetal node yields both. Got
+      {{ hypervisor_disks_resolved | map(attribute='pve_storage') | unique | list }}.
+
+# ── Advisory sizing guard (NON-fatal by design) ───────────────────────
+# data_disk_size is hand-set in inventory and read by Tofu statically;
+# replica-2 usable capacity is bounded by the SMALLER node and is a
+# Longhorn/Flux concern. A hard assert here would fight deliberate, tight
+# homelab sizing on byte-estimate error, so this only WARNS. `just
+# disk-plan` prints the authoritative capacity + recommended size.
+- name: Estimate longhorn-data raw capacity (GiB, boot reserve removed)
+  ansible.builtin.set_fact:
+    hypervisor_disks_longhorn_capacity_gib: >-
+      {{
+        ((hypervisor_disks_devices
+          | selectattr('pve_storages', 'contains', 'longhorn-data')
+          | map(attribute='capacity_b') | map('int') | sum)
+         // 1073741824) | int
+      }}
+
+- name: "Advisory: longhorn-data capacity vs pinned workers' data_disk_size"
+  ansible.builtin.debug:
+    msg: >-
+      ADVISORY [{{ inventory_hostname }}]: longhorn-data ≈
+      {{ hypervisor_disks_longhorn_capacity_gib }} GiB raw, backed by
+      {{ hypervisor_disks_devices
+         | selectattr('pve_storages', 'contains', 'longhorn-data')
+         | map(attribute='device') | list }}.
+      VM(s) pinned here with a data disk: {{ _pinned }}. Confirm each
+      data_disk_size fits the THIN pool (it is overcommittable — `just
+      disk-plan` gives the exact figure). Replica-2 usable size is bounded
+      by the smaller node and is set Flux-side, not here.
+  vars:
+    _pinned: >-
+      {{ groups['all'] | map('extract', hostvars)
+         | selectattr('vm', 'defined')
+         | selectattr('vm.proxmox_node', 'defined')
+         | selectattr('vm.proxmox_node', 'equalto', inventory_hostname)
+         | selectattr('vm.data_disk_size', 'defined')
+         | map(attribute='inventory_hostname') | list }}
+  when: _pinned | length > 0

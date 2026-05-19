@@ -1,160 +1,87 @@
 ---
-# Create a single GPT partition (type 8300) labelled `partition.pool` on
-# `partition.device`, sized per `partition.size` (sgdisk +SIZE syntax;
-# "0" = fill the rest of the device — which for a fresh whole_disk is the
-# entire drive, and for boot_tail is the unallocated tail).
+# Create a single GPT partition (type 8300) labelled `partition.label` on
+# `partition.device`, sized per `partition.size` (sgdisk +SIZE; "0" =
+# fill the rest — for a fresh whole disk that is the whole drive, for the
+# boot disk it is the unallocated tail).
 #
 # Idempotent on the GPT partlabel: an existing label is skipped, so
-# re-runs and device renames are no-ops.
+# re-runs and kernel renames are no-ops. Foreign-data refusal / deliberate
+# force-wipe already happened ONCE per disk in _wipe_disk.yml; here we
+# only handle residual platter signatures bleeding through a freshly
+# created partition (sgdisk rewrites the table, never the platter).
 #
-# Safety: a whole_disk device that already carries ANY signature (and is
-# not yet ours) is refused — auto-wipe of foreign data is intentionally
-# disabled. A blank replacement disk passes (sgdisk creates a fresh GPT);
-# a disk with data fails until a human clears it. The post-create
-# `wipefs -n` guard catches a partition that came up with signatures.
+# `partx -u` (BLKPG) is used not `partprobe` (BLKRRPART) because the boot
+# disk has an active LVM PV; BLKRRPART is refused on busy disks.
 #
-# `partx -u` is used instead of `partprobe` because the boot disk has an
-# active LVM PV; BLKRRPART is refused on busy disks but BLKPG (partx) works.
-#
-# Loop var: `partition` (a resolved pool: pool, device, size, backing…).
+# Loop var: `partition` (a resolved partition: pool, device, size, wipe…).
 
-- name: "[{{ partition.pool }}] Sync kernel partition table from disk (best-effort)"
+- name: "[{{ partition.label }}] Sync kernel partition table (best-effort)"
   ansible.builtin.command: "partx -u {{ partition.device }}"
   changed_when: false
-  # Advisory pre-sync only. A freshly-wiped whole_disk has NO partition
-  # table yet ("partx: failed to read partition table"); that is the
-  # desired state, not an error. The create step does its own
-  # authoritative partx -u after sgdisk writes the GPT.
+  # A just-wiped whole disk has no table yet ("failed to read partition
+  # table"); that is the desired state, not an error. The create step
+  # does its own authoritative partx -u after sgdisk writes the GPT.
   failed_when: false
 
-- name: "[{{ partition.pool }}] Check whether the partition already exists"
+- name: "[{{ partition.label }}] Check whether the partition already exists"
   ansible.builtin.stat:
-    path: "/dev/disk/by-partlabel/{{ partition.pool }}"
+    path: "/dev/disk/by-partlabel/{{ partition.label }}"
   register: part_stat
 
-- name: "[{{ partition.pool }}] Scan a whole_disk for pre-existing signatures"
-  ansible.builtin.command: "wipefs -n {{ partition.device }}"
-  register: whole_disk_sig
-  changed_when: false
-  when:
-    - not part_stat.stat.exists
-    - partition.backing.strategy == 'whole_disk'
-
-- name: "[{{ partition.pool }}] Refuse a whole_disk that holds foreign data"
-  ansible.builtin.fail:
-    msg: >-
-      {{ partition.device }}
-      ({{ partition.backing.by_id | default('whole_disk') }}) holds
-      existing signatures and is NOT empty:
-      {{ whole_disk_sig.stdout_lines | join(' | ') }}.
-      Refusing to destroy it. Clear it by hand, or — if this disk is
-      genuinely disposable — re-run with
-      `-e hypervisor_disks_force_wipe=true` (EXTRA-DESTRUCTIVE: wipes ALL
-      data on {{ partition.device }}).
-  when:
-    - not part_stat.stat.exists
-    - partition.backing.strategy == 'whole_disk'
-    - whole_disk_sig.stdout | default('') | length > 0
-    - not (hypervisor_disks_force_wipe | default(false) | bool)
-
-- name: "[{{ partition.pool }}] FORCE-WIPE the whole_disk (hypervisor_disks_force_wipe=true)"
+- name: "[{{ partition.label }}] Create the partition and refresh the kernel"
   ansible.builtin.shell: |
-    set -uo pipefail
-    dev={{ partition.device }}
-    # Deactivate any LVM VG that is a stale leftover on THIS disk. Only
-    # touch a VG whose every PV is on $dev — never one that also spans
-    # other disks (that would be the live root VG, even if it shares the
-    # name `pve`). This is what frees the EBUSY hold on the old sda3 PV.
-    for vg in $(pvs --noheadings -o vg_name,pv_name 2>/dev/null \
-                | awk -v d="$dev" 'index($2,d)==1 && $1!="" {print $1}' \
-                | sort -u); do
-      outside=$(pvs --noheadings -o pv_name,vg_name 2>/dev/null \
-                | awk -v d="$dev" -v v="$vg" '$2==v && index($1,d)!=1 {c++} END{print c+0}')
-      [ "$outside" -eq 0 ] && vgchange -an "$vg" || true
-    done
-    # Destroy on-disk tables/signatures, then make the kernel forget the
-    # stale partition table (the EBUSY + "kernel still using old table").
-    sgdisk --zap-all "$dev" || true
-    wipefs -a "$dev"        || true
-    partprobe "$dev" 2>/dev/null || partx -u "$dev" || true
-    udevadm settle || true
-  changed_when: true
-  when:
-    - not part_stat.stat.exists
-    - partition.backing.strategy == 'whole_disk'
-    - whole_disk_sig.stdout | default('') | length > 0
-    - hypervisor_disks_force_wipe | default(false) | bool
-
-- name: "[{{ partition.pool }}] Verify the force-wiped disk is now clean and free"
-  ansible.builtin.command: "wipefs -n {{ partition.device }}"
-  register: post_force_wipe
-  changed_when: false
-  failed_when: post_force_wipe.stdout | default('') | length > 0
-  when:
-    - not part_stat.stat.exists
-    - partition.backing.strategy == 'whole_disk'
-    - whole_disk_sig.stdout | default('') | length > 0
-    - hypervisor_disks_force_wipe | default(false) | bool
-
-- name: "[{{ partition.pool }}] Create the partition and refresh kernel"
-  ansible.builtin.shell: |
-    set -euo pipefail
+    set -eu
     sgdisk -n 0:0:{{ '+' + (partition.size | string) if (partition.size | string) != '0' else '0' }} \
            -t 0:8300 \
-           -c 0:{{ partition.pool }} \
+           -c 0:{{ partition.label }} \
            {{ partition.device }}
     partx -u {{ partition.device }}
   changed_when: true
   when: not part_stat.stat.exists
 
-- name: "[{{ partition.pool }}] Wait for partition device node to appear"
+- name: "[{{ partition.label }}] Wait for the partition device node"
   ansible.builtin.wait_for:
-    path: "/dev/disk/by-partlabel/{{ partition.pool }}"
+    path: "/dev/disk/by-partlabel/{{ partition.label }}"
     timeout: 30
 
-# Signature handling validates ONLY space carved THIS run. On an
-# idempotent re-run the partition already existed (not created above), so
-# it legitimately carries the LVM2_member signature WE wrote via pvcreate
-# in 03b — not foreign data. Gating the whole block on
-# `not part_stat.stat.exists` keeps the play idempotent: a healthy,
-# already-provisioned node re-run is a no-op here.
-- name: "[{{ partition.pool }}] Validate the freshly carved partition"
+# Only validate space carved THIS run. On an idempotent re-run the
+# partition pre-existed (not created above) and legitimately carries the
+# LVM2_member signature WE wrote in storage_pools.yml — not foreign data.
+- name: "[{{ partition.label }}] Validate the freshly carved partition"
   when: not part_stat.stat.exists
   block:
-    - name: "[{{ partition.pool }}] Scan the new partition for residual signatures"
-      ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ partition.pool }}"
+    - name: "[{{ partition.label }}] Scan the new partition for residual signatures"
+      ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ partition.label }}"
       register: wipefs_check
       changed_when: false
 
-    # sgdisk only rewrites the partition TABLE — it never erases platter
-    # data. A full-disk whole_disk partition starts where the old
-    # layout's filesystems were, so a stale superblock (e.g. an old ESP's
-    # vfat) bleeds through. When the operator authorised a force-wipe,
-    # that residue IS the data they told us to destroy → clear it in
-    # place (also stops pvcreate in 03b choking on the signature later).
-    - name: "[{{ partition.pool }}] Erase residual signatures on the force-wiped partition"
-      ansible.builtin.command: "wipefs -a /dev/disk/by-partlabel/{{ partition.pool }}"
+    # sgdisk only rewrites the partition TABLE. A full-disk partition
+    # starts where the old layout's filesystems were, so a stale
+    # superblock (e.g. an old ESP's vfat) can bleed through. When this
+    # disk was authorised for force-wipe that residue IS the data we were
+    # told to destroy → clear it in place (also stops pvcreate later
+    # choking on the signature).
+    - name: "[{{ partition.label }}] Erase residual signatures (wipe=force disk)"
+      ansible.builtin.command: "wipefs -a /dev/disk/by-partlabel/{{ partition.label }}"
       changed_when: true
       when:
         - wipefs_check.stdout | default('') | length > 0
-        - partition.backing.strategy == 'whole_disk'
-        - hypervisor_disks_force_wipe | default(false) | bool
+        - partition.wipe == 'force'
 
-    # Strict refusal for every other case: boot_tail, or a non-force
-    # whole_disk. Unexpected signatures here mean we'd clobber real data.
-    - name: "[{{ partition.pool }}] Fail if the partition has pre-existing signatures"
+    # Strict refusal everywhere else: boot tail, or a non-force data disk.
+    - name: "[{{ partition.label }}] Fail on unexpected pre-existing signatures"
       ansible.builtin.fail:
         msg: >-
-          /dev/disk/by-partlabel/{{ partition.pool }} carries existing
+          /dev/disk/by-partlabel/{{ partition.label }} carries existing
           signatures: {{ wipefs_check.stdout_lines | join(' | ') }}.
-          Refusing to use it. For a disposable whole_disk, re-run with
-          `-e hypervisor_disks_force_wipe=true`.
+          Refusing to use it. For a disposable data disk set `wipe: force`
+          on that disk in inventory.yaml and re-run.
       when:
         - wipefs_check.stdout | default('') | length > 0
-        - not (partition.backing.strategy == 'whole_disk' and (hypervisor_disks_force_wipe | default(false) | bool))
+        - partition.wipe != 'force'
 
-    - name: "[{{ partition.pool }}] Verify the partition is now signature-free"
-      ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ partition.pool }}"
+    - name: "[{{ partition.label }}] Verify the partition is signature-free"
+      ansible.builtin.command: "wipefs -n /dev/disk/by-partlabel/{{ partition.label }}"
       register: wipefs_recheck
       changed_when: false
       failed_when: wipefs_recheck.stdout | default('') | length > 0

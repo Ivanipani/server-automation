@@ -1,44 +1,67 @@
 ---
 # Per-node disk → LVM-thin → PVE-storage realisation.
 #
-# DECLARED, NOT DISCOVERED. The layout is the `storage.pools` list on
-# each baremetal host in inventory.yaml (single source of truth). This
-# role never scans for or auto-claims disks: it only acts on devices
-# named there by their /dev/disk/by-id path (whole_disk) or on the
-# auto-detected PVE boot disk's free tail (boot_tail). Consequences:
-#   - an undeclared disk is NEVER touched
-#   - a declared by_id that is not physically present is a HARD FAILURE
-#     (preflight.yml) — hardware must match inventory before anything runs
-#   - swapping a disk = a new serial = a new by_id, so a swap REQUIRES an
-#     inventory edit first; the (blank) replacement is then re-initialised
-#     into the same pool because pool/vg/thinpool names are fixed by intent
+# DECLARED, NOT DISCOVERED — but disks are now named by STABLE SELECTOR,
+# not by a fragile /dev/disk/by-id symlink. The layout is the
+# `storage.disks` list on each baremetal host in inventory.yaml (single
+# source of truth). This role never auto-claims a disk: it resolves each
+# declared `select:` to EXACTLY ONE non-boot, non-removable disk (0 or >1
+# matches is a HARD preflight failure — it refuses to guess), then carves
+# that disk's declared `partitions` in order. Consequences:
+#   - an undeclared / unmatched disk is NEVER touched
+#   - a selector that matches nothing OR more than one disk is a HARD
+#     FAILURE (preflight) — reality must match inventory before anything
+#     runs, and ambiguity is never resolved silently
+#   - kernel device renames (sdX/nvmeXnY reshuffle when a disk is added)
+#     are irrelevant: selectors match on model/serial/size/rotational or
+#     the auto-detected boot disk, never on the kernel name
+#   - swapping a disk for an identical (or larger) one needs NO inventory
+#     edit when the selector is attribute-based (size/rotational); the
+#     blank replacement is re-initialised into the same pool because
+#     pool/vg/thinpool/storage-id are fixed by intent, not by the device
+#
+# Selector kinds (see inventory.yaml header for live examples):
+#   select: boot                       # the auto-detected PVE boot disk
+#   select: { model: "...", serial: "..." }      # one exact physical drive
+#   select: { min_size_gib: 900, rotational: false }   # attribute match
+#   select: { size_gib: 1000, rotational: true }       #   "
+# Non-boot selectors implicitly exclude the boot disk and any removable
+# (USB) device; `exclude_boot: false` is rejected (never carve the OS disk).
 #
 # Idempotency keys are content-addressed, never kernel device names:
-#   GPT partlabel (`pool`) → VG (`vg`) → thinpool LV → PVE storage id
+#   GPT partlabel (`label`) → VG (`vg`) → thinpool LV → PVE storage id
 #   (`pve_storage`). Re-runs and device renames are no-ops.
+#
+# Multiple partitions may target ONE vg/thinpool/pve_storage (each with
+# its own unique `label` partlabel) — this is how two physical disks back
+# a single, larger LVM-thin pool (e.g. NVMe + HDD → one `longhorn-data`).
 #
 # `pve_storage` is a FROZEN contract: tofu/modules/vm hardcodes `vms` and
 # `longhorn-data`. Renaming it is a breaking change across Tofu/templates.
 #
-# Schema (see inventory.yaml header + host entries for live examples):
+# Schema:
 #   storage:
-#     pools:
-#       - pool: vm-storage          # GPT partlabel (unique per disk)
-#         vg: vmdata
-#         thinpool: vmthin
-#         pve_storage: vms          # PVE storage id (frozen contract)
-#         content: images,rootdir   # pvesm --content value
-#         backing:
-#           strategy: boot_tail     # carve at the end of the boot disk
-#           size: "200G"            #   sgdisk +SIZE; "0" = fill the rest
-#       - pool: longhorn
-#         vg: longhorndata
-#         thinpool: longhornthin
-#         pve_storage: longhorn-data
-#         content: images
-#         backing:
-#           strategy: whole_disk    # claim an entire dedicated disk
-#           by_id: "wwn-0x5000…"    #   path under /dev/disk/by-id/
+#     disks:
+#       - select: boot                 # OR a selector dict (see above)
+#         # wipe: refuse|force         # per-disk; default refuse. `force`
+#         #                            # is DECLARED + scoped to this disk
+#         #                            # (replaces the global -e flag) and
+#         #                            # only acts when the disk holds
+#         #                            # FOREIGN signatures and none of our
+#         #                            # partlabels exist yet.
+#         partitions:
+#           - pool: vm-storage         # GPT partlabel (unique per node)
+#             vg: vmdata
+#             thinpool: vmthin
+#             pve_storage: vms         # PVE storage id (frozen contract)
+#             content: images,rootdir  # pvesm --content value
+#             size: "200G"             # sgdisk +SIZE; "0" = fill the rest
+#           - pool: longhorn
+#             vg: longhorndata
+#             thinpool: longhornthin
+#             pve_storage: longhorn-data
+#             content: images
+#             size: "0"
 #
 # There is intentionally NO default `storage` here — a node with no
 # declared layout fails preflight loudly rather than guessing.
@@ -47,14 +70,12 @@
 # Per-host opt-in lives in group_vars/baremetal.yml or host_vars.
 confirm_carve_data_disk: false
 
-# EXTRA-DESTRUCTIVE escape hatch. By default a `whole_disk` pool whose
-# target device already holds ANY signature (old GPT/MBR/FS/LVM) is
-# REFUSED — the operator must clear it deliberately. Set this true to
-# instead force-wipe (`sgdisk --zap-all` + `wipefs -a`) that device
-# before carving. It does NOT bypass `confirm_carve_data_disk` (both are
-# required) and only ever touches `whole_disk` targets — never the boot
-# disk (boot_tail is unaffected; the device was already validated by
-# preflight as the declared by-id, a whole disk, and not the boot disk).
-# Keep this false in group_vars/host_vars; pass it per-run only when you
-# mean it: `-e hypervisor_disks_force_wipe=true`.
+# EXTRA-DESTRUCTIVE fleet-wide escape hatch — EMERGENCY USE ONLY. Prefer
+# the per-disk `wipe: force` field in inventory: it is declared, scoped to
+# exactly the disk you mean, and self-documenting. This global flag forces
+# `wipe: force` semantics on EVERY resolved non-boot disk for one run; it
+# does NOT bypass `confirm_carve_data_disk`, never touches the boot disk,
+# and never touches a disk that already carries one of our partlabels
+# (idempotent). Keep false in group_vars/host_vars; pass per-run only when
+# you truly mean it: `-e hypervisor_disks_force_wipe=true`.
 hypervisor_disks_force_wipe: false

@@ -18,21 +18,33 @@
 #     so over-committing it would let Longhorn exhaust the pool).
 #   - VM MACs use the locally-administered prefix `02:` and a structured
 #     tail (02:00:00:<role>:<index>) so collisions are obvious at a glance.
-#   - `storage: {pools: [...]}` on a baremetal host → the disk layout the
-#     hypervisor-disks role realises (03-partition-disks +
-#     03b-provision-storage). DECLARED, NOT DISCOVERED: the role only
-#     touches disks named here by their /dev/disk/by-id path. An
-#     undeclared disk is never touched; a declared by-id that is not
-#     physically present is a HARD FAILURE. Hardware changes (swap/add a
-#     drive) MUST be reflected here first, then the playbook re-run.
-#     Per pool: `pool` (GPT partlabel + idempotency key), `vg`,
-#     `thinpool`, `pve_storage` (PVE storage id — a FROZEN contract, Tofu
-#     hardcodes `vms`/`longhorn-data`), `content`, and `backing`:
-#       backing.strategy: boot_tail  → carve `size` at the end of the
-#         auto-detected PVE boot disk (size "0" = fill the tail)
-#       backing.strategy: whole_disk → claim the entire disk at
-#         `by_id` (one full-disk GPT partition)
-#     Discover by-id paths with `just disk-ids`.
+#   - `storage: {disks: [...]}` on a baremetal host → the disk layout the
+#     hypervisor-disks role realises (20-hypervisor/30-storage.yml).
+#     DISK-CENTRIC + STABLE SELECTORS, declared not discovered. Each disk:
+#       select: boot                       # the auto-detected PVE boot disk
+#       select: { model: "...", serial: "..." }       # one exact drive
+#       select: { min_size_gib: 900, rotational: false }  # attr match
+#       select: { size_gib: 1000, rotational: true }      #   "
+#       wipe: refuse|force                 # per-disk, default refuse;
+#                                          # `force` is DECLARED + scoped
+#                                          # (replaces the global -e flag)
+#       partitions: [ {label, vg, thinpool, pve_storage, content, size} ]
+#     `label` is the GPT partlabel (unique per node, the idempotency key);
+#     `size` is sgdisk +SIZE ("0" = fill). `pve_storage` is a FROZEN
+#     contract (Tofu hardcodes `vms`/`longhorn-data`). A non-`boot`
+#     selector MUST resolve to EXACTLY ONE non-boot, non-removable disk —
+#     0 or >1 matches is a HARD FAILURE (the role never guesses). Several
+#     partitions, on different disks, may share one vg/thinpool/
+#     pve_storage → that is how a NVMe + HDD become one larger
+#     `longhorn-data` pool. Selectors match hardware attributes, so kernel
+#     renames are irrelevant and swapping a disk for an identical/larger
+#     one needs NO edit when the selector is attribute-based. Preview
+#     resolution + a paste-ready block with `just disk-plan`.
+#
+#   CONVENTION (enforced in preflight): every baremetal node yields BOTH
+#   a `vms` and a `longhorn-data` PVE storage. Baseline hardware = one
+#   ≥1 TB boot NVMe (carved into both); additional disks are optional and
+#   extend `longhorn-data`. See group_vars/baremetal.yml.
 #
 # VMs always DHCP-boot. The static IP comes from the reservation tied to
 # the MAC declared here — not from cloud-init.
@@ -109,54 +121,84 @@ baremetal:
           ansible_host: pve-home-01.lan
           ip_address: 10.1.1.105
           mac_address: "18:60:24:dc:b7:32"
-          # Single ~1 TB boot disk. PVE took the first 100 GiB (hdsize);
-          # carve the tail into vm-storage (200G) + longhorn (rest).
+          # Mini-PC: a single ~1 TB boot NVMe carries all three roles.
+          # PVE installer took the first ~100 GiB (lvm.hdsize=100) as the
+          # `pve` VG (hypervisor). Its free tail is carved, in order,
+          # into vm-storage (200 GiB → `vms`) then longhorn (the rest →
+          # `longhorn-data`). No extra disks (the baseline convention).
           storage:
-            pools:
-              - pool: vm-storage
-                vg: vmdata
-                thinpool: vmthin
-                pve_storage: vms
-                content: images,rootdir
-                backing: { strategy: boot_tail, size: "200G" }
-              - pool: longhorn
-                vg: longhorndata
-                thinpool: longhornthin
-                pve_storage: longhorn-data
-                content: images
-                backing: { strategy: boot_tail, size: "0" }
+            disks:
+              - select: boot
+                partitions:
+                  - label: vm-storage
+                    vg: vmdata
+                    thinpool: vmthin
+                    pve_storage: vms
+                    content: images,rootdir,iso,vztmpl,snippets
+                    size: "200G"
+                  - label: longhorn
+                    vg: longhorndata
+                    thinpool: longhornthin
+                    pve_storage: longhorn-data
+                    content: images
+                    size: "0"          # fill the boot tail
         pve-home-02:
           ansible_host: pve-home-02.lan
           ip_address: 10.1.1.106
           mac_address: "3c:7c:3f:1f:96:af"
-          # Two disks (from `just disk-ids` 2026-05-19):
-          #   - Samsung 970 EVO 250 GB NVMe (nvme0n1) → boot/root + `vms`
-          #     (SSD tail after lvm.hdsize=100)
-          #   - WDC WD10EZEX 1 TB HDD (sda, wwn-0x50014ee2668a3683)
-          #     → whole-disk `longhorn` (the Longhorn data disk for
-          #       kube-worker-01, which is pinned to this node)
+          # Three disks (preview with `just disk-plan`):
+          #   - Samsung ~250 GB boot NVMe  → its SSD tail = `vms`
+          #     (after lvm.hdsize=100; selector: boot)
+          #   - new ~1 TB NVMe             → `longhorn-data` (fast tier)
+          #   - freed ~1 TB WDC HDD        → SAME `longhorn-data`
+          #     (additional capacity: one combined longhorndata VG /
+          #      longhornthin pool spans BOTH the NVMe and the HDD)
           #
-          # State (operator-reported 2026-05-19): RE-INSTALLED onto the
-          # NVMe per the answer file, HDD freed for whole-disk longhorn —
-          # the earlier boot-disk mismatch is resolved, so storage
-          # preflight no longer refuses. Re-run `just disk-ids` after any
-          # hardware change and re-verify before carving.
+          # NOTE (2026-05-19): both data disks carry foreign signatures —
+          # the new NVMe a stale 3-partition GPT from a prior install, the
+          # HDD the OLD longhorndata VG (it previously WAS longhorn-data).
+          # Both therefore declare `wipe: force` (scoped, deliberate). The
+          # HDD's live data is safe to destroy because Longhorn keeps a
+          # replica on the peer node (kube-worker-02 / pve-home-01) and
+          # the operator is taking the workers down for this rebuild — see
+          # docs/storage-disk-runbook.md. Selectors are attribute-based
+          # (rotational splits NVMe vs HDD), so an identical/larger
+          # replacement of either disk needs NO edit here.
+          #
+          # ⚠ Mixing NVMe + HDD in one LVM-thin pool means extents that
+          # land on the HDD run at HDD speed; LVM cannot pin Longhorn's
+          # hot data to the NVMe. This is a deliberate capacity-over-
+          # uniform-latency choice; segregate at the Longhorn layer
+          # (Flux) if it ever matters. Splitting back to two pools is a
+          # one-line change (give the HDD its own vg/thinpool/pve_storage).
           storage:
-            pools:
-              - pool: vm-storage
-                vg: vmdata
-                thinpool: vmthin
-                pve_storage: vms
-                content: images,rootdir
-                backing: { strategy: boot_tail, size: "0" }
-              - pool: longhorn
-                vg: longhorndata
-                thinpool: longhornthin
-                pve_storage: longhorn-data
-                content: images
-                backing:
-                  strategy: whole_disk
-                  by_id: "wwn-0x50014ee2668a3683"   # WDC WD10EZEX 1 TB HDD (→ sda)
+            disks:
+              - select: boot
+                partitions:
+                  - label: vm-storage
+                    vg: vmdata
+                    thinpool: vmthin
+                    pve_storage: vms
+                    content: images,rootdir,iso,vztmpl,snippets
+                    size: "0"          # fill the boot SSD tail
+              - select: { min_size_gib: 900, rotational: false }
+                wipe: force            # stale prior-install GPT
+                partitions:
+                  - label: longhorn-nvme
+                    vg: longhorndata
+                    thinpool: longhornthin
+                    pve_storage: longhorn-data
+                    content: images
+                    size: "0"          # whole disk
+              - select: { min_size_gib: 900, rotational: true }
+                wipe: force            # old longhorndata VG (now freed)
+                partitions:
+                  - label: longhorn-hdd
+                    vg: longhorndata
+                    thinpool: longhornthin
+                    pve_storage: longhorn-data
+                    content: images
+                    size: "0"          # whole disk
     pve_cluster:
       # Parent of all corosync clusters. Each child group is ONE cluster
       # (group name = cluster name; set proxmox_cluster_name in

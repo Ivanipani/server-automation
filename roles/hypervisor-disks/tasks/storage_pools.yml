@@ -1,36 +1,48 @@
 ---
-# Build a node-local LVM-thin pool for each declared pool. Idempotent.
-# Runs on every baremetal node. Nodes are independent (no shared pmxcfs),
-# so each node owns its identically-named VG/thinpool and registers its
-# own PVE storage (03b-provision-storage.yml) — the storage IDs match
-# across nodes the same way the stock `local-lvm` does.
+# Build a node-local LVM-thin pool per declared pve_storage. Idempotent.
+# Runs on every baremetal node; nodes are independent (no shared pmxcfs)
+# so each owns its identically-named VG/thinpool and registers its own
+# PVE storage (the pvesm play in 30-storage.yml).
 #
-# Iterates this host's declared `storage.pools` directly, operating
-# purely on /dev/disk/by-partlabel/<pool> so the logic is identical for
-# boot_tail and whole_disk backing.
+# Derives purely from inventory `storage.disks` (not preflight facts) so
+# this play is self-contained, operating on /dev/disk/by-partlabel/<label>.
+# Multiple partitions (on different physical disks) may share one
+# vg/thinpool: that VG then spans every such partition's PV and the thin
+# pool grows over all of them — this is how a NVMe + HDD present as one
+# larger `longhorn-data` pool.
 #
-# Requires: 03-partition-disks.yml has created the by-partlabel devices.
+# Requires: carve.yml has created the by-partlabel devices.
 
-- name: Resolve partition device paths
-  ansible.builtin.command: "readlink -f /dev/disk/by-partlabel/{{ item.pool }}"
-  loop: "{{ storage.pools }}"
+- name: Flatten declared partitions
+  ansible.builtin.set_fact:
+    _parts: "{{ storage.disks | map(attribute='partitions') | flatten }}"
+
+- name: Resolve each partition's device path
+  ansible.builtin.command: "readlink -f /dev/disk/by-partlabel/{{ item.label }}"
+  loop: "{{ _parts }}"
   loop_control:
-    label: "{{ item.pool }}"
-  register: _pool_devpaths
+    label: "{{ item.label }}"
+  register: _devpaths
   changed_when: false
 
-- name: Create PV + VG on each partition
-  community.general.lvg:
-    vg: "{{ item.0.vg }}"
-    pvs: "{{ item.1.stdout | trim }}"
-    state: present
-  loop: "{{ storage.pools | zip(_pool_devpaths.results) | list }}"
-  loop_control:
-    label: "{{ item.0.vg }} ({{ item.1.stdout | trim }})"
+- name: Map partlabel → resolved device
+  ansible.builtin.set_fact:
+    _pl_dev: >-
+      {{ dict(_devpaths.results | map(attribute='item.label') | list
+              | zip(_devpaths.results | map(attribute='stdout') | map('trim') | list)) }}
 
-- name: Check whether the thin pool LV already exists
+- name: Create / extend the VG across all PVs that back it
+  community.general.lvg:
+    vg: "{{ item }}"
+    pvs: "{{ _parts | selectattr('vg', 'equalto', item) | map(attribute='label') | map('extract', _pl_dev) | list }}"
+    state: present
+  loop: "{{ _parts | map(attribute='vg') | unique | list }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Inspect each thin pool LV
   ansible.builtin.command: "lvs --noheadings -o lv_name {{ item.vg }}/{{ item.thinpool }}"
-  loop: "{{ storage.pools }}"
+  loop: "{{ _parts | unique(attribute='vg') | list }}"
   loop_control:
     label: "{{ item.vg }}/{{ item.thinpool }}"
   register: _thinpool_check
@@ -41,8 +53,27 @@
   ansible.builtin.command: >-
     lvcreate --type thin-pool --name {{ item.0.thinpool }}
     --extents 100%FREE --poolmetadatasize 1G {{ item.0.vg }}
-  loop: "{{ storage.pools | zip(_thinpool_check.results) | list }}"
+  loop: "{{ (_parts | unique(attribute='vg') | list) | zip(_thinpool_check.results) | list }}"
   loop_control:
     label: "{{ item.0.vg }}/{{ item.0.thinpool }}"
   when: item.1.rc != 0
   changed_when: true
+
+# Capacity bump path: when a bigger/extra disk was added the VG gained
+# free extents but the thin pool LV still has the old size. Grow it onto
+# the new space. Idempotent: with no free extents lvextend reports
+# "matches existing size" / "up to date" (rc 5) — not an error here.
+- name: Grow an existing thin pool onto any new free VG space
+  ansible.builtin.command: >-
+    lvextend --extents +100%FREE {{ item.0.vg }}/{{ item.0.thinpool }}
+  loop: "{{ (_parts | unique(attribute='vg') | list) | zip(_thinpool_check.results) | list }}"
+  loop_control:
+    label: "{{ item.0.vg }}/{{ item.0.thinpool }}"
+  when: item.1.rc == 0
+  register: _thinpool_grow
+  changed_when: "'successfully resized' in (_thinpool_grow.stdout | default(''))"
+  failed_when: >-
+    _thinpool_grow.rc != 0
+    and 'matches existing size' not in (_thinpool_grow.stderr | default(''))
+    and 'up to date' not in (_thinpool_grow.stderr | default(''))
+    and 'New size' not in (_thinpool_grow.stderr | default(''))
