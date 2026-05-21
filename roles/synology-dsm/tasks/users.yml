@@ -1,0 +1,91 @@
+---
+# User Home service. DSM's UI: Control Panel → User & Group → Advanced
+# → User Home. Enabling this creates /volume<N>/homes/<user> for every
+# DSM user — required so `pani` (and any other admin we let SSH in)
+# has a real $HOME containing .ssh/authorized_keys.
+#
+# Strings are piped through `to_json` so paths containing quotes or
+# backslashes don't break the JSON-shaped form body (upstream
+# interpolated raw — fine for /volume1 but a footgun).
+#
+# Why diff-before-write instead of always set: DSM 7.3.2 returns
+# error code 3327 on SYNO.Core.User.Home/set when the call would be a
+# no-op (state already matches desired). Reading state first via /get
+# and only firing /set on real drift avoids the spurious failure AND
+# gives us true Ansible-level idempotence (changed=0 when no drift).
+
+- name: Get current User Home Service config
+  synology_dsm_api_request:
+    api_name: SYNO.Core.User.Home
+    api_method: get
+    api_version: 1
+    request_method: GET
+  register: _user_home_current
+
+- name: Decide whether User Home Service needs reconfiguring
+  ansible.builtin.set_fact:
+    _user_home_needs_set: >-
+      {{ (_user_home_current.json.data.enable | default(none)) != synology_dsm_user_home_service_enable
+         or (_user_home_current.json.data.location | default('')) != synology_dsm_user_home_location
+         or (_user_home_current.json.data.enable_recycle_bin | default(none)) != synology_dsm_user_home_enable_recycle_bin }}
+
+- name: Show User Home Service drift summary
+  ansible.builtin.debug:
+    msg:
+      current:
+        enable: "{{ _user_home_current.json.data.enable | default('?') }}"
+        location: "{{ _user_home_current.json.data.location | default('?') }}"
+        enable_recycle_bin: "{{ _user_home_current.json.data.enable_recycle_bin | default('?') }}"
+      desired:
+        enable: "{{ synology_dsm_user_home_service_enable }}"
+        location: "{{ synology_dsm_user_home_location }}"
+        enable_recycle_bin: "{{ synology_dsm_user_home_enable_recycle_bin }}"
+      needs_set: "{{ _user_home_needs_set }}"
+
+- name: Enable/Disable User Home Service (only on drift)
+  synology_dsm_api_request:
+    api_name: SYNO.Core.User.Home
+    api_method: set
+    request_method: POST
+    api_params:
+      enable: '{{ synology_dsm_user_home_service_enable | to_json }}'
+      location: '{{ synology_dsm_user_home_location | to_json }}'
+      enable_recycle_bin: '{{ synology_dsm_user_home_enable_recycle_bin | to_json }}'
+  register: _user_home_set
+  when: _user_home_needs_set | bool
+  failed_when: false
+
+- name: Surface the DSM 3327 case with an actionable message
+  # DSM 7.3.2 returns code 3327 from SYNO.Core.User.Home/set when the
+  # service is currently DISABLED and we ask to enable it on a volume
+  # whose homes-share metadata is in an inconsistent state (most
+  # commonly: post-pool-rebuild, where DSM remembers the homes share
+  # from the destroyed volume but the underlying directory is gone).
+  # The DSM UI's enable flow has cleanup logic our raw set call
+  # doesn't — surface a clear "do it in the UI once" message rather
+  # than a bare error code.
+  ansible.builtin.assert:
+    that:
+      - (_user_home_set.json.success | default(true))
+    fail_msg: |
+      DSM rejected SYNO.Core.User.Home/set with code {{ _user_home_set.dsm_error.code | default('?') }}.
+
+      If 3327: User Home Service is in a state our raw set call can't
+      reconcile (typically post-pool-rebuild — DSM has stale homes-share
+      metadata). One-time manual fix in DSM:
+        Control Panel → User & Group → Advanced tab → User Home
+        → tick "Enable user home service"
+        → User home volume: /volume1
+        → Apply
+
+      If DSM UI also rejects, check Control Panel → Shared Folder for a
+      stale `homes` entry and delete it, then retry in the UI.
+
+      Re-run this playbook once enabled — the drift check will then see
+      "no change" and this task will skip cleanly.
+    quiet: true
+  when:
+    - _user_home_set is not skipped
+    # `failed_when: false` on the set task masks the standard .failed
+    # flag, so look at the DSM response body directly.
+    - not (_user_home_set.json.success | default(true))

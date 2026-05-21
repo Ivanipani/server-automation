@@ -1,0 +1,90 @@
+---
+# Declarative baseline for nas01 (Synology DSM 7.3.2).
+#
+# Design context: the NAS is a pure NFS server in this homelab. Every
+# data path (Longhorn backups, VM /home, PXE artifacts, qcow2 image
+# publish) rides NFS. We do not manage SSH access, user accounts,
+# user home directories, or per-share SMB ACLs — DSM owns those.
+#
+# Invokes the synology-dsm role to push the file-service toggles
+# below. Subsequent edits to these vars become the *only* way DSM
+# state changes; the GUI is for inspection only.
+#
+# Edit-point map:
+#   Different SMB workgroup, shadow copy, etc.?
+#       → flip the smb_* vars; re-run.
+#   Want NFSv4.1?
+#       → flip nfs_enable_v4_1, but see field-name caveat below.
+#   Want SSH on a non-default port (e.g. exposing via Tailscale)?
+#       → flip ssh_port; re-run.
+#   Add a package source (SynoCommunity etc.)?
+#       → append to package_sources; re-run. Idempotent: the role only
+#         ADDS missing sources, never removes.
+#
+# Field-name gaps observed during discovery (DSM 7.3.2, 2026-05-21):
+#   - synology_dsm_nfs_enable_v4_1:
+#       Role's set field name. DSM 7.3 GET reports NFS minor version
+#       under `enabled_minor_ver` (int: 0=off, 1=v4.1 on). The set
+#       field may be silently ignored on 7.3 — re-verify with
+#       15-show-state.yml after toggling.
+#   - synology_dsm_smb_enable_transfer_log:
+#       Not in DSM 7.3 GET response under that name (closest match is
+#       `enable_enhance_log`). Likely renamed or write-only on 7.3.
+#
+# Run:
+#   ansible-playbook --vault-password-file ansible-pass \
+#     playbooks/poochella/infra/15-nas/20-baseline.yml
+# or via the fzf picker:
+#   just run
+
+- hosts: nas01
+  gather_facts: false
+  connection: local            # API only; we never SSH into DSM
+  vars:
+    # --- Identity + transport ------------------------------------------------
+    synology_dsm_username: pani
+    synology_dsm_validate_certs: false       # self-signed cert posture (start)
+    synology_dsm_base_url: "https://{{ ansible_host }}:5001"
+
+    # --- Terminal (SSH / Telnet) ---------------------------------------------
+    # SSH stays on as a break-glass for DSM admin work (DSM CLI tools,
+    # log inspection) — we don't USE it for any data path (those ride
+    # NFS), but turning sshd off would lock you out of the box without
+    # a screen+keyboard. Leave it on; manage who can log in via DSM UI.
+    synology_dsm_ssh_enable: true
+    synology_dsm_ssh_port: 22
+    synology_dsm_telnet_enable: false
+
+    # --- File services: NFS --------------------------------------------------
+    # NFS is the entire data plane in this design — every share's data
+    # ride this protocol. v4 enabled because Longhorn's NFSv4 backup
+    # target needs it. v4_1 left off (DSM 7.3's field name for it
+    # changed to `enabled_minor_ver` and the role's set field is a
+    # no-op there — see file_services.yml caveat).
+    synology_dsm_nfs_enable: true
+    synology_dsm_nfs_enable_v4: true
+    synology_dsm_nfs_enable_v4_1: false
+
+    # --- File services: SMB --------------------------------------------------
+    synology_dsm_smb_enable: true
+    synology_dsm_smb_workgroup: WORKGROUP
+    synology_dsm_smb_disable_shadow_copy: false
+    synology_dsm_smb_enable_transfer_log: false       # see header caveat
+
+    # --- User Home Service ---------------------------------------------------
+    # NOT MANAGED. The synology-dsm role's users.yml is gated behind
+    # `synology_dsm_manage_user_home_service` (default false in the
+    # role) so this block is skipped entirely. The NFS-only design
+    # doesn't need user homes (no SSH-key authorized_keys to drop).
+    # If you ever need to manage it, set
+    #   synology_dsm_manage_user_home_service: true
+    # here AND fill in the user_home_* values below.
+
+    # --- Package sources -----------------------------------------------------
+    # Empty today. Add SynoCommunity / other feeds here as needed;
+    # the role only adds missing entries, it never removes:
+    #   - { name: "SynoCommunity", feed: "https://packages.synocommunity.com/" }
+    synology_dsm_package_sources: []
+
+  roles:
+    - synology-dsm

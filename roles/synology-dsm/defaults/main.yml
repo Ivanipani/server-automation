@@ -1,0 +1,73 @@
+---
+# Hardened defaults for the synology-dsm role.
+#
+# Two principles vs. upstream (agaffney/ansible-synology-dsm, 2019):
+#   1. HTTPS-first. Upstream defaulted to http://…:5000, which puts the
+#      admin password on the wire in clear. Here the default is the
+#      HTTPS port (5001); flip `validate_certs` to false if you are
+#      still on DSM's self-signed cert.
+#   2. No credential defaults. Upstream shipped `password: changeme` and
+#      `username: admin`. Both are removed — `synology_dsm_password`
+#      MUST be supplied (vault-backed in this repo; see
+#      group_vars/all/vars.yml), and `synology_dsm_username` defaults to
+#      empty so a missing override fails loudly instead of trying
+#      `admin` (which DSM disables by default on new installs anyway).
+
+synology_dsm_host: '{{ inventory_hostname }}'
+synology_dsm_base_url: 'https://{{ synology_dsm_host }}:5001'
+synology_dsm_base_path: webapi
+synology_dsm_cgi_name: entry.cgi
+
+# TLS verification. Default ON. Set to false ONLY if the NAS still ships
+# DSM's self-signed cert (the out-of-the-box state). Putting a real cert
+# on DSM (Control Panel → Security → Certificate → Let's Encrypt) is
+# preferable and lets you keep this `true`.
+synology_dsm_validate_certs: true
+
+# HTTP timeout per API call, seconds. DSM occasionally takes a while to
+# answer compound requests; 30s is the upstream default-or-better.
+synology_dsm_request_timeout: 30
+
+# REQUIRED — no default. Set per-host or per-group. Vault-backed in this
+# repo: vault_synology_dsm_password → synology_dsm_password (see
+# group_vars/all/vars.yml indirection).
+# synology_dsm_username: ''
+# synology_dsm_password: ''
+
+# Optional. Set per-run if the account has 2FA enabled. Most automation
+# accounts are configured WITHOUT 2FA and rely on network isolation + a
+# strong password — Synology has no first-class non-interactive 2FA flow.
+# synology_dsm_otp_code: ''
+
+# --- Service toggles -------------------------------------------------------
+
+synology_dsm_ssh_enable: true
+synology_dsm_ssh_port: 22
+synology_dsm_telnet_enable: false
+
+# User Home Service — OPT-IN. Default off because the nas-as-pure-NFS
+# design (poochella's choice as of 2026-05-21) doesn't need SSH user
+# logins, so DSM users don't need home dirs. Set
+# synology_dsm_manage_user_home_service: true in the play to manage
+# this; SYNO.Core.User.Home/set throws DSM error 3327 if it can't
+# reconcile state (typically post-pool-rebuild), so the role does
+# drift-before-write and prints an actionable message on 3327.
+synology_dsm_manage_user_home_service: false
+synology_dsm_user_home_service_enable: true
+synology_dsm_user_home_location: /volume1
+synology_dsm_user_home_enable_recycle_bin: false
+
+synology_dsm_package_sources: []
+
+synology_dsm_nfs_enable: false
+synology_dsm_nfs_enable_v4: false
+synology_dsm_nfs_enable_v4_1: false
+
+synology_dsm_smb_enable: true
+synology_dsm_smb_workgroup: WORKGROUP
+synology_dsm_smb_disable_shadow_copy: false
+synology_dsm_smb_enable_transfer_log: false
+
+# NOTE: AFP support intentionally not exposed here. Synology removed AFP
+# in DSM 7.2; on 7.3.x the SYNO.Core.FileServ.AFP endpoint no longer
+# exists and the upstream task would 404.

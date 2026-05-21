@@ -1,0 +1,73 @@
+---
+# Declarative state for a Synology NAS running DSM 7.x.
+#
+# Flow:
+#   block:                      ← module_defaults set base_url + cookie + tls
+#     - login                   ← POST, no_log
+#     - apply state             ← terminal / users / package feeds / file svcs
+#   always:
+#     - logout                  ← always-fire so the session cookie dies
+#
+# Pre-conditions (asserted below):
+#   - synology_dsm_username + synology_dsm_password defined (the vault
+#     indirection in group_vars/all/vars.yml wires the password).
+#   - synology_dsm_base_url is HTTPS (we refuse to send credentials to
+#     http:// — flipping to plaintext is a deliberate choice the operator
+#     should make by overriding the base_url AND this assertion).
+#
+# This role does NOT ssh into DSM; everything is API. The play that
+# uses it should set `connection: local`.
+
+- name: Assert required credentials are defined
+  ansible.builtin.assert:
+    that:
+      - synology_dsm_username is defined
+      - synology_dsm_username | length > 0
+      - synology_dsm_password is defined
+      - synology_dsm_password | length > 0
+    fail_msg: >-
+      synology_dsm_username and synology_dsm_password must be set. Wire
+      the password through the vault: vault_synology_dsm_password →
+      synology_dsm_password in group_vars/all/vars.yml.
+    quiet: true
+
+- name: Refuse to send credentials over plaintext HTTP
+  ansible.builtin.assert:
+    that:
+      - synology_dsm_base_url is match('^https://')
+    fail_msg: >-
+      synology_dsm_base_url must be https:// — refusing to put the DSM
+      password on the wire in clear. If you're on the self-signed cert,
+      set synology_dsm_validate_certs: false instead.
+    quiet: true
+
+- name: wrapper block
+  module_defaults:
+    synology_dsm_api_request:
+      base_url: '{{ synology_dsm_base_url }}'
+      validate_certs: '{{ synology_dsm_validate_certs }}'
+      timeout: '{{ synology_dsm_request_timeout }}'
+      login_cookie: '{{ synology_dsm_login_cookie | default(omit) }}'
+      synotoken: '{{ synology_dsm_syno_token | default(omit) }}'
+  block:
+    - ansible.builtin.include_tasks: login.yml
+
+    - name: Query system status (sanity-check the session)
+      synology_dsm_api_request:
+        api_name: SYNO.Core.System.Status
+        api_method: get
+
+    - ansible.builtin.include_tasks: terminal.yml
+    # User Home Service is opt-in. The nas-as-pure-NFS-server design
+    # doesn't need user homes (no SSH login, no authorized_keys), so
+    # the default is "don't touch it". Flip this on if you ever need
+    # SSH-key login for a DSM user (then handle the post-pool-rebuild
+    # 3327 caveat — see users.yml).
+    - ansible.builtin.include_tasks: users.yml
+      when: synology_dsm_manage_user_home_service | default(false) | bool
+    - ansible.builtin.include_tasks: package_sources.yml
+    - ansible.builtin.include_tasks: file_services.yml
+
+  always:
+    - ansible.builtin.include_tasks: logout.yml
+      when: synology_dsm_login_cookie is defined

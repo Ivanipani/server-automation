@@ -1,0 +1,49 @@
+---
+# Authenticate to DSM and stash the session cookie.
+#
+# Forked from upstream's tasks/login.yml. Material differences:
+#   - request_method: POST  — upstream's default was GET, which put the
+#     password in the URL query string (and therefore in DSM's own
+#     /var/log access log and any proxy log on the path).
+#   - api_version 6        — DSM 7.x default; v3 still works for back-compat
+#     but doesn't include `otp_code`/`enable_syno_token` flags.
+#   - no_log: true         — covers the request AND the response (the
+#     response carries a Set-Cookie holding a long-lived bearer token).
+#   - otp_code threaded through if the account has 2FA enabled.
+
+- name: Login to DSM
+  synology_dsm_api_request:
+    cgi_name: auth.cgi
+    api_name: SYNO.API.Auth
+    api_version: 6
+    api_method: login
+    request_method: POST
+    api_params: >-
+      {{
+        {
+          'account': synology_dsm_username,
+          'passwd':  synology_dsm_password,
+          'format':  'cookie',
+          'enable_syno_token': 'yes',
+        } | combine(
+          {'otp_code': synology_dsm_otp_code} if (synology_dsm_otp_code | default('')) | length > 0 else {}
+        )
+      }}
+  register: synology_dsm_login_response
+  no_log: true
+
+- name: Stash the session cookie for subsequent calls
+  ansible.builtin.set_fact:
+    synology_dsm_login_cookie: '{{ synology_dsm_login_response.set_cookie }}'
+  no_log: true
+
+# SynoToken — DSM's CSRF protection for write-sensitive APIs
+# (SYNO.Core.Share, SYNO.Core.Share.Permission, and some Storage Manager
+# writes). Returned only because we passed `enable_syno_token: yes`
+# above. The plumbing into the action plugin happens via
+# module_defaults in tasks/main.yml; nothing else here needs to know.
+- name: Stash the SynoToken for write-sensitive APIs
+  ansible.builtin.set_fact:
+    synology_dsm_syno_token: '{{ synology_dsm_login_response.json.data.synotoken }}'
+  no_log: true
+  when: synology_dsm_login_response.json.data.synotoken is defined

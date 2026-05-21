@@ -1,0 +1,110 @@
+---
+# Smoke test for the synology-dsm role (roles/synology-dsm).
+#
+# Validates the failure-prone parts end-to-end, against the live NAS,
+# WITHOUT pushing any service state:
+#   1. Vault indirection wires synology_dsm_password into the role
+#   2. HTTPS (port 5001) is reachable from this control node
+#   3. validate_certs=false accepts DSM's self-signed cert
+#   4. Action plugin loads, POST /auth.cgi login returns a session cookie
+#   5. The cookie is honored on a subsequent read-only query
+#   6. Logout drops the session
+#
+# What this play does NOT do:
+#   - It does NOT include the full role (tasks/main.yml). The full role
+#     pushes service state (SSH on/off, NFS on/off, SMB on/off, User
+#     Home on/off), and its defaults are conservative (NFS off, Home
+#     on, SMB on). On a NAS already in use as the rsync target for
+#     `bake-images`, blindly running with defaults could disable NFS or
+#     create/move home directories. Graduate to the full role only when
+#     you've set every toggle to match your intent (separate playbook).
+#
+# Pre-requisites (documented in roles/synology-dsm/README.md):
+#   - DSM user `ansible` exists with admin rights, no 2FA
+#   - vault_synology_dsm_password is in group_vars/all/vault.yml
+#   - synology_dsm_password indirection wired in group_vars/all/vars.yml (done)
+#
+# Run:
+#   ansible-playbook --vault-password-file ansible-pass \
+#     playbooks/poochella/infra/15-nas/10-smoke-test.yml
+# or via the fzf picker:
+#   just run
+
+- hosts: nas01
+  gather_facts: false
+  connection: local           # everything is HTTP API; we never SSH to DSM
+  vars:
+    # DSM-side administrator account used for API automation.
+    synology_dsm_username: pani
+    # Self-signed-cert posture — the starting point. Flip to true after
+    # installing a real cert via DSM → Control Panel → Security →
+    # Certificate → Let's Encrypt.
+    synology_dsm_validate_certs: false
+    # Hit the NAS by its inventory FQDN (nas01.lan), not the bare
+    # inventory_hostname which would resolve to "nas01" without the
+    # search domain.
+    synology_dsm_base_url: "https://{{ ansible_host }}:5001"
+    synology_dsm_request_timeout: 30
+
+  tasks:
+    - name: Assert vault-backed password is defined
+      ansible.builtin.assert:
+        that:
+          - synology_dsm_password is defined
+          - synology_dsm_password | length > 0
+        fail_msg: >-
+          synology_dsm_password is not set. Did you add
+          vault_synology_dsm_password to group_vars/all/vault.yml and
+          decrypt with --vault-password-file ansible-pass?
+        quiet: true
+
+    - name: DSM auth round-trip (login → query → logout)
+      module_defaults:
+        synology_dsm_api_request:
+          base_url: '{{ synology_dsm_base_url }}'
+          validate_certs: '{{ synology_dsm_validate_certs }}'
+          timeout: '{{ synology_dsm_request_timeout }}'
+          login_cookie: '{{ synology_dsm_login_cookie | default(omit) }}'
+          synotoken: '{{ synology_dsm_syno_token | default(omit) }}'
+      block:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: login.yml
+
+        - name: Query DSM system status (read-only)
+          synology_dsm_api_request:
+            api_name: SYNO.Core.System.Status
+            api_method: get
+          register: _dsm_status
+
+        - name: Show DSM model + version
+          ansible.builtin.debug:
+            msg: >-
+              {{ _dsm_status.json.data
+                 | dict2items
+                 | selectattr('key', 'in', ['model', 'serial', 'systemp', 'upgrade_ready', 'cpu_clock_speed'])
+                 | items2dict
+                 | default(_dsm_status.json.data, true) }}
+
+        - name: Query DSM info API (which APIs are exposed on this version)
+          synology_dsm_api_request:
+            cgi_name: query.cgi
+            api_name: SYNO.API.Info
+            api_method: query
+            api_params:
+              query: SYNO.Core.System.Status,SYNO.Core.Terminal,SYNO.Core.FileServ.NFS,SYNO.Core.FileServ.SMB,SYNO.Core.User.Home,SYNO.Core.Package.Feed,SYNO.Entry.Request
+          register: _dsm_info
+
+        - name: Show available API versions
+          ansible.builtin.debug:
+            msg: >-
+              {{ _dsm_info.json.data
+                 | dict2items
+                 | map('combine', {})
+                 | list }}
+
+      always:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: logout.yml
+          when: synology_dsm_login_cookie is defined

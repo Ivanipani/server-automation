@@ -1,0 +1,40 @@
+---
+# Set NFS export rules per declared share.
+#
+# Uses SYNO.Core.FileServ.NFS.SharePrivilege/save which REPLACES the
+# entire rule list for the named share — so our call is idempotent in
+# effect: passing the same rule list yields the same end state, and
+# changing inventory's rules is the only way to drift the NAS.
+#
+# We do NOT diff against current rules before calling save (the read
+# endpoint exists but we haven't probed it yet — list_by_share_uuid or
+# similar). Re-running this task is harmless because save is idempotent
+# on the result; it'll just report `changed` every run until we wire
+# the diff. Tolerable trade-off for now.
+#
+# Inventory NFS rule → DSM rule translation lives in the
+# `dsm_nfs_rule` filter (filter_plugins/nfs_rules.py). Inventory uses
+# the NFS-standard terms (no_root_squash, root_squash, all_squash);
+# the filter maps to DSM's counterintuitive `root_squash: root|admin|all`
+# enum and the nested security_flavor object.
+
+- name: Save NFS rules per share that declares them
+  synology_dsm_api_request:
+    api_name: SYNO.Core.FileServ.NFS.SharePrivilege
+    api_method: save
+    api_version: 1
+    request_method: POST
+    api_params:
+      share_name: '{{ item.name | to_json }}'
+      rule: '{{ (item.nfs.rules | default([])) | map("dsm_nfs_rule") | list | to_json }}'
+  register: _nfs_save_results
+  loop: '{{ _declared_shares }}'
+  loop_control:
+    label: '{{ item.name }} ({{ (item.nfs.rules | default([])) | length }} rule(s))'
+  when:
+    - item.nfs is defined
+    - (item.nfs.rules | default([])) | length > 0
+  failed_when: >-
+    not _nfs_save_results.failed | default(false)
+    and not (_nfs_save_results.json.success | default(false))
+  changed_when: _nfs_save_results.json.success | default(false)

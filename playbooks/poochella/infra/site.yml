@@ -1,19 +1,25 @@
 ---
-# poochella infra — four ordered tiers, each a directory with its own
+# poochella infra — ordered tiers, each a directory with its own
 # ordered site.yml. The directory IS the target tier, so "what runs
 # where" and "what order" stop fighting; ordinals are gap-10 within a
 # tier so steps insert without renumbering.
 #
 #   10-router      → OPNsense DNS/DHCP foundation (precedes everything)
-#   20-hypervisor  → Proxmox baremetal fabric (the critical path)
+#   15-nas         → Synology NAS (gap-5 break — see 15-nas/site.yml
+#                    for why: nas sits between router and hypervisor
+#                    in the dep graph; renumbering downstream tiers
+#                    would churn every other import for one insertion)
+#   20-hypervisor  → Proxmox baremetal fabric (the critical path —
+#                    its 40-bake-images depends on 15-nas being up)
 #   30-guests      → OpenTofu barrier (router + hypervisor converge)
-#   40-guests      → VM/container config + k3s
+#   40-kube        → VM/container config + k3s
 #
 # Single-host piecemeal dev: fzf-pick any one tier playbook via
 # `just run --limit <host>`. Each playbook self-bootstraps
 # (../tasks/detect-bootstrap-user.yml) and asserts its own
 # pre-conditions, so this ordering is the happy path, not the only one.
 - import_playbook: 10-router/site.yml
+- import_playbook: 15-nas/site.yml
 - import_playbook: 20-hypervisor/site.yml
 - import_playbook: 30-guests/site.yml
 - import_playbook: 40-kube/site.yml

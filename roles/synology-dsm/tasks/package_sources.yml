@@ -1,0 +1,26 @@
+---
+# Package Center → Settings → Package Sources. Idempotent: only adds
+# sources whose `name` is not already in the feed list.
+#
+# Note the DSM quirk: the `list` param must be DOUBLE-JSON-encoded (a
+# JSON string whose value is itself JSON). Upstream documented this
+# inline and we keep that exactly because the API didn't change.
+
+- name: List existing package sources
+  synology_dsm_api_request:
+    api_name: SYNO.Core.Package.Feed
+    api_method: list
+    request_method: POST
+  register: synology_dsm_package_sources_list
+
+- name: Add missing package sources
+  synology_dsm_api_request:
+    api_name: SYNO.Core.Package.Feed
+    api_method: add
+    request_method: POST
+    api_params:
+      list: '{{ {"name": item.name, "feed": item.feed} | to_json | to_json }}'
+  when: item.name not in (synology_dsm_package_sources_list.json.data['items'] | map(attribute='name'))
+  loop: '{{ synology_dsm_package_sources }}'
+  loop_control:
+    label: '{{ item.name }}'

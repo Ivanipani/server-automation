@@ -1,0 +1,157 @@
+---
+# Read-only: capture the CURRENT state of every DSM setting the
+# synology-dsm role can manage, then render a paste-ready `vars:` block
+# for the baseline playbook (20-baseline.yml).
+#
+# Writes nothing — just GETs.
+#
+# Why this exists: the role's defaults are conservative (NFS off, SMB
+# on, Home on, etc.) and almost certainly don't match what's currently
+# enabled on a NAS in use. Going from "auth works" (10-smoke-test.yml)
+# straight to running the role with defaults would change service
+# state. This play discovers the baseline so 20-baseline.yml can be
+# written deliberately, with vars that produce `changed=0` on first run.
+#
+# Each API query is `failed_when: false` so a missing method on one
+# endpoint doesn't abort the others. If a query failed (e.g. DSM 7.3
+# moved the get method), `_<thing>.failed` will be true and the rendered
+# block will mark that field `???` for manual lookup.
+
+- hosts: nas01
+  gather_facts: false
+  connection: local
+  vars:
+    synology_dsm_username: pani
+    synology_dsm_validate_certs: false
+    synology_dsm_base_url: "https://{{ ansible_host }}:5001"
+    synology_dsm_request_timeout: 30
+
+  tasks:
+    - name: Discover current DSM state
+      module_defaults:
+        synology_dsm_api_request:
+          base_url: '{{ synology_dsm_base_url }}'
+          validate_certs: '{{ synology_dsm_validate_certs }}'
+          timeout: '{{ synology_dsm_request_timeout }}'
+          login_cookie: '{{ synology_dsm_login_cookie | default(omit) }}'
+          synotoken: '{{ synology_dsm_syno_token | default(omit) }}'
+      block:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: login.yml
+
+        - name: Get Terminal config (SSH/Telnet)
+          synology_dsm_api_request:
+            api_name: SYNO.Core.Terminal
+            api_version: 3
+            api_method: get
+            request_method: GET
+          register: _terminal
+          failed_when: false
+
+        - name: Get NFS config
+          synology_dsm_api_request:
+            api_name: SYNO.Core.FileServ.NFS
+            api_version: 2
+            api_method: get
+            request_method: GET
+          register: _nfs
+          failed_when: false
+
+        - name: Get SMB config
+          synology_dsm_api_request:
+            api_name: SYNO.Core.FileServ.SMB
+            api_version: 3
+            api_method: get
+            request_method: GET
+          register: _smb
+          failed_when: false
+
+        - name: Get User Home Service config
+          synology_dsm_api_request:
+            api_name: SYNO.Core.User.Home
+            api_version: 1
+            api_method: get
+            request_method: GET
+          register: _user_home
+          failed_when: false
+
+        - name: List Package Feed sources
+          synology_dsm_api_request:
+            api_name: SYNO.Core.Package.Feed
+            api_version: 1
+            api_method: list
+            request_method: POST
+          register: _pkg_feeds
+          failed_when: false
+
+        # ---- Raw dump (look at this if the render below has ???) -------------
+
+        - name: Raw responses (for debugging field names)
+          ansible.builtin.debug:
+            msg:
+              terminal_ok:    "{{ not (_terminal.failed | default(true)) }}"
+              terminal_data:  "{{ _terminal.json | default({}) }}"
+              nfs_ok:         "{{ not (_nfs.failed | default(true)) }}"
+              nfs_data:       "{{ _nfs.json | default({}) }}"
+              smb_ok:         "{{ not (_smb.failed | default(true)) }}"
+              smb_data:       "{{ _smb.json | default({}) }}"
+              user_home_ok:   "{{ not (_user_home.failed | default(true)) }}"
+              user_home_data: "{{ _user_home.json | default({}) }}"
+              pkg_feeds_ok:   "{{ not (_pkg_feeds.failed | default(true)) }}"
+              pkg_feeds_data: "{{ _pkg_feeds.json | default({}) }}"
+
+        # ---- Paste-ready vars block ------------------------------------------
+        # Booleans go through `to_json` so they render as true/false (matching
+        # roles/synology-dsm/defaults/main.yml style) rather than True/False.
+
+        - name: Paste-ready vars for 20-baseline.yml
+          vars:
+            t: "{{ _terminal.json.data    | default({}) if not (_terminal.failed | default(true))    else {} }}"
+            n: "{{ _nfs.json.data         | default({}) if not (_nfs.failed | default(true))         else {} }}"
+            s: "{{ _smb.json.data         | default({}) if not (_smb.failed | default(true))         else {} }}"
+            u: "{{ _user_home.json.data   | default({}) if not (_user_home.failed | default(true))   else {} }}"
+            f: "{{ _pkg_feeds.json.data['items'] | default([]) if not (_pkg_feeds.failed | default(true)) else [] }}"
+          ansible.builtin.debug:
+            msg: |
+              # ───────────────────────────────────────────────────────────────
+              # Paste into the `vars:` block of 20-baseline.yml. Verify each
+              # value matches your intent BEFORE running the role for real —
+              # any ??? means the query failed; look at the raw_responses
+              # debug above to find the right field name.
+              # ───────────────────────────────────────────────────────────────
+              synology_dsm_username: pani
+              synology_dsm_validate_certs: false
+              synology_dsm_base_url: "https://{{ '{{' }} ansible_host {{ '}}' }}:5001"
+
+              # Terminal (SSH / Telnet)
+              synology_dsm_ssh_enable: {{ (t.enable_ssh | to_json) if 'enable_ssh' in t else '???' }}
+              synology_dsm_ssh_port: {{ t.ssh_port | default('???') }}
+              synology_dsm_telnet_enable: {{ (t.enable_telnet | to_json) if 'enable_telnet' in t else '???' }}
+
+              # NFS
+              synology_dsm_nfs_enable: {{ (n.enable_nfs | to_json) if 'enable_nfs' in n else '???' }}
+              synology_dsm_nfs_enable_v4: {{ (n.enable_nfs_v4 | to_json) if 'enable_nfs_v4' in n else '???' }}
+              synology_dsm_nfs_enable_v4_1: {{ (n.enable_nfs_v4_1 | to_json) if 'enable_nfs_v4_1' in n else '???' }}
+
+              # SMB
+              synology_dsm_smb_enable: {{ (s.enable_samba | to_json) if 'enable_samba' in s else '???' }}
+              synology_dsm_smb_workgroup: {{ ('"' + s.workgroup + '"') if 'workgroup' in s else '???' }}
+              synology_dsm_smb_disable_shadow_copy: {{ (s.disable_shadow_copy | to_json) if 'disable_shadow_copy' in s else '???' }}
+              synology_dsm_smb_enable_transfer_log: {{ (s.smb_transfer_log_enable | to_json) if 'smb_transfer_log_enable' in s else '???' }}
+
+              # User Home Service
+              synology_dsm_user_home_service_enable: {{ (u.enable | to_json) if 'enable' in u else '???' }}
+              synology_dsm_user_home_location: {{ ('"' + u.location + '"') if 'location' in u else '???' }}
+              synology_dsm_user_home_enable_recycle_bin: {{ (u.enable_recycle_bin | to_json) if 'enable_recycle_bin' in u else '???' }}
+
+              # Package Feeds (preserves the existing list; add new ones below)
+              synology_dsm_package_sources:
+              {% for src in f %}  - {name: "{{ src.name }}", feed: "{{ src.feed }}"}
+              {% endfor %}
+
+      always:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: logout.yml
+          when: synology_dsm_login_cookie is defined

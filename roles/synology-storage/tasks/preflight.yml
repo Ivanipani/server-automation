@@ -1,0 +1,40 @@
+---
+# Assertions + state load for the synology-storage tasks.
+#
+# Asserts the host has a usable `storage:` block (just `vol_path` +
+# `shares` — pool/volume are EXPECTED to already exist; the role is
+# additive and does not create them) and pre-computes the declared
+# shares list annotated with the target vol_path so the downstream
+# task files iterate without re-walking inventory.
+
+- name: Assert this host has a storage block in inventory
+  ansible.builtin.assert:
+    that:
+      - hostvars[inventory_hostname].storage is defined
+      - hostvars[inventory_hostname].storage.vol_path is defined
+      - hostvars[inventory_hostname].storage.vol_path is match('^/volume[0-9]+$')
+      - hostvars[inventory_hostname].storage.shares is defined
+    fail_msg: |
+      {{ inventory_hostname }} has no usable `storage:` block. Required keys:
+        storage.vol_path  — e.g. /volume1
+        storage.shares    — list of share declarations
+      See inventory.yaml's nas01 entry for the expected schema.
+    quiet: true
+
+- name: Build the declared-shares list (each share annotated with vol_path)
+  ansible.builtin.set_fact:
+    _declared_shares: >-
+      {{ (hostvars[inventory_hostname].storage.shares | default([]))
+         | map('combine', {'_vol_path': hostvars[inventory_hostname].storage.vol_path})
+         | list }}
+
+- name: Show what the role will reconcile
+  ansible.builtin.debug:
+    msg:
+      target_vol_path: "{{ hostvars[inventory_hostname].storage.vol_path }}"
+      declared_shares: "{{ _declared_shares | map(attribute='name') | list }}"
+      shares_with_nfs_rules: >-
+        {{ _declared_shares
+           | selectattr('nfs', 'defined')
+           | selectattr('nfs.rules', 'defined')
+           | map(attribute='name') | list }}

@@ -1,0 +1,26 @@
+---
+# Reconcile DSM storage state with `hostvars[inventory_hostname].storage`.
+#
+# Scope is deliberately additive — the role manages objects ON TOP of
+# an existing pool + volume:
+#   - SHARES: create shares declared in inventory but missing on DSM
+#   - QUOTAS: set per-share size limits (drift-corrected)
+#   - NFS RULES: set per-share NFS export rules
+#
+# OUT OF SCOPE BY DESIGN:
+#   - Pool create/destroy
+#   - Volume create/destroy
+#   These are once-per-NAS-lifetime, long-running, destructive
+#   operations — better done deliberately in the DSM Storage Manager
+#   UI than automated. If you rebuild the pool, do it via the UI; then
+#   re-run this role to recreate the shares declared in inventory.
+#
+# Pre-condition: the driving playbook has logged into DSM (via the
+# synology-dsm role's login.yml task file) and set `module_defaults`
+# for the synology_dsm_api_request action plugin (base_url, cookie,
+# synotoken, validate_certs, timeout). This role does NOT manage the
+# login/logout flow itself — same pattern as 30-storage.yml.
+
+- ansible.builtin.include_tasks: preflight.yml
+- ansible.builtin.include_tasks: shares.yml
+- ansible.builtin.include_tasks: nfs_exports.yml

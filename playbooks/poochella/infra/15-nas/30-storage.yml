@@ -1,0 +1,53 @@
+---
+# Reconcile nas01's DSM storage state with inventory.
+#
+# What runs today (additive, non-destructive):
+#   - Creates shares declared in inventory but missing on DSM
+#   - Sets per-share NFS export rules to match inventory
+#   - Leaves untouched: docker, homes, anything else the operator
+#     created in DSM that's NOT in inventory
+#
+# What's GATED OFF awaiting capture (DSM UI Network tab):
+#   - Pool create/destroy (storage.confirm_rebuild guard)
+#   - Volume create/destroy (storage.confirm_rebuild guard)
+#
+# Safe to run anytime — produces `changed=N` on first run (N = number
+# of shares created + NFS rule sets applied), then `changed=M` on
+# subsequent runs (M = number of NFS-rule-save calls, until we wire
+# read-and-diff for NFS rules in iteration 3b).
+#
+# Run:
+#   ansible-playbook --vault-password-file ansible-pass \
+#     playbooks/poochella/infra/15-nas/30-storage.yml
+
+- hosts: nas01
+  gather_facts: false
+  connection: local
+  vars:
+    synology_dsm_username: pani
+    synology_dsm_validate_certs: false
+    synology_dsm_base_url: "https://{{ ansible_host }}:5001"
+    synology_dsm_request_timeout: 30
+
+  tasks:
+    - name: Reconcile storage
+      module_defaults:
+        synology_dsm_api_request:
+          base_url: '{{ synology_dsm_base_url }}'
+          validate_certs: '{{ synology_dsm_validate_certs }}'
+          timeout: '{{ synology_dsm_request_timeout }}'
+          login_cookie: '{{ synology_dsm_login_cookie | default(omit) }}'
+          synotoken: '{{ synology_dsm_syno_token | default(omit) }}'
+      block:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: login.yml
+
+        - ansible.builtin.include_role:
+            name: synology-storage
+
+      always:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: logout.yml
+          when: synology_dsm_login_cookie is defined

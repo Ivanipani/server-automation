@@ -1,0 +1,210 @@
+---
+# Read-only inspection of nas01's storage subsystem.
+#
+# Synology does NOT publish the Storage Manager APIs the way it
+# publishes File Station; the only ground truth is what DSM's own UI
+# sends to itself. This task file probes several candidate endpoints
+# and dumps every response — the FIRST thing we run before designing
+# the inventory schema for storage pools / volumes / shares.
+#
+# Every call is `failed_when: false` so a missing/renamed endpoint
+# doesn't abort the others — the dump tells us which ones answer on
+# DSM 7.3.2. Once we know which endpoints exist + their response
+# shapes, iteration 2 builds the declarative create/destroy paths.
+
+# ---- API surface probe -------------------------------------------------------
+- name: Probe storage API surface (which methods/versions exist on this DSM?)
+  synology_dsm_api_request:
+    cgi_name: query.cgi
+    api_name: SYNO.API.Info
+    api_method: query
+    api_params:
+      query: "SYNO.Storage.CGI.Storage,SYNO.Storage.CGI.Volume,SYNO.Storage.CGI.Pool,SYNO.Storage.CGI.HddMan,SYNO.Storage.CGI.Spare,SYNO.Core.Storage.Volume,SYNO.Core.Storage.Pool,SYNO.Core.Storage.Disk,SYNO.Core.Share,SYNO.Core.Share.Permission,SYNO.Core.Share.PermissionForeign,SYNO.Core.FileServ.NFS.Share"
+  register: _storage_api_surface
+  failed_when: false
+
+- name: Probed APIs
+  ansible.builtin.debug:
+    msg: "{{ _storage_api_surface.json.data | default('PROBE FAILED', true) }}"
+
+# ---- Storage-wide load_info --------------------------------------------------
+# The most common shape: one call returns pools + volumes + disks in
+# nested form. If this works, the inventory schema can be derived from
+# its response without further probing.
+- name: Query SYNO.Storage.CGI.Storage / load_info
+  synology_dsm_api_request:
+    api_name: SYNO.Storage.CGI.Storage
+    api_method: load_info
+    api_version: 1
+    request_method: GET
+  register: _storage_load_info
+  failed_when: false
+
+- name: load_info response
+  ansible.builtin.debug:
+    msg: "{{ _storage_load_info.json | default(_storage_load_info.dsm_error | default('CALL FAILED'), true) }}"
+
+# ---- Individual list endpoints (fallback if load_info isn't there) ----------
+- name: Query SYNO.Core.Storage.Pool / list
+  synology_dsm_api_request:
+    api_name: SYNO.Core.Storage.Pool
+    api_method: list
+    api_version: 1
+    request_method: GET
+  register: _pool_list
+  failed_when: false
+
+- name: Pool list
+  ansible.builtin.debug:
+    msg: "{{ _pool_list.json | default(_pool_list.dsm_error | default('CALL FAILED'), true) }}"
+
+- name: Query SYNO.Core.Storage.Volume / list
+  synology_dsm_api_request:
+    api_name: SYNO.Core.Storage.Volume
+    api_method: list
+    api_version: 1
+    request_method: GET
+  register: _volume_list
+  failed_when: false
+
+- name: Volume list
+  ansible.builtin.debug:
+    msg: "{{ _volume_list.json | default(_volume_list.dsm_error | default('CALL FAILED'), true) }}"
+
+- name: Query SYNO.Core.Storage.Disk / list
+  synology_dsm_api_request:
+    api_name: SYNO.Core.Storage.Disk
+    api_method: list
+    api_version: 1
+    request_method: GET
+  register: _disk_list
+  failed_when: false
+
+- name: Disk list
+  ansible.builtin.debug:
+    msg: "{{ _disk_list.json | default(_disk_list.dsm_error | default('CALL FAILED'), true) }}"
+
+# ---- HddMan fallback (older DSM path) ---------------------------------------
+- name: Query SYNO.Storage.CGI.HddMan / load_info
+  synology_dsm_api_request:
+    api_name: SYNO.Storage.CGI.HddMan
+    api_method: load_info
+    api_version: 1
+    request_method: GET
+  register: _hddman
+  failed_when: false
+
+- name: HddMan response
+  ansible.builtin.debug:
+    msg: "{{ _hddman.json | default(_hddman.dsm_error | default('CALL FAILED'), true) }}"
+
+# ---- Share + NFS export current state ---------------------------------------
+- name: Query SYNO.Core.Share / list
+  synology_dsm_api_request:
+    api_name: SYNO.Core.Share
+    api_method: list
+    api_version: 1
+    request_method: GET
+    api_params:
+      shareType: all
+      additional: "[\"hidden\",\"encryption\",\"is_aclmode\",\"unite_permission\",\"is_support_acl\",\"is_sync_share\",\"is_force_readonly\",\"force_readonly_reason\",\"recyclebin\",\"is_share_moving\",\"is_cluster_share\",\"is_exfat_share\",\"is_cold_storage_share\",\"is_missing_share\",\"is_offline_share\",\"support_snapshot\",\"share_quota\",\"enable_share_cow\",\"enable_share_compression\",\"share_compression_algorithm\",\"share_compression_keep_threshold\",\"include_cold_storage_share\",\"is_cold_storage_share\",\"include_missing_share\",\"is_missing_share\",\"include_offline_share\",\"is_offline_share\",\"include_worm_share\"]"
+  register: _share_list
+  failed_when: false
+
+- name: Share list
+  ansible.builtin.debug:
+    msg: "{{ _share_list.json | default(_share_list.dsm_error | default('CALL FAILED'), true) }}"
+
+- name: Query SYNO.Core.FileServ.NFS.Share / list (NFS export rules)
+  synology_dsm_api_request:
+    api_name: SYNO.Core.FileServ.NFS.Share
+    api_method: list
+    api_version: 1
+    request_method: GET
+  register: _nfs_shares
+  failed_when: false
+
+- name: NFS share rules
+  ansible.builtin.debug:
+    msg: "{{ _nfs_shares.json | default(_nfs_shares.dsm_error | default('CALL FAILED'), true) }}"
+
+# ---- Write-side endpoint probe (calls with no params — DSM returns -----------
+# 101 = method exists but is missing parameters; 103 = method doesn't exist.
+# Either response tells us what's wired without executing anything.
+# ---------------------------------------------------------------------------
+
+- name: Probe write-side endpoints
+  synology_dsm_api_request:
+    api_name: "{{ item.api }}"
+    api_method: "{{ item.method }}"
+    api_version: 1
+    request_method: POST
+  register: _write_probe
+  failed_when: false
+  loop:
+    - { api: SYNO.Storage.CGI.Pool,    method: create }
+    - { api: SYNO.Storage.CGI.Pool,    method: delete }
+    - { api: SYNO.Storage.CGI.Pool,    method: expand }
+    - { api: SYNO.Storage.CGI.Volume,  method: create }
+    - { api: SYNO.Storage.CGI.Volume,  method: delete }
+    - { api: SYNO.Storage.CGI.Volume,  method: expand }
+    - { api: SYNO.Core.Share,          method: create }
+    - { api: SYNO.Core.Share,          method: delete }
+    - { api: SYNO.Core.Share,          method: set }
+    - { api: SYNO.Core.Share,          method: clone }
+    - { api: SYNO.Core.Share.Permission, method: list_by_share }
+    - { api: SYNO.Core.Share.Permission, method: set }
+  loop_control:
+    label: "{{ item.api }}/{{ item.method }}"
+
+- name: Write-side endpoint summary (101=method exists, needs args; 103=method missing; 403=needs SynoToken)
+  ansible.builtin.debug:
+    msg: |
+      {% for r in _write_probe.results %}
+      {{ r.item.api }}/{{ r.item.method }}: {% if r.json.success | default(false) %}OK{% else %}code={{ r.json.error.code | default('?') }}{% endif %}
+      {% endfor %}
+
+# ---- NFS-rule endpoint discovery --------------------------------------------
+# The "obvious" SYNO.Core.FileServ.NFS.Share doesn't exist on 7.3. NFS rules
+# are typically attached to the share itself — query an existing share's
+# `additional` fields to see if `nfs_rule` / `nfs_privilege` comes back inline.
+
+- name: Probe SYNO.Core.Share/get with NFS-related additional fields
+  synology_dsm_api_request:
+    api_name: SYNO.Core.Share
+    api_method: get
+    api_version: 1
+    request_method: GET
+    api_params:
+      name: docker                          # an existing share we'll be dropping anyway
+      additional: "[\"hidden\",\"encryption\",\"share_quota\",\"recyclebin\",\"nfs_rule\",\"nfs_privilege\",\"is_support_acl\",\"unite_permission\",\"is_cluster_share\"]"
+  register: _share_get
+  failed_when: false
+
+- name: Single share with NFS fields
+  ansible.builtin.debug:
+    msg: "{{ _share_get.json | default(_share_get.dsm_error | default('CALL FAILED'), true) }}"
+
+# Candidate alternative NFS-rule endpoints (one of these should answer)
+- name: Probe candidate NFS-rule endpoints
+  synology_dsm_api_request:
+    api_name: "{{ item }}"
+    api_method: list
+    api_version: 1
+    request_method: GET
+  register: _nfs_endpoints
+  failed_when: false
+  loop:
+    - SYNO.Core.FileServ.NFS.Privilege
+    - SYNO.Core.Share.NFSPrivilege
+    - SYNO.Core.Share.Privilege
+    - SYNO.Core.FileServ.NFS.AdvancedSetting
+  loop_control:
+    label: "{{ item }}"
+
+- name: NFS-rule endpoint probe summary
+  ansible.builtin.debug:
+    msg: |
+      {% for r in _nfs_endpoints.results %}
+      {{ r.item }}: {% if r.json.success | default(false) %}OK ({{ (r.json.data | default({})) | to_json | truncate(200) }}){% else %}code={{ r.json.error.code | default('?') }}{% endif %}
+      {% endfor %}

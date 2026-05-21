@@ -1,0 +1,32 @@
+---
+# Tier N — Synology NAS (nas01) configuration.
+#
+# Sits between 10-router (which gives nas01 its DNS+DHCP reservation)
+# and 20-hypervisor (whose 40-bake-images step writes qcow2s to a
+# share on nas01). Order matters: this tier must come after the
+# router tier, and before bake-images runs.
+#
+# Why a tier number that breaks the gap-10 convention (15-, not 20-):
+# the NAS sits semantically between router and hypervisor in the
+# dependency graph (router → nas → hypervisor). Renumbering the
+# downstream tiers to make room for 20-nas would churn every other
+# import. Pragmatism wins; documented here so the choice isn't
+# mysterious.
+#
+# Design: pure NFS server. We do NOT manage SSH access into the NAS —
+# all data paths (Longhorn backups, VM /home, PXE artifacts, qcow2
+# image publish) ride NFS. Operator interactive access, if needed, is
+# via DSM UI or by NFS-mounting from the laptop. Removing SSH from
+# scope kills a whole class of complexity (DSM users, home dirs,
+# User Home Service, 3327 errors, post-rebuild key restoration).
+#
+# Critical path (hard deps):
+#   20-baseline → 30-storage
+#
+# Diagnostic-only playbooks NOT imported here (they write nothing and
+# only make sense on operator demand):
+#   10-smoke-test.yml   — auth/TLS smoke test for the synology-dsm role
+#   15-show-state.yml   — read-only dump of every DSM setting we manage
+#   25-storage-plan.yml — read-only dump of every storage/share state
+- import_playbook: 20-baseline.yml
+- import_playbook: 30-storage.yml

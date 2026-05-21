@@ -1,0 +1,187 @@
+---
+# Reconcile DSM shares with the inventory-declared list.
+#
+# CREATE shares declared in inventory but missing on DSM.
+#
+# Does NOT auto-delete shares present on DSM but absent from inventory.
+# `homes` (User Home Service) and any user-owned share live alongside
+# ours and the role explicitly leaves them alone. Add `state: absent`
+# to an inventory share for explicit deletion (not yet wired — comes
+# in when capture E lands and we add the Entry.Request compound-delete
+# path).
+#
+# Share-create field shape (captured from DSM 7.3.2 HTTPS UI, 2026-05-21):
+#   top-level form fields:
+#     api=SYNO.Core.Share method=create version=1
+#     name=<json-quoted-share-name>
+#     shareinfo=<json object below>
+#   shareinfo object:
+#     name, vol_path, desc, enable_recycle_bin, recycle_bin_admin_only,
+#     enable_share_cow, enable_share_compress, name_org (empty on create)
+
+- name: List current DSM shares (with quota-related additional fields)
+  synology_dsm_api_request:
+    api_name: SYNO.Core.Share
+    api_method: list
+    api_version: 1
+    request_method: GET
+    # `additional: ["share_quota"]` is REQUIRED for `quota_value` to be
+    # populated in the response. Without it the field is absent, our
+    # drift-check defaults it to 0, and every run looks like drift.
+    api_params:
+      additional: '["share_quota","enable_share_cow","enable_share_compress"]'
+  register: _current_shares_raw
+
+- name: Build current-shares lookup (name → share)
+  ansible.builtin.set_fact:
+    _current_shares_by_name: >-
+      {{ dict(
+          (_current_shares_raw.json.data.shares | default([])) | map(attribute='name')
+          | zip(_current_shares_raw.json.data.shares | default([]))
+      ) }}
+
+- name: Show share reconciliation plan
+  ansible.builtin.debug:
+    msg:
+      current_share_names: "{{ _current_shares_by_name.keys() | list }}"
+      current_quotas: >-
+        {{ (_current_shares_raw.json.data.shares | default([]))
+           | items2dict(key_name='name', value_name='quota_value') }}
+      to_create: >-
+        {{ _declared_shares
+           | rejectattr('name', 'in', _current_shares_by_name.keys() | list)
+           | map(attribute='name') | list }}
+      to_leave_alone: >-
+        {{ _current_shares_by_name.keys() | list
+           | difference(_declared_shares | map(attribute='name') | list) }}
+
+- name: Create missing shares
+  synology_dsm_api_request:
+    api_name: SYNO.Core.Share
+    api_method: create
+    api_version: 1
+    request_method: POST
+    api_params:
+      name: '{{ item.name | to_json }}'
+      shareinfo: '{{ {
+                      "name":                   item.name,
+                      "vol_path":               item._vol_path,
+                      "desc":                   item.description | default(""),
+                      "enable_recycle_bin":     item.recycle_bin | default(synology_storage_share_defaults.recycle_bin),
+                      "recycle_bin_admin_only": false,
+                      "enable_share_cow":       item.cow | default(synology_storage_share_defaults.cow),
+                      "enable_share_compress":  item.compress | default(synology_storage_share_defaults.compress),
+                      "name_org":               ""
+                  } | to_json }}'
+  register: _create_results
+  loop: '{{ _declared_shares }}'
+  loop_control:
+    label: '{{ item.name }} → {{ item._vol_path }}'
+  when: item.name not in _current_shares_by_name
+  failed_when: >-
+    not _create_results.failed | default(false)
+    and not (_create_results.json.success | default(false))
+  changed_when: _create_results.json.success | default(false)
+
+# ---- Re-fetch the shares state so the quota task operates on the post-create
+# view (newly-created shares appear in DSM's list with a small delay; the
+# downstream quota-set call needs them to be visible or it fails with 402).
+- name: Re-list DSM shares post-create
+  synology_dsm_api_request:
+    api_name: SYNO.Core.Share
+    api_method: list
+    api_version: 1
+    request_method: GET
+    api_params:
+      additional: '["share_quota","enable_share_cow","enable_share_compress"]'
+  register: _current_shares_raw_post
+
+- name: Rebuild current-shares lookup after creates
+  ansible.builtin.set_fact:
+    _current_shares_by_name: >-
+      {{ dict(
+          (_current_shares_raw_post.json.data.shares | default([])) | map(attribute='name')
+          | zip(_current_shares_raw_post.json.data.shares | default([]))
+      ) }}
+
+- name: Assert every declared share now exists on DSM
+  # If create succeeded but the share still isn't listed, DSM swallowed
+  # the call without persisting. Most common cause: a plain (non-share)
+  # directory already exists at /volume1/<name>, blocking the share
+  # creation silently. Fail fast with a clear instruction.
+  ansible.builtin.assert:
+    that:
+      - (_declared_shares | map(attribute='name') | difference(_current_shares_by_name.keys() | list)) | length == 0
+    fail_msg: |
+      Share create returned success but these shares still don't
+      appear in DSM's list:
+        {{ _declared_shares | map(attribute='name') | difference(_current_shares_by_name.keys() | list) | list }}
+
+      The likely cause is that a PLAIN directory already exists at
+      /volume1/<sharename> from earlier work (e.g. our long-since
+      reverted 40-ssh-access.yml mkdir'd /volume1/proxmox). DSM
+      refuses to overlay a share on a non-share directory but doesn't
+      surface the conflict — its Share/create call returns
+      `success:true` without actually creating the share.
+
+      Fix (one-time): in DSM → File Station, find the plain directory
+      matching the share name above and delete it (or its contents +
+      `rmdir` via SSH-as-pani). Then re-run this playbook — share
+      creation will succeed since the path is now clear.
+    quiet: true
+
+# ---- Post-create settings: quota --------------------------------------------
+# Quota isn't in the create payload (Create's shareinfo doesn't accept
+# share_quota), so we apply it via Share/set wrapped in Entry.Request,
+# matching what DSM's own UI does on Save in the Advanced tab.
+#
+# `share_quota` is in MiB (10 GiB = 10240 in DSM's terms), so inventory's
+# `quota_gb` multiplies by 1024.
+#
+# Fires when EITHER:
+#   - the share is brand new (not in pre-create _current_shares_by_name) AND
+#     has a quota declared in inventory (newly created => quota=0 by default)
+#   - the share already existed with a quota_value that doesn't match what
+#     inventory declares (drift correction)
+#
+# Idempotent: re-running after the desired state is reached skips every share.
+
+- name: Set share quota where missing or drifted
+  synology_dsm_api_request:
+    api_name: SYNO.Entry.Request
+    api_method: request
+    api_version: 1
+    request_method: POST
+    api_params:
+      stop_when_error: 'true'
+      mode: '"sequential"'
+      compound: '{{ [{
+                      "api": "SYNO.Core.Share",
+                      "method": "set",
+                      "version": 1,
+                      "name": item.name,
+                      "shareinfo": {
+                        "name":                  item.name,
+                        "vol_path":              item._vol_path,
+                        "desc":                  item.description | default(""),
+                        "enable_share_cow":      item.cow | default(synology_storage_share_defaults.cow),
+                        "enable_share_compress": item.compress | default(synology_storage_share_defaults.compress),
+                        "share_quota":           (item.quota_gb | int) * 1024,
+                        "encryption":            false,
+                        "enc_passwd":            ""
+                      }
+                    }] | to_json }}'
+  register: _quota_results
+  loop: '{{ _declared_shares }}'
+  loop_control:
+    label: '{{ item.name }} → {{ item.quota_gb | default("no") }} GiB'
+  when:
+    - item.quota_gb is defined
+    - >-
+      item.name not in _current_shares_by_name
+      or (_current_shares_by_name[item.name].quota_value | default(0) | int)
+          != ((item.quota_gb | int) * 1024)
+  failed_when: >-
+    not (_quota_results.json.success | default(false))
+    or (_quota_results.json.data.has_fail | default(false))
+  changed_when: _quota_results.json.success | default(false)

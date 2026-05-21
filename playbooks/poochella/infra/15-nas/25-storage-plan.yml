@@ -1,0 +1,48 @@
+---
+# Read-only inspection of nas01's storage layer. Mirrors `just disk-plan`
+# for the PVE side: tells us what's physically present and what
+# pools/volumes/shares DSM already has, WITHOUT touching anything.
+#
+# Iteration 1 of the synology-storage role — runs before any
+# inventory-schema work because we don't know which Synology storage
+# APIs are actually exposed on DSM 7.3.2 (they're not documented).
+# Once this play's output shows what answers, iteration 2 can shape
+# the inventory.yaml `storage.pools / volumes / shares` schema for
+# real, then add the destructive create paths.
+#
+# Run:
+#   ansible-playbook --vault-password-file ansible-pass \
+#     playbooks/poochella/infra/15-nas/25-storage-plan.yml
+
+- hosts: nas01
+  gather_facts: false
+  connection: local
+  vars:
+    synology_dsm_username: pani
+    synology_dsm_validate_certs: false
+    synology_dsm_base_url: "https://{{ ansible_host }}:5001"
+    synology_dsm_request_timeout: 30
+
+  tasks:
+    - name: Inspect NAS storage
+      module_defaults:
+        synology_dsm_api_request:
+          base_url: '{{ synology_dsm_base_url }}'
+          validate_certs: '{{ synology_dsm_validate_certs }}'
+          timeout: '{{ synology_dsm_request_timeout }}'
+          login_cookie: '{{ synology_dsm_login_cookie | default(omit) }}'
+          synotoken: '{{ synology_dsm_syno_token | default(omit) }}'
+      block:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: login.yml
+
+        - ansible.builtin.include_role:
+            name: synology-storage
+            tasks_from: discover.yml
+
+      always:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: logout.yml
+          when: synology_dsm_login_cookie is defined

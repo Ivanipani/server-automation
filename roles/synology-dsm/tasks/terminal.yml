@@ -1,0 +1,30 @@
+---
+# SSH + Telnet on/off, SSH port. DSM's UI: Control Panel → Terminal & SNMP.
+#
+# Uses the compound (SYNO.Entry.Request) shape because that is what the
+# DSM UI sends — one round-trip to set every Terminal field together.
+
+- name: Enable/Disable SSH/Telnet
+  synology_dsm_api_request:
+    api_name: SYNO.Entry.Request
+    api_method: request
+    request_method: POST
+    api_params:
+      stop_on_error: 'false'
+      mode: sequential
+      compound: >-
+        [{
+        "api":"SYNO.Core.Terminal",
+        "method":"set",
+        "version":"3",
+        "enable_telnet":{{ synology_dsm_telnet_enable | to_json }},
+        "enable_ssh":{{ synology_dsm_ssh_enable | to_json }},
+        "ssh_port":{{ synology_dsm_ssh_port | int }}
+        }]
+
+# Upstream had a follow-up `SYNO.DSM.PortEnable / is_port_block` call
+# tagged "this may not be needed at all". Verified: DSM 7.3 opens the SSH
+# port automatically as part of the Terminal `set` above when the
+# firewall is in its default profile. If you're running a custom DSM
+# firewall profile, open the port via Control Panel → Security → Firewall
+# instead; doing it via this opaque endpoint is fragile.

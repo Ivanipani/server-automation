@@ -1,0 +1,9 @@
+---
+# Per-share defaults applied when the inventory doesn't override.
+# These match Synology-recommended choices for a homelab cold-storage
+# NAS (btrfs + CoW for snapshot efficiency, compression off since most
+# data here is already compressed qcow2 / backup blobs).
+synology_storage_share_defaults:
+  cow: true
+  compress: false
+  recycle_bin: false

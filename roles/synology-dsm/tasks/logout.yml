@@ -1,0 +1,26 @@
+---
+# Always-fire teardown: drop the DSM session cookie. Upstream had no
+# logout at all, so a run left its session token alive on DSM until
+# idle-expiry (default 30 min). Here it dies with the play.
+#
+# Errors are deliberately swallowed (`failed_when: false`) — if logout
+# fails (e.g. the session already expired), we don't want it to mask
+# the real failure that landed us in `always:` to begin with.
+
+- name: Logout from DSM
+  synology_dsm_api_request:
+    cgi_name: auth.cgi
+    api_name: SYNO.API.Auth
+    api_version: 6
+    api_method: logout
+    request_method: POST
+  register: _synology_dsm_logout
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Forget the session cookie + SynoToken
+  ansible.builtin.set_fact:
+    synology_dsm_login_cookie: !!null
+    synology_dsm_syno_token: !!null
+  no_log: true

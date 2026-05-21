@@ -224,6 +224,45 @@ switches:
       ip_address: 10.1.1.102
       mac_address: "04:f4:1c:82:e0:ff"
 
+storage:
+  # NAS / shared file-storage targets. Administered out-of-band on the
+  # device's own UI (Synology DSM), but treated as a normal LAN host
+  # from the network's point of view: a dnsmasq static DHCP reservation
+  # pins MAC -> ip_address and auto-registers `nas01.lan` in DNS via
+  # `dnsmasq_register_static_dns: true` — same path every other named
+  # LAN host uses (kube-ctl-01.lan, pve-home-01.lan, …), no separate
+  # Unbound override needed. The NAS may keep its DSM static-IP config
+  # or switch to DHCP; either way the MAC -> IP binding matches and the
+  # name resolves.
+  #
+  # Read by:
+  #   - 20-hypervisor/40-bake-images.yml  (Packer publishes the dated qcow2
+  #                                        + atomic `latest` symlink here
+  #                                        via rsync-over-SSH)
+  #   - tofu/locals.tf                    (`nas.https_url_base` is the
+  #                                        source of every
+  #                                        proxmox_virtual_environment_download_file
+  #                                        URL Tofu pulls onto each PVE
+  #                                        node's `local` ISO storage)
+  #
+  # Per-host `nas:` namespace fields (concrete values are PLACEHOLDERS —
+  # bump them to match the deployed device before first `just bake-images`):
+  #   - images_dir        absolute path on the NAS filesystem holding the
+  #                       golden-image artifacts.
+  #   - rsync_user        service account on the NAS with SSH + write to
+  #                       images_dir + the ability to `ln -sf` + `mv -Tf`
+  #                       symlinks (Synology: a user with shell access).
+  #   - https_url_base    HTTPS URL root the NAS exposes for images_dir.
+  hosts:
+    nas01:
+      ansible_host: nas01.lan
+      ip_address: 10.1.1.130
+      mac_address: "90:09:d0:96:65:63"
+      nas:
+        images_dir: /volume1/proxmox/images/vm
+        rsync_user: pve-publisher
+        https_url_base: https://nas01.lan/proxmox/images/vm
+
 virtual-machines:
   # No loose `hosts:` here on purpose. Every VM lives in a LEAF child
   # group so its inbound firewall policy comes from that group's

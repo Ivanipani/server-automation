@@ -25,3 +25,17 @@ proxmox_api_tokens:
   pve-home-01: "{{ vault_proxmox_api_token_pve_home_01 }}"
   pve-home-02: "{{ vault_proxmox_api_token_pve_home_02 }}"
 k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
+
+# NAS publish/consume coordinates, re-exported from the single source of
+# truth in inventory.yaml (`storage.hosts.nas01.nas`). Consumers:
+#   - 20-hypervisor/40-bake-images.yml uses nas_rsync_target / nas_ssh_target
+#     / nas_images_dir to push the qcow2 from the PVE build host.
+#   - tofu/locals.tf reads the same hostvars entry directly (yamldecode)
+#     to compose the HTTPS URL for proxmox_virtual_environment_download_file.
+# Adding a second NAS = add a host to the `storage` group and parameterize
+# these by an `image_publish_target` selector.
+nas_images_url_base: "{{ hostvars['nas01'].nas.https_url_base }}"
+nas_images_dir:      "{{ hostvars['nas01'].nas.images_dir }}"
+nas_rsync_user:      "{{ hostvars['nas01'].nas.rsync_user }}"
+nas_rsync_target:    "{{ hostvars['nas01'].nas.rsync_user }}@{{ hostvars['nas01'].ansible_host }}:{{ hostvars['nas01'].nas.images_dir }}"
+nas_ssh_target:      "{{ hostvars['nas01'].nas.rsync_user }}@{{ hostvars['nas01'].ansible_host }}"
