@@ -1,0 +1,71 @@
+---
+# Phase H3.5: Mount NFS shares from nas01 onto every PVE baremetal host.
+#
+# Slots between 30-storage (local LVM-thin) and 40-bake-images
+# (which writes qcow2s into the NAS via the `proxmox` mount this
+# playbook establishes). For a full first-time infra run, the order
+# is: 15-nas/30-storage creates the shares on the NAS → this play
+# mounts them on the PVE hosts → 40-bake-images writes through.
+#
+# What gets mounted (declared in group_vars/baremetal.yml's
+# `baremetal_nfs_mounts`; one source of truth):
+#   - nas01:/volume1/pxe       → /mnt/nas/pxe       (RO)
+#   - nas01:/volume1/proxmox   → /mnt/nas/proxmox   (RW)
+#
+# Mount options chosen for resilience:
+#   vers=4          NFSv4 (matches the NAS's enabled protocol set by
+#                   15-nas/20-baseline.yml's synology_dsm_nfs_enable_v4)
+#   _netdev         Mount only after networking is up
+#   nofail          A NAS outage at boot does NOT block PVE boot —
+#                   the host comes up, the mount fails, you debug
+#   bg              Background mount-retries after initial failure
+#   soft,timeo=30   Fail cleanly after ~3s of retries instead of
+#                   hanging the calling process forever — appropriate
+#                   for the interactive bake-images workflow; the data
+#                   being written is reproducible (re-bake on failure)
+#
+# Pre-conditions (asserted in 15-nas/30-storage.yml on its side):
+#   - nas01 is reachable on the LAN (10.1.1.0/24)
+#   - The shares listed above exist with the right NFS export rules
+#
+# Re-run safely: ansible.posix.mount is idempotent on /etc/fstab and
+# on the live mount; running this when everything is already correct
+# is a no-op.
+
+- name: Mount nas01 NFS shares onto PVE baremetal hosts
+  hosts: baremetal
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Install NFS client utilities (mount.nfs lives in nfs-common)
+      ansible.builtin.apt:
+        name: nfs-common
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Create the mountpoint via mkdir -p + a `creates:` guard, NOT via
+    # `ansible.builtin.file: state=directory`. Reason: once the NFS
+    # share is mounted (especially read-only shares like pxe), the file
+    # module's owner/mode enforcement hits EROFS on subsequent runs
+    # because it tries to chmod/chown the now-NFS-backed directory.
+    # mkdir -p with `creates:` simply skips when the path exists, so
+    # idempotence survives the mount.
+    - name: Ensure NFS mount point directories exist
+      ansible.builtin.command:
+        cmd: "mkdir -p {{ item.path | quote }}"
+        creates: "{{ item.path }}"
+      loop: "{{ baremetal_nfs_mounts }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Mount each declared NFS share (idempotent fstab + mount)
+      ansible.posix.mount:
+        src: "{{ hostvars['nas01'].ansible_host }}:/volume1/{{ item.share }}"
+        path: "{{ item.path }}"
+        fstype: nfs
+        opts: "{{ item.options }}"
+        state: mounted
+      loop: "{{ baremetal_nfs_mounts }}"
+      loop_control:
+        label: "{{ item.share }} → {{ item.path }}"

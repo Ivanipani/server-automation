@@ -44,3 +44,26 @@ confirm_carve_data_disk: true
 # in the next tier step. Any REAL (non-template) VM or container still
 # HARD REFUSES regardless of this flag — it only ever touches templates.
 carve_destroy_templates: false
+
+# ── NFS mounts from nas01 ───────────────────────────────────────────
+# Consumed by 20-hypervisor/35-nfs-mounts.yml. Each entry's `share` is
+# a NAS-side share name declared in inventory.yaml's
+# storage.hosts.nas01.storage.shares; the playbook derives the NFS
+# source from nas01's ansible_host. Adding a mount = append here +
+# re-run 35-nfs-mounts.yml. Removing a mount = drop the entry AND run
+# one transitional play with `state: absent` (ansible.posix.mount with
+# `state: mounted` doesn't auto-unmount stragglers).
+baremetal_nfs_mounts:
+  - share: pxe
+    path: /mnt/nas/pxe
+    # read-only — PXE clients only read boot artifacts; matches the
+    # NFS export's `ro` rule on the NAS side.
+    options: "ro,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
+  - share: proxmox
+    path: /mnt/nas/proxmox
+    # read-write — bake-images writes qcow2s here as the active publish
+    # target (Phase 2 of the SSH→NFS migration in 40-bake-images.yml).
+    # `soft,timeo=30` keeps a NAS hiccup from hanging the build; data
+    # is reproducible so the failure mode is "rerun the bake", not
+    # "corrupt the artifact".
+    options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"

@@ -68,12 +68,7 @@
       ansible.builtin.apt:
         name:
           - packer
-          - qemu-utils
-          - qemu-system-x86
-          - ovmf
           - ansible
-          - rsync
-          - openssh-client
         state: present
         update_cache: true
         cache_valid_time: 3600
