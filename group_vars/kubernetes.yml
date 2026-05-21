@@ -13,6 +13,16 @@ k3s_version: "v1.31.4+k3s1"
 k3s_kube_vip_enabled: true
 k3s_kube_vip_address: "10.1.1.50"
 
+# Stable DNS name in front of the VIP, resolved by Unbound on OPNsense
+# (host override pushed in playbooks/poochella/infra/10-router/30-unbound.yml,
+# which reads this var via hostvars). Consumed by the k3s role for the
+# rewritten kubeconfig `server:` URL, the joiner --server endpoint, and
+# as an extra apiserver TLS SAN — so workflows that touch the cluster
+# survive a VIP renumber with a single DNS edit. DNS is sugar ON TOP of
+# kube-vip, not a replacement: kube-vip still owns sub-second L2
+# failover between CPs, the DNS layer just hides the literal VIP.
+k3s_api_dns_name: "api.doghouse.lan"
+
 # Fetch kubeconfig back to the controller after the cluster is up so you
 # can `export KUBECONFIG=$(pwd)/kubeconfig && kubectl get nodes` from
 # the repo root. Path is relative to the controller (your laptop).

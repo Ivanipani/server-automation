@@ -6,13 +6,22 @@ k3s_version: "v1.31.4+k3s1"
 k3s_install_script_url: "https://get.k3s.io"
 k3s_install_script_path: /usr/local/bin/k3s-install.sh
 
+# Stable DNS name in front of the apiserver, resolved out-of-band (e.g.
+# by OPNsense Unbound for poochella; see playbooks/poochella/infra/
+# 10-router/30-unbound.yml). When set it is used as the joiner --server
+# URL, the rewritten kubeconfig `server:` URL, and an extra TLS SAN on
+# the apiserver cert. Empty (default) keeps the role VIP/IP-only.
+k3s_api_dns_name: ""
+
 # Endpoint joiners (CPs and agents) use to reach the cluster. Preference
 # order: DNS name → kube-vip VIP → first CP's ansible_host. Joining via
 # the DNS name keeps joiner configs survivable across VIP renumbers.
 k3s_api_endpoint: >-
-  https://{{ k3s_kube_vip_address
-             if (k3s_kube_vip_enabled and k3s_kube_vip_address)
-             else hostvars[groups['kube_control_plane'][0]].ansible_host }}:6443
+  https://{{ k3s_api_dns_name
+             if k3s_api_dns_name
+             else (k3s_kube_vip_address
+                   if (k3s_kube_vip_enabled and k3s_kube_vip_address)
+                   else hostvars[groups['kube_control_plane'][0]].ansible_host) }}:6443
 
 
 # Shared cluster join token. MUST be overridden via group_vars + vault.

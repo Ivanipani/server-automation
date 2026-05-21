@@ -96,10 +96,10 @@ Longhorn (future) is **workers-only by design**: only `kube_workers` declare `vm
 
 `playbooks/poochella/infra/11-install-kubernetes.yml` builds an embedded-etcd HA cluster (k3s runs *inside the guest VMs*, independent of the Proxmox-layer topology — but note all CPs currently land on the single `pve-home-02`, so that host is the etcd blast radius):
 1. First CP runs `k3s server --cluster-init`; kube-vip is then deployed only on that node to bring up the L2 VIP at `k3s_kube_vip_address` (currently `10.1.1.50`)
-2. Remaining CPs join `serial: 1` via `https://<VIP>:6443`; workers join after
-3. kubeconfig is fetched back to `{{ playbook_dir }}/../../../kubeconfig` (repo root) with its `server:` URL rewritten to the VIP — `export KUBECONFIG=$(pwd)/kubeconfig` to use it
+2. Remaining CPs join `serial: 1` via `https://<api-endpoint>:6443` where api-endpoint is `k3s_api_dns_name` if set, else the VIP; workers join after
+3. kubeconfig is fetched back to `{{ playbook_dir }}/../../../kubeconfig` (repo root) with its `server:` URL rewritten to the DNS name (else the VIP) — `export KUBECONFIG=$(pwd)/kubeconfig` to use it
 
-The VIP must be a free address on the same L2 segment as the control planes. Config lives in `group_vars/kubernetes.yml`. The role still supports an optional `k3s_api_dns_name` (DNS sugar in front of the VIP) but poochella doesn't set it — joiners and external kubectl hit the VIP IP directly, removing the runtime dependency on OPNsense DNS.
+The VIP must be a free address on the same L2 segment as the control planes. Config lives in `group_vars/kubernetes.yml`. Layered on top of the VIP is `k3s_api_dns_name: api.doghouse.lan` — pushed to OPNsense Unbound by `10-router/30-unbound.yml` (the more-specific override coexists with the `*.doghouse.lan` ingress wildcard). The k3s role uses the DNS name for the joiner `--server` URL, the rewritten kubeconfig `server:`, and as a TLS SAN on the apiserver cert; kube-vip still owns sub-second L2 failover between CPs, the DNS layer is sugar on top. Renumbering the VIP is therefore a one-line DNS edit. The bootstrap order (10-router before 40-kube) already satisfies the soft DNS dependency the layer introduces.
 
 ### Roles
 

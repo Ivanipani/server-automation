@@ -33,3 +33,19 @@
         value: 10.1.1.250
         description: doghouse-ingress-wildcard
         state: present
+
+    # Stable name in front of the k3s apiserver (kube-vip L2 VIP). The
+    # more-specific override wins over the *.doghouse.lan wildcard above,
+    # so api.doghouse.lan reaches the apiserver while everything else
+    # under doghouse.lan still falls through to the Traefik ingress.
+    # Both the VIP and the DNS name live in group_vars/kubernetes.yml —
+    # pulled here via hostvars so this playbook stays inventory-driven
+    # (no second literal copy of 10.1.1.50 to keep in sync).
+    - name: api.doghouse.lan -> k3s apiserver VIP
+      oxlorg.opnsense.unbound_host:
+        hostname: api
+        domain: doghouse.lan
+        record_type: A
+        value: "{{ hostvars[groups['kube_control_plane'][0]].k3s_kube_vip_address }}"
+        description: doghouse-apiserver
+        state: present
