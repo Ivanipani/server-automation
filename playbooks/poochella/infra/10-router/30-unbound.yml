@@ -34,18 +34,30 @@
         description: doghouse-ingress-wildcard
         state: present
 
-    # Stable name in front of the k3s apiserver (kube-vip L2 VIP). The
-    # more-specific override wins over the *.doghouse.lan wildcard above,
-    # so api.doghouse.lan reaches the apiserver while everything else
-    # under doghouse.lan still falls through to the Traefik ingress.
-    # Both the VIP and the DNS name live in group_vars/kubernetes.yml —
-    # pulled here via hostvars so this playbook stays inventory-driven
-    # (no second literal copy of 10.1.1.50 to keep in sync).
-    - name: api.doghouse.lan -> k3s apiserver VIP
+    # Stable name in front of the k3s apiserver (kube-vip L2 VIP).
+    # Lives in the top-level `lan` zone (transparent), NOT under
+    # doghouse.lan: the *.doghouse.lan wildcard above makes that zone
+    # `redirect`, and Unbound forbids per-host local-data anywhere but
+    # the zone apex in a redirect zone ("local-data in redirect zone
+    # must reside at top of zone"). Putting the apiserver in .lan also
+    # keeps the topology honest — the apiserver is a peer of the
+    # ingress, not a service behind it.
+    #
+    # Hostname + domain are split out of k3s_api_dns_name so this
+    # playbook stays inventory-driven: change the name (and the VIP) in
+    # group_vars/kubernetes.yml only, and both Unbound and the k3s role
+    # follow.
+    - name: api.lan -> k3s apiserver VIP
       oxlorg.opnsense.unbound_host:
-        hostname: api
-        domain: doghouse.lan
+        hostname: "{{ hostvars[groups['kube_control_plane'][0]].k3s_api_dns_name.split('.', 1)[0] }}"
+        domain: "{{ hostvars[groups['kube_control_plane'][0]].k3s_api_dns_name.split('.', 1)[1] }}"
         record_type: A
         value: "{{ hostvars[groups['kube_control_plane'][0]].k3s_kube_vip_address }}"
         description: doghouse-apiserver
         state: present
+
+    # NOTE: `nas01.lan` is intentionally NOT defined here. The NAS gets
+    # a dnsmasq static DHCP reservation (inventory has its MAC), and
+    # dnsmasq_register_static_dns auto-publishes the DNS record — same
+    # path every other named LAN host uses. Re-adding an Unbound host
+    # override would be a second source of truth for the same name.
