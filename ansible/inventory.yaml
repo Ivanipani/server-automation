@@ -217,6 +217,7 @@ baremetal:
       #           mac_address: "<unique-mac>"
       children: {}
 
+
 switches:
   hosts:
     router-01:
@@ -285,7 +286,6 @@ virtual-machines:
             memory: 8192
             disk_size: 100
             tags: [dev, ivan]
-    databases:
     kubernetes:
 
 kubernetes:

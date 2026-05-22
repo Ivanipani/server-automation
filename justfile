@@ -9,7 +9,6 @@ default:
 
 # Ping all servers
 ping:
-    #!/usr/bin/env bash
     ansible all -m ping
 
 
@@ -78,13 +77,14 @@ install:
 # symlink inventory.yaml into $HOME. Allows other projects to use this inventory as the source of truth
 symlink-inventory:
   mkdir -p "$HOME/.ansible/inventory"
-  ln -sf {{pwd}}/inventory.yaml "$HOME/.ansible/inventory/inventory.yaml"
+  ln -sf {{pwd}}/ansible/inventory.yaml "$HOME/.ansible/inventory/inventory.yaml"
 
 
 # Run a playbook
 run *options: check
     #!/usr/bin/env bash
     set -euo pipefail
+    cd ansible
     selected=$(find playbooks -name '*.yml' -type f | sort | fzf)
     echo "Running $selected"
     ansible-playbook --vault-password-file ansible-pass {{ options }} "$selected"
@@ -99,21 +99,6 @@ test: check
         exit 0
     fi
     ansible-playbook -i inventory.yaml test/test.yml --tags "$tags"
-
-tofu-validate:
-    cd tofu && tofu validate
-
-# Initialize OpenTofu providers
-tofu-init: tofu-validate
-    cd tofu && tofu init
-
-# Preview infrastructure changes
-tofu-plan: tofu-validate
-    cd tofu && tofu plan
-
-# Apply infrastructure changes
-tofu-apply: tofu-validate
-    cd tofu && tofu apply
 
 # Encrypt a variable with ansible-vault
 secret-encrypt name:
@@ -161,43 +146,8 @@ ssh-refresh:
     done
     echo "Done."
 
-# Init hypervisor for development
-do-hypervisor-init:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/10-bootstrap.yml
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/50-tailscale.yml
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/07-sessions-and-shell.yml
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/07-users.yml
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/trunk/08-dev-tools.yml
 
-# Form the Proxmox cluster (run after do-hypervisor-init). No-op while
-# every node is standalone (poochella's current state).
-do-cluster-init:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/20-cluster.yml
-
-# Node-local storage, end to end (merged carve + LVM-thin pool + PVE
-# storage registration). DESTRUCTIVE carve on first run — requires
-# `confirm_carve_data_disk: true` in group_vars/baremetal.yml AND PVE
-# installed with `lvm.hdsize = 100`. Idempotent on re-run.
-do-storage:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/30-storage.yml
-
-# READ-ONLY: inspect every baremetal node's disks (model/serial/size/
-# rotational/signatures/partlabels) and print a paste-ready
-# `storage.disks` selector skeleton. Run after any disk add/swap, then
-# edit inventory.yaml deliberately and re-run `just do-storage`. Writes
-# nothing. (Replaces the never-implemented `just disk-ids`.)
+# READ-ONLY: inspect every baremetal node's disks and print a paste-ready `storage.disks` selector skeleton. Run after any disk add/swap
 disk-plan:
     ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/30-storage-plan.yml
 
-# (Ceph is removed — node-local LVM-thin storage replaced it. The
-# ceph / ceph-csi roles remain on disk as dormant reference but are
-# not wired into any playbook or recipe; see CLAUDE.md. The former
-# `do-ceph-init` / `do-ceph-csi` recipes are intentionally gone.)
-
-# Configure OPNsense dnsmasq static leases for baremetal
-do-router-dhcp:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/10-router/20-dnsmasq.yml
-
-# Install Prometheus node_exporter on Proxmox baremetal hosts
-do-node-exporter:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/60-node-exporter.yml
