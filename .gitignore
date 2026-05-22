@@ -8,3 +8,5 @@
 *.iso
 *.img
 tofu/secrets.auto.tfvars
+img/debian/.cache/
+img/debian/output/

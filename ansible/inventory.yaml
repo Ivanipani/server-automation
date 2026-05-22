@@ -121,6 +121,16 @@ baremetal:
           ansible_host: pve-home-01.lan
           ip_address: 10.1.1.105
           mac_address: "18:60:24:dc:b7:32"
+          # Baremetal Debian unattended-install hint (read by img/debian/).
+          # `disk` is the device the Debian installer wipes + lays down LVM
+          # on for / (everything else — the `vms` + `longhorn-data` carve —
+          # is owned by the hypervisor-disks role post-install). Stable
+          # /dev/disk/by-id path so kernel renames don't matter; the value
+          # is verified against the host's lsblk output in `just disk-plan`.
+          # The PVE auto-install path (img/proxmox/pve-home-01.toml) still
+          # works untouched; pick whichever ISO you flash per host.
+          debian_install:
+            disk: /dev/sda
           # Mini-PC: a single ~1 TB boot NVMe carries all three roles.
           # PVE installer took the first ~100 GiB (lvm.hdsize=100) as the
           # `pve` VG (hypervisor). Its free tail is carved, in order,
@@ -146,6 +156,12 @@ baremetal:
           ansible_host: pve-home-02.lan
           ip_address: 10.1.1.106
           mac_address: "3c:7c:3f:1f:96:af"
+          # See pve-home-01 for the rationale. nvme0n1 is the Samsung
+          # ~250 GB boot NVMe (selector: boot below). The new ~1 TB NVMe +
+          # WDC HDD are data disks, owned by the hypervisor-disks role
+          # post-install — the Debian installer must not touch them.
+          debian_install:
+            disk: /dev/nvme0n1
           # Three disks (preview with `just disk-plan`):
           #   - Samsung ~250 GB boot NVMe  → its SSD tail = `vms`
           #     (after lvm.hdsize=100; selector: boot)

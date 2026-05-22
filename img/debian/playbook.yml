@@ -1,0 +1,116 @@
+---
+# Render the per-host overlay files (preseed.cfg + boot configs +
+# authorized_keys) for one baremetal Debian install into a workdir.
+# img/debian/build.sh invokes this, then hands the workdir off to xorriso
+# to overlay onto the upstream Debian netinst ISO.
+#
+# Runs entirely on localhost — no host has to be reachable for the build.
+# Inventory is the source of truth; this play is only a renderer.
+#
+# Invoked as:
+#   ansible-playbook img/debian/playbook.yml \
+#       --vault-password-file ansible-pass \
+#       -e target_host=<inventory-hostname> \
+#       -e workdir=<absolute-path>
+
+- name: Render Debian preseed + boot overlay for {{ target_host }}
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    timezone: America/New_York
+    # ansible_pubkey is the same key roles/ivan-user and the Packer bake
+    # path install on every box. The fleet has exactly one canonical
+    # bootstrap key and it lives on the laptop at ~/.ssh/ansible.pub.
+    ansible_pubkey_path: "{{ lookup('env', 'HOME') }}/.ssh/ansible.pub"
+
+  pre_tasks:
+    - name: Assert target_host is set
+      ansible.builtin.assert:
+        that:
+          - target_host is defined
+          - target_host in hostvars
+        fail_msg: >-
+          target_host must be passed via -e target_host=<host>, and the host
+          must exist in ansible/inventory.yaml.
+
+    - name: Assert workdir is set
+      ansible.builtin.assert:
+        that:
+          - workdir is defined
+          - workdir | length > 0
+        fail_msg: workdir must be passed via -e workdir=<absolute-path>.
+
+    # Pull only the fields the preseed needs, one at a time. Materializing
+    # the full hostvars dict (e.g. `host: "{{ hostvars[target_host] }}"`)
+    # eagerly resolves every templated var in group_vars/all/vars.yml —
+    # including unrelated vault indirections like proxmox_api_token — and
+    # crashes the play if any of them is missing from the vault.
+    - name: Assert host carries the fields the preseed needs
+      ansible.builtin.assert:
+        that:
+          - hostvars[target_host].mac_address is defined
+          - hostvars[target_host].debian_install is defined
+          - hostvars[target_host].debian_install.disk is defined
+        fail_msg: >-
+          {{ target_host }} is missing required fields in inventory.yaml.
+          Required: mac_address, debian_install.disk. See pve-home-01 for
+          the canonical shape.
+
+    - name: Extract the inventory fields the preseed needs
+      ansible.builtin.set_fact:
+        host:
+          mac_address: "{{ hostvars[target_host].mac_address }}"
+          debian_install:
+            disk: "{{ hostvars[target_host].debian_install.disk }}"
+
+    - name: Assert the bootstrap pubkey exists on disk
+      ansible.builtin.stat:
+        path: "{{ ansible_pubkey_path }}"
+      register: pubkey_stat
+      failed_when: not pubkey_stat.stat.exists
+
+    - name: Load the bootstrap pubkey
+      ansible.builtin.set_fact:
+        ansible_pubkey: "{{ lookup('file', ansible_pubkey_path) }}"
+
+    - name: Assert the vault root password exists in the vault
+      ansible.builtin.assert:
+        that:
+          - vault_baremetal_root_password is defined
+          - vault_baremetal_root_password | length > 0
+        fail_msg: >-
+          vault_baremetal_root_password missing from group_vars/all/vault.yml.
+          Add it:  just secret-encrypt vault_baremetal_root_password
+
+  tasks:
+    - name: Ensure workdir exists
+      ansible.builtin.file:
+        path: "{{ workdir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render preseed.cfg
+      ansible.builtin.template:
+        src: templates/preseed.cfg.j2
+        dest: "{{ workdir }}/preseed.cfg"
+        mode: "0644"
+
+    - name: Render UEFI grub.cfg
+      ansible.builtin.template:
+        src: templates/grub.cfg.j2
+        dest: "{{ workdir }}/grub.cfg"
+        mode: "0644"
+
+    - name: Render BIOS/isolinux txt.cfg
+      ansible.builtin.template:
+        src: templates/txt.cfg.j2
+        dest: "{{ workdir }}/txt.cfg"
+        mode: "0644"
+
+    - name: Write authorized_keys (single key, trailing newline)
+      ansible.builtin.copy:
+        content: "{{ ansible_pubkey }}\n"
+        dest: "{{ workdir }}/authorized_keys"
+        mode: "0644"

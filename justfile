@@ -102,7 +102,7 @@ test: check
 
 # Encrypt a variable with ansible-vault
 secret-encrypt name:
-    ansible-vault encrypt_string --vault-password-file ansible-pass --stdin-name {{name}}
+    cd ansible && ansible-vault encrypt_string --vault-password-file ansible-pass --stdin-name {{name}}
 
 # Decrypt & print a single value from group_vars/all/vault.yml.
 # Pass a name (e.g. `just secret-decrypt vault_postgres_pass`), or
@@ -149,5 +149,10 @@ ssh-refresh:
 
 # READ-ONLY: inspect every baremetal node's disks and print a paste-ready `storage.disks` selector skeleton. Run after any disk add/swap
 disk-plan:
-    ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/30-storage-plan.yml
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/30-storage-plan.yml
+
+
+# Build a per-host unattended Debian 13 install ISO (writes to img/debian/output/). Flash with img/burn-to-disc.sh.
+baremetal-iso host: check
+    {{pwd}}/img/debian/build.sh {{host}}
 

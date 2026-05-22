@@ -5,6 +5,11 @@
 postgres_pass: "{{ vault_postgres_pass }}"
 router_root_pass: "{{ vault_router_root_pass }}"
 hypervisor_root_pass: "{{ vault_hypervisor_root_pass }}"
+# Root password baked into the Debian-baremetal preseed (img/debian/).
+# Console fallback only — the `ansible` user + key handles automation, so
+# treat this like a break-glass credential. Add to vault.yml with
+# `just secret-encrypt vault_baremetal_root_password` before first build.
+baremetal_root_password: "{{ vault_baremetal_root_password }}"
 ansible_user_pass: "{{ vault_ansible_user_pass }}"
 pani_user_pass: "{{ vault_pani_user_pass }}"
 github_pat: "{{ vault_github_pat }}"

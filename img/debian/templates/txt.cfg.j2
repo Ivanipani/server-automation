@@ -1,0 +1,18 @@
+# BIOS/isolinux auto-install boot config for {{ target_host }}.
+# Replaces isolinux/txt.cfg in the rebuilt ISO. Symmetrical to grub.cfg —
+# same kernel + cmdline so UEFI and legacy-BIOS boots install identically.
+
+default auto
+prompt 0
+timeout 30
+
+label auto
+    menu label ^Auto-install Debian 13 ({{ target_host }})
+    menu default
+    kernel /install.amd/vmlinuz
+    append auto=true priority=critical preseed/file=/cdrom/preseed.cfg locale=en_US.UTF-8 keymap=us hostname={{ target_host }} domain={{ domain }} initrd=/install.amd/initrd.gz vga=788 --- quiet
+
+label rescue
+    menu label ^Rescue: drop to manual installer
+    kernel /install.amd/vmlinuz
+    append initrd=/install.amd/initrd.gz vga=788 --- quiet
