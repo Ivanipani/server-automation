@@ -1,6 +1,6 @@
 ---
 - name: Create user accounts and configure access
-  hosts: all:!router
+  hosts: dev:baremetal
   become: true
   roles:
     - role: create-user

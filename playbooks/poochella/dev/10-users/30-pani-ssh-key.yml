@@ -1,6 +1,6 @@
 ---
 - name: Deploy shared GitHub SSH key for pani user
-  hosts: baremetal:virtual-machines
+  hosts: dev:baremetal
   remote_user: pani
   become: false
   tasks:
@@ -12,7 +12,9 @@
 
     - name: Install GitHub SSH private key
       ansible.builtin.copy:
-        content: "{{ github_ssh_private_key }}"
+        # OpenSSH refuses the key ("error in libcrypto") if there's no `\n`
+        # after `-----END OPENSSH PRIVATE KEY-----`. Normalize to exactly one.
+        content: "{{ github_ssh_private_key.rstrip('\n') }}\n"
         dest: ~/.ssh/id_ed25519
         mode: "0600"
       no_log: true
