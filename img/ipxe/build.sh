@@ -94,18 +94,48 @@ git -C "${SRC_DIR}" checkout --quiet --detach "${IPXE_GIT_REF}"
 RESOLVED_SHA="$(git -C "${SRC_DIR}" rev-parse HEAD)"
 
 # --- 2. Render embedded script -------------------------------------------
-# Trailing `shell` is mandatory: an EMBED'd iPXE binary exits to firmware
-# once the script completes, so without it a DHCP success would bounce
-# back to the boot menu. `dhcp || ...` keeps the shell reachable on DHCP
-# failure (which is the rescue case this stick exists for).
+# Boot strategy:
+#   1. DHCP. If it fails → drop to shell.
+#   2. Chain http://bootserv01.lan/boot.ipxe (the standard fleet
+#      dispatcher served by the bootserv01 LXC). If it succeeds, iPXE
+#      hands off to that script and we boot a kernel+initrd from there
+#      — no keyboard input required end-to-end.
+#   3. If chain fails (server down, network broken, etc.) → drop to
+#      shell so the operator can poke around. The shell is wrapped in
+#      a `:shell_loop` so accidentally typing `exit` re-enters it
+#      instead of falling through to iPXE's autoboot hunt for
+#      `autoexec.ipxe` (which always fails for a USB rescue stick).
+#
+# Why fully-auto rather than always-shell:
+# We learned the hard way that some UEFI firmware (e.g. ASUS boards
+# with certain USB controllers) don't enumerate the USB keyboard for
+# iPXE in time to interact with the shell — DHCP completes, the
+# `iPXE>` prompt prints, but keystrokes never reach iPXE. An
+# auto-chain script gets the install done without requiring keyboard
+# at all; the shell fallback only matters when the chain fails, at
+# which point you've got bigger problems to diagnose anyway.
+#
+# iPXE script syntax notes:
+#   - `||` runs the next command on failure (single command — `;` is
+#     a command separator, not a shell-style continuation).
+#   - `shell` is interactive; control returns to the script when the
+#     operator types `exit` (or Ctrl-D on some builds).
 echo "[2/5] Rendering embedded script -> ${EMBED_FILE}"
 cat > "${EMBED_FILE}" <<'EOF'
 #!ipxe
 echo
 echo iPXE ${version} on ${net0/mac} (${manufacturer} ${product})
 echo
-dhcp || echo DHCP failed; continuing without it.
+dhcp || goto failed
+echo Chaining http://bootserv01.lan/boot.ipxe ...
+chain http://bootserv01.lan/boot.ipxe || goto failed
+:failed
+echo
+echo Auto-boot failed. Manual retry:
+echo   chain http://bootserv01.lan/boot.ipxe
+:shell_loop
 shell
+goto shell_loop
 EOF
 
 # --- 3. Drop config overlay ----------------------------------------------

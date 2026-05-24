@@ -147,33 +147,52 @@
     state: present
   when: dnsmasq_pxe_enabled
 
-# Direct-script path for "iPXE-on-the-NIC" firmwares — chiefly
-# Mellanox FlexBoot, which IS iPXE under the hood and runs an
-# HTTP-served iPXE script natively, but does NOT chainload a separate
-# iPXE binary (iPXE-in-iPXE bails). FlexBoot's DHCP request carries
-# vendor-class option 60 = "PXEClient:Arch:0000X:UNDI:003001" — any
-# PXEClient-prefixed vendor-class qualifies. dnsmasq does substring
-# match on string-type options, so `value: PXEClient` matches the
-# full FlexBoot vendor-class string. Tasks defined LAST so dnsmasq's
-# "later-matching dhcp-boot wins" rule selects the script URL over
-# the per-arch chainload binaries above for any PXEClient client.
-- name: PXE — define `pxeclient` tag for direct-script-capable PXE clients
+# Direct-script path for Mellanox FlexBoot specifically. FlexBoot IS
+# iPXE under the hood and runs HTTP-served iPXE scripts natively, but
+# does NOT chainload a separate iPXE binary (iPXE-in-iPXE bails). Its
+# DHCP vendor-class is `PXEClient:Arch:0000X:UNDI:003001` — `003001`
+# is Mellanox's specific UNDI revision and uniquely identifies their
+# FlexBoot stack. We match on the substring `UNDI:003001` (NOT the
+# broader `PXEClient` prefix) because every OTHER UEFI PXE stack also
+# starts its vendor-class with `PXEClient`; matching too broadly hands
+# the script URL to clients (e.g. ASUS motherboard's native UEFI
+# Network Stack) that can't execute iPXE scripts and just hang.
+#
+# Non-FlexBoot PXE clients fall through to the per-arch chainload
+# rules above (uefi → ipxe.efi, bios → undionly.kpxe). They chainload
+# iPXE, which then re-DHCPs as user-class=iPXE and gets the URL via
+# the `ipxe` tag — same flow as before this rule existed.
+#
+# Tasks defined LAST so dnsmasq's "later-matching dhcp-boot wins"
+# rule selects the direct script URL over the chainload binary when
+# FlexBoot is what's actually doing PXE.
+- name: PXE — define `pxeclient` tag for Mellanox FlexBoot (direct-script-capable)
   oxlorg.opnsense.dnsmasq_tag:
     tag: pxeclient
     state: present
   when: dnsmasq_pxe_enabled
 
-- name: PXE — match DHCP vendor-class prefix "PXEClient" → tag `pxeclient`
+- name: PXE — remove old broad-PXEClient match (orphan from previous narrower-now design)
   oxlorg.opnsense.dnsmasq_option:
     description: pxe-vendorclass-pxeclient
     type: match
     option: "60"
     value: PXEClient
     set_tag: pxeclient
+    state: absent
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — match DHCP vendor-class substring "UNDI:003001" (Mellanox FlexBoot) → tag `pxeclient`
+  oxlorg.opnsense.dnsmasq_option:
+    description: pxe-vendorclass-flexboot
+    type: match
+    option: "60"
+    value: "UNDI:003001"
+    set_tag: pxeclient
     state: present
   when: dnsmasq_pxe_enabled
 
-- name: PXE — serve iPXE script URL directly to any PXEClient (covers FlexBoot)
+- name: PXE — serve iPXE script URL directly to FlexBoot clients (skip the chainload)
   oxlorg.opnsense.dnsmasq_boot:
     description: pxe-script-pxeclient
     filename: "{{ dnsmasq_pxe_script_url }}"
