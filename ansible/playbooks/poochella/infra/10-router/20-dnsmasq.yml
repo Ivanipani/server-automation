@@ -75,5 +75,59 @@
         - not (hostvars[item].static_ip | default(false))
       loop_control:
         label: "{{ item }}"
+
+    # ── Purge stale reservations whose `descr` matches our prefix but
+    #    no longer maps to any host in the current inventory. This is
+    #    what makes RENAMING a host in inventory work: oxlorg's
+    #    dnsmasq_host keys on `description` (FIELD_ID = 'description'),
+    #    so renaming pve-home-02 → worker-home-02 in inventory orphans
+    #    the existing `lan-static-pve-home-02` entry and a fresh
+    #    `lan-static-worker-home-02` would be created with the same
+    #    IP — which OPNsense rejects (unique IP per entry). Same fix
+    #    handles a host being removed from inventory entirely. We only
+    #    touch entries whose description starts with our prefix, so
+    #    hand-managed OPNsense entries are never disturbed.
+    - name: Fetch current OPNsense dnsmasq state (for orphan detection)
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}/api/dnsmasq/settings/get"
+        method: GET
+        user: "{{ opnsense_api_key }}"
+        password: "{{ opnsense_api_secret }}"
+        force_basic_auth: true
+        validate_certs: false
+        return_content: true
+      register: _opnsense_dnsmasq_state
+      # Always fetch — even in `--check`. The GET is read-only; without
+      # this the orphan detector would see an empty state under check
+      # mode and report "nothing to clean up" even when entries are
+      # actually stale.
+      check_mode: false
+
+    - name: Compute the set of descriptions we want present
+      ansible.builtin.set_fact:
+        _dnsmasq_desired_descriptions: >-
+          {{ dnsmasq_static_leases
+             | map(attribute='hostname')
+             | map('regex_replace', '^', dnsmasq_static_lease_prefix ~ '-')
+             | list }}
+
+    - name: Find orphan reservations (our prefix, not in current inventory)
+      ansible.builtin.set_fact:
+        _dnsmasq_stale_descriptions: >-
+          {{ (_opnsense_dnsmasq_state.json.dnsmasq.hosts | default({}) | dict2items)
+             | map(attribute='value')
+             | selectattr('descr', 'defined')
+             | selectattr('descr', 'match', '^' ~ (dnsmasq_static_lease_prefix | regex_escape) ~ '-')
+             | rejectattr('descr', 'in', _dnsmasq_desired_descriptions)
+             | map(attribute='descr')
+             | list }}
+
+    - name: Remove orphan reservations (rename / deletion cleanup)
+      oxlorg.opnsense.dnsmasq_host:
+        description: "{{ item }}"
+        state: absent
+      loop: "{{ _dnsmasq_stale_descriptions }}"
+      loop_control:
+        label: "{{ item }}"
   roles:
     - role: opnsense-dnsmasq

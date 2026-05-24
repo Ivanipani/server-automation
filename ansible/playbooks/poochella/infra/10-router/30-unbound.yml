@@ -47,14 +47,25 @@
     # playbook stays inventory-driven: change the name (and the VIP) in
     # group_vars/kubernetes.yml only, and both Unbound and the k3s role
     # follow.
+    #
+    # We bounce through ANY `kubernetes` member's hostvars (not just a
+    # control plane) because `k3s_api_dns_name` and
+    # `k3s_kube_vip_address` are group_vars/kubernetes.yml — every kube
+    # member (CP, VM worker, baremetal worker) inherits the same
+    # cluster-wide value. `kube_control_plane` is empty today
+    # (worker-home-02 is currently the only kube node), and indexing an
+    # empty list trips Ansible's lazy-templating error. The `when:`
+    # gate makes the task skip cleanly when the `kubernetes` group has
+    # no members at all.
     - name: api.lan -> k3s apiserver VIP
       oxlorg.opnsense.unbound_host:
-        hostname: "{{ hostvars[groups['kube_control_plane'][0]].k3s_api_dns_name.split('.', 1)[0] }}"
-        domain: "{{ hostvars[groups['kube_control_plane'][0]].k3s_api_dns_name.split('.', 1)[1] }}"
+        hostname: "{{ hostvars[groups['kubernetes'][0]].k3s_api_dns_name.split('.', 1)[0] }}"
+        domain: "{{ hostvars[groups['kubernetes'][0]].k3s_api_dns_name.split('.', 1)[1] }}"
         record_type: A
-        value: "{{ hostvars[groups['kube_control_plane'][0]].k3s_kube_vip_address }}"
+        value: "{{ hostvars[groups['kubernetes'][0]].k3s_kube_vip_address }}"
         description: doghouse-apiserver
         state: present
+      when: groups['kubernetes'] | length > 0
 
     # NOTE: `nas01.lan` is intentionally NOT defined here. The NAS gets
     # a dnsmasq static DHCP reservation (inventory has its MAC), and
