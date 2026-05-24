@@ -68,7 +68,7 @@
         # playbook_dir is this file's own dir (deterministic under both
         # direct-run and import_playbook): infra/30-provision → repo root
         # is four levels up.
-        project_path: "{{ playbook_dir }}/../../../../tofu"
+        project_path: "{{ playbook_dir }}/../../../../../tofu"
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true
@@ -78,6 +78,15 @@
         # see the checklist in tofu/provider.tf.
         TF_VAR_proxmox_api_token_pve_home_01: "{{ proxmox_api_tokens['pve-home-01'] }}"
         TF_VAR_proxmox_api_token_pve_home_02: "{{ proxmox_api_tokens['pve-home-02'] }}"
+        # NOTE: an earlier iteration also exported TF_VAR_ansible_pubkey
+        # so tofu/modules/lxc could inject it via
+        # `initialization.user_account.keys`. PVE's container-clone API
+        # doesn't accept ssh-public-keys, and the Debian LXC template
+        # baked by tasks/create-lxc-template.yml already installs the
+        # key on the ansible user — so the Tofu var (and this env line)
+        # were removed. If a future Tofu-managed resource needs a
+        # controller-supplied secret, add the env line + a matching
+        # variable in tofu/variables.tf.
       register: tofu_output
       no_log: false
 

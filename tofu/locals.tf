@@ -10,7 +10,7 @@
 # pair of _groups_l*/_hosts_l* locals here.
 
 locals {
-  inventory = yamldecode(file("${path.module}/../inventory.yaml"))
+  inventory = yamldecode(file("${path.module}/../ansible/inventory.yaml"))
 
   # Provider + template config also lives in inventory.yaml's `all.vars`
   # (single source of truth shared with Ansible). VM storage is
@@ -23,6 +23,7 @@ locals {
   # provider.tf (independent nodes don't share an API).
   proxmox_endpoints = local.inventory.all.vars.proxmox_endpoints
   template_vm_ids   = local.inventory.all.vars.template_vm_ids
+  template_ct_ids   = local.inventory.all.vars.template_ct_ids
 
   # Top-level groups (router, baremetal, switches, virtual-machines, kubernetes, ...)
   _groups_l1 = { for k, v in local.inventory : k => v if k != "all" && can(v) && v != null }
@@ -62,6 +63,34 @@ locals {
   vms_by_node = {
     for node in keys(local.proxmox_endpoints) : node => {
       for name, vm in local.vms_from_inventory : name => vm if vm.node == node
+    }
+  }
+
+  # LXCs are shaped from any host with an `lxc:` block. Same per-node
+  # partition pattern as VMs. The `infra` tag is significant: it lifts
+  # the LXC into a separate per-node module that VM modules
+  # `depends_on`, so infra LXCs (today: bootserv01) come up before any
+  # VM in the same `tofu apply` — the ground-up bootstrap invariant
+  # documented in CLAUDE.md.
+  lxcs_from_inventory = {
+    for name, h in local.all_hosts : name => {
+      hostname     = name
+      cores        = try(h.lxc.cores, 1)
+      memory       = try(h.lxc.memory, 512)
+      swap         = try(h.lxc.swap, 512)
+      disk_size    = try(h.lxc.disk_size, 8)
+      unprivileged = try(h.lxc.unprivileged, true)
+      nesting      = try(h.lxc.features.nesting, false)
+      tags         = try(h.lxc.tags, [])
+      node         = h.lxc.proxmox_node
+      template_id  = try(h.lxc.template_id, local.template_ct_ids[h.lxc.proxmox_node])
+    } if try(h.lxc, null) != null
+  }
+
+  infra_lxcs_by_node = {
+    for node in keys(local.proxmox_endpoints) : node => {
+      for name, lxc in local.lxcs_from_inventory :
+      name => lxc if lxc.node == node && contains(lxc.tags, "infra")
     }
   }
 }

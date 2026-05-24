@@ -21,6 +21,7 @@
     dhcp_lease_max: "{{ dnsmasq_dhcp_lease_max }}"
     regdhcp: "{{ dnsmasq_register_dynamic_dns }}"
     regdhcpstatic: "{{ dnsmasq_register_static_dns }}"
+    log_queries: "{{ dnsmasq_log_queries }}"
 
 - name: Configure DHCP range
   oxlorg.opnsense.dnsmasq_range:
@@ -42,9 +43,106 @@
     # the per-host domain — entries inherit the global dhcp_domain anyway.
     domain: "{{ dnsmasq_dhcp_domain if '.' in dnsmasq_dhcp_domain else omit }}"
     ip: ["{{ lease.address }}"]
-    hardware_addr: ["{{ lease.mac | lower }}"]
+    hardware_addr: "{{ lease.macs | map('lower') | list }}"
     state: present
   loop: "{{ dnsmasq_static_leases }}"
   loop_control:
     loop_var: lease
-    label: "{{ lease.hostname }} -> {{ lease.address }} ({{ lease.mac }})"
+    label: "{{ lease.hostname }} -> {{ lease.address }} ({{ lease.macs | join(',') }})"
+
+# --- PXE / iPXE chainload + script dispatch -------------------------
+# Per CLAUDE.md's bootstrap invariant, bootserv01 (the TFTP/HTTP boot
+# server) precedes any net-bootable host. Below: tag clients by
+# user-class (iPXE vs vanilla PXE) and architecture (UEFI vs BIOS),
+# then point them at the right thing — chainload binary for vanilla
+# PXE, script URL for already-iPXE clients.
+- name: PXE — define dnsmasq tags
+  oxlorg.opnsense.dnsmasq_tag:
+    tag: "{{ item }}"
+    state: present
+  loop:
+    - ipxe       # set when DHCP user-class (option 77) contains "iPXE"
+    - uefi       # set when DHCP arch (option 93) is x86_64 UEFI (0x0007)
+    - bios       # set when DHCP arch (option 93) is legacy PC (0x0000)
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — match DHCP user-class "iPXE" → tag `ipxe`
+  oxlorg.opnsense.dnsmasq_option:
+    description: pxe-userclass-ipxe
+    type: match
+    option: "77"
+    value: iPXE
+    set_tag: ipxe
+    state: present
+  when: dnsmasq_pxe_enabled
+
+# Map all the option-93 (PXE Client System Architecture) values we want
+# to treat as "UEFI x86-64" onto the same `uefi` tag, so a single
+# `dhcp-boot=tag:uefi,...` rule covers every modern UEFI ROM
+# (the standard 0007, plus the EFI Byte Code 0009 some Mellanox
+# FlexBoot revs report, plus the HTTP-boot 000F that newer
+# UEFI HTTP-Boot firmware sends instead of vanilla PXE).
+- name: "PXE — match DHCP arch {{ item.code }} ({{ item.label }}) → tag `uefi`"
+  oxlorg.opnsense.dnsmasq_option:
+    description: "pxe-arch-uefi-{{ item.code }}"
+    type: match
+    option: "93"
+    value: "{{ item.code }}"
+    set_tag: uefi
+    state: present
+  loop:
+    - { code: "0007", label: "x86_64 UEFI" }
+    - { code: "0009", label: "EFI byte code" }
+    - { code: "000f", label: "HTTP boot UEFI x86_64" }
+  loop_control:
+    label: "{{ item.code }}"
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — match DHCP arch 0x0000 (legacy BIOS) → tag `bios`
+  oxlorg.opnsense.dnsmasq_option:
+    description: pxe-arch-bios
+    type: match
+    option: "93"
+    value: "0000"
+    set_tag: bios
+    state: present
+  when: dnsmasq_pxe_enabled
+
+# dnsmasq picks the LAST-defined matching dhcp-boot entry, so this
+# ordering matters: UEFI/BIOS chainload entries are defined FIRST,
+# then the iPXE script entry. A vanilla UEFI client matches only the
+# `uefi` entry → chainloads ipxe.efi. After chainload, the same
+# client (now also tagged `ipxe`) matches both `uefi` and `ipxe`;
+# dnsmasq returns the later-defined `ipxe` entry → fetches the HTTP
+# script. The opnsense module's `tag` field is a single tag name
+# (not the dnsmasq `tag:a,!b` comma+negation syntax), so we rely on
+# this precedence rather than per-entry exclusions.
+- name: PXE — chainload ipxe.efi for UEFI clients (vanilla PXE path)
+  oxlorg.opnsense.dnsmasq_boot:
+    description: pxe-chain-uefi
+    filename: "{{ dnsmasq_pxe_chain_uefi }}"
+    servername: "{{ dnsmasq_pxe_tftp_servername }}"
+    tag: uefi
+    state: present
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — chainload undionly.kpxe for BIOS clients (vanilla PXE path)
+  oxlorg.opnsense.dnsmasq_boot:
+    description: pxe-chain-bios
+    filename: "{{ dnsmasq_pxe_chain_bios }}"
+    servername: "{{ dnsmasq_pxe_tftp_servername }}"
+    tag: bios
+    state: present
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — serve iPXE script URL to already-iPXE clients (post-chainload)
+  oxlorg.opnsense.dnsmasq_boot:
+    description: pxe-script-ipxe
+    # iPXE accepts an HTTP(S) URL in the filename field — that's what
+    # tells iPXE to fetch + chain into our dispatcher. Defined LAST
+    # so iPXE+UEFI / iPXE+BIOS clients prefer this over the chainload
+    # entries above.
+    filename: "{{ dnsmasq_pxe_script_url }}"
+    tag: ipxe
+    state: present
+  when: dnsmasq_pxe_enabled

@@ -19,6 +19,11 @@ dnsmasq_register_static_dns: true
 # resolvable by name.
 dnsmasq_register_dynamic_dns: false
 dnsmasq_dhcp_lease_max: 1000
+# Verbose DHCP logging so DHCPDISCOVER/OFFER + per-tag rule evaluation
+# end up in /var/log/dnsmasq/dnsmasq.log on OPNsense — invaluable when
+# debugging PXE clients that don't get the boot file they expect. Cheap
+# to leave on for a homelab; turn off if log volume becomes a problem.
+dnsmasq_log_queries: true
 
 # DHCP pool. Set to {} to skip range management.
 dnsmasq_dhcp_range:
@@ -29,11 +34,44 @@ dnsmasq_dhcp_range:
   lease_time: 86400
   domain: lan
 
-# Static reservations. Caller passes a list of dicts:
-#   - hostname: pve-home-01
-#     address: 10.1.1.105
-#     mac: "18:60:24:dc:b7:32"
-# The `description` field on each dnsmasq_host entry is derived from the
-# hostname and serves as the natural key for idempotency.
+# Static reservations. Caller passes a list of dicts, one per host:
+#   - hostname: pve-home-02
+#     address: 10.1.1.106
+#     macs:
+#       - "3c:7c:3f:1f:96:af"        # onboard
+#       - "e8:eb:d3:8c:86:bc"        # Mellanox port 0
+#       - "e8:eb:d3:8c:86:bd"        # Mellanox port 1
+# OPNsense's dnsmasq_host enforces one entry per IP, so multi-NIC hosts
+# (PXE on a different NIC than the daily-driver, dual-port NICs, etc.)
+# must collapse to a single entry with all MACs in hardware_addr. The
+# `description` (derived from hostname) is the natural key for idempotency.
 dnsmasq_static_leases: []
 dnsmasq_static_lease_prefix: lan-static
+
+# --- PXE / iPXE boot ------------------------------------------------
+# Gated off by default; turn on in 20-dnsmasq.yml once bootserv01
+# exists. The flow:
+#   1. Vanilla PXE clients DHCPDISCOVER (no user-class) → OPNsense
+#      returns chainload file (ipxe.efi for UEFI, undionly.kpxe for
+#      BIOS) + the bootserv as next-server.
+#   2. Client TFTP-downloads + boots iPXE.
+#   3. iPXE redoes DHCPDISCOVER with user-class="iPXE" → OPNsense
+#      matches that and returns dnsmasq_pxe_script_url instead.
+#   4. iPXE HTTP-fetches the script and goes from there.
+#
+# Per the oxlorg.opnsense.dnsmasq_boot module's tag-filtering: arch is
+# detected via DHCP option 93 (PXE Client System Architecture). Common
+# values: 0x0000=BIOS, 0x0007=x86_64 UEFI, 0x0009=EFI BC. We tag UEFI
+# vs BIOS so the right chainload binary is served. The `ipxe` tag is
+# matched on user-class.
+dnsmasq_pxe_enabled: false
+# TFTP server is identified by HOSTNAME (DHCP option 66 can carry either
+# an IP or a hostname; modern PXE ROMs including Mellanox FlexBoot
+# resolve the name via DNS). We use a hostname on purpose: bootserv01
+# carries no static IP/MAC reservation — its address is whatever
+# dnsmasq's dynamic-DNS registered when the LXC DHCP'd. Hostname-based
+# binding decouples the PXE config from the LXC's runtime address.
+dnsmasq_pxe_tftp_servername: ""     # e.g. "bootserv01.lan"
+dnsmasq_pxe_chain_uefi: ipxe.efi
+dnsmasq_pxe_chain_bios: undionly.kpxe
+dnsmasq_pxe_script_url: ""          # e.g. "http://bootserv01.lan/boot.ipxe"

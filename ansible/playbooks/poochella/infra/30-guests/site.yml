@@ -6,6 +6,12 @@
 # before this runs. Kept as its own tier (one playbook today) precisely
 # so the barrier is visible in the structure, not implied by a number.
 - import_playbook: 10-opentofu.yml
+# bootserv01 is configured BEFORE 20-bootstrap so any future
+# baremetal/VM that wants to fetch from it during its own bootstrap can
+# do so. The bootserv LXC's `ansible` user is baked into the LXC
+# template (`tasks/create-lxc-template.yml`), so SSH-as-ansible works
+# immediately after Tofu's clone — no chicken-and-egg with 20-bootstrap.
+- import_playbook: 15-bootserv.yml
 - import_playbook: 20-bootstrap.yml
 - import_playbook: 30-disable-auto-upgrades.yml
 - import_playbook: 40-firewall.yml

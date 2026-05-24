@@ -156,3 +156,13 @@ disk-plan:
 baremetal-iso host: check
     {{pwd}}/img/debian/build.sh {{host}}
 
+
+# Re-apply just the bootserv role on bootserv01 — fast iteration for iPXE/preseed template tweaks during the trial. Use after the LXC is up.
+do-bootserv-config: check
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/30-guests/15-bootserv.yml
+
+
+# Push PXE-aware dnsmasq config + Mellanox static reservations to OPNsense. Re-run anytime debian_netboot.boot_macs or bootserv01 changes.
+do-router-dhcp: check
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/10-router/20-dnsmasq.yml
+

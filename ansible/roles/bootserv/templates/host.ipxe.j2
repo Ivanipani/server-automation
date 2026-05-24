@@ -1,0 +1,23 @@
+#!ipxe
+# Rendered by roles/bootserv from ansible/inventory.yaml — do not edit by hand.
+# Per-host iPXE script: kernel + initrd + preseed URL for {{ item }}.
+# Chainloaded from boot.ipxe based on MAC dispatch.
+
+set base http://bootserv01.lan
+set host {{ item }}
+set domain {{ hostvars[item].domain | default(domain | default('lan')) }}
+
+echo
+echo Auto-installing Debian 13 on ${host}.${domain}
+echo  install_disk = {{ hostvars[item].debian_netboot.install_disk }}
+echo  preseed      = ${base}/preseed/${host}.cfg
+echo
+
+kernel ${base}/debian-13/linux \
+  auto=true priority=critical \
+  preseed/url=${base}/preseed/${host}.cfg \
+  hostname=${host} domain=${domain} \
+  locale=en_US.UTF-8 keymap=us \
+  --- quiet
+initrd ${base}/debian-13/initrd.gz
+boot

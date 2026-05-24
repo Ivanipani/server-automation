@@ -1,0 +1,44 @@
+---
+# Filesystem roots served by the boot server.
+bootserv_tftp_root: /srv/tftp
+bootserv_http_root: /srv/http
+
+# LAN CIDR allowed to fetch sensitive paths (/preseed/, /keys/). Other
+# paths (/debian-13/, /boot.ipxe, /hosts/) are open to the listening
+# interface — those carry no secrets and have to be reachable by
+# pre-install initrds that may not have full network config yet.
+bootserv_lan_cidr: "10.1.1.0/24"
+
+# Upstream Debian 13 netboot kernel + initrd. The role fetches the
+# upstream SHA256SUMS at run time and uses the published hashes to verify
+# the kernel + initrd downloads (so a tampered mirror trips the get_url
+# checksum check). Pin a specific Debian point release by adjusting
+# `bootserv_debian_release_url` — `current/` always points at the latest
+# point release of trixie; flip it to e.g. `13.1.0/` for reproducibility.
+bootserv_debian_release_url: "http://ftp.debian.org/debian/dists/trixie/main/installer-amd64/current/images"
+bootserv_debian_netboot_subdir: "netboot/debian-installer/amd64"
+
+# nginx listen socket on the LXC. Port 80 by convention; the OPNsense
+# DNS reservation for `bootserv01.lan` resolves to the LXC's IP.
+bootserv_http_listen: "0.0.0.0:80"
+
+# OS user that owns the document roots. Defaults to www-data so nginx
+# can read freely; dnsmasq's TFTP runs as `dnsmasq` and only needs
+# read on /srv/tftp.
+bootserv_owner: www-data
+bootserv_group: www-data
+
+# The canonical ansible-user pubkey (read from the controller's
+# ~/.ssh/ansible.pub by the calling playbook and passed in). Inlined
+# into the rendered preseed `late_command` so the installed Debian
+# trusts the same key as every other fleet host. Empty default forces
+# the caller to set it.
+bootserv_ansible_pubkey: ""
+
+# Vault break-glass root password for installed Debian hosts. Same
+# secret the img/debian/ USB flow uses (group_vars/all/vars.yml maps
+# `baremetal_root_password` → `vault_baremetal_root_password`).
+bootserv_root_password: "{{ baremetal_root_password | default('') }}"
+
+# Timezone baked into preseeds.
+bootserv_timezone: "America/New_York"

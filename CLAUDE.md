@@ -118,3 +118,14 @@ Roles under `roles/` are units of work, not "things to install":
 - The Ansible remote user is `ansible` with key `~/.ssh/ansible` (set in `ansible.cfg`). Cloud-init bakes this user into VM templates (`04-prepare-templates.yml`).
 - Pre-conditions are documented as comment blocks at the top of each infra playbook — read those before editing.
 - `playbooks/wip/` is scratchpad / in-progress work, not part of `site.yml`.
+
+## Collaboration rules (for Claude)
+
+- **Diagnose by running read-only ansible ad-hoc commands directly**, e.g. `ansible pve-home-01 -m shell -a 'pveam list local' --become`, `ansible bootserv01 -m shell -a 'systemctl is-active dnsmasq nginx' --become`. Do not ask the user to copy/paste terminal output when an ad-hoc command can fetch the same information. The `ansible` user + `~/.ssh/ansible` key already trusts every fleet host.
+- **Never run a destructive command on the fleet without explicit per-command user permission.** "Destructive" = anything that mutates state on the host (`pct destroy`, `pveam remove`, `pvesm remove`, `rm`, `systemctl stop/disable`, `apt remove`, `qm destroy`, partitioning / disk wipes, killing processes, writing files outside `/tmp`, etc.). Reading config, listing resources, dumping logs, and `--check`/`--diff` dry-runs are fine. The same rule applies to OpenTofu (`tofu apply` against existing resources is destructive in principle) and to anything that touches OPNsense state.
+
+## bootserv01 / iPXE boot flow
+
+`bootserv01` is an LXC on `pve-home-01` (inventory `containers.bootserv.bootserv01`, `lxc:` block tagged `infra`) that serves TFTP (iPXE chainload binaries) and HTTP (boot scripts + Debian netboot kernel/initrd + per-host preseeds) to baremetal hosts that net-boot from their NIC. OPNsense's dnsmasq advertises `ipxe.efi` / `undionly.kpxe` to vanilla-PXE clients (chainload) and a script URL to user-class iPXE clients. Per-host iPXE dispatch + preseed are rendered by the `bootserv` Ansible role from inventory hosts that carry a `debian_netboot:` block.
+
+**Tofu ordering invariant**: LXCs whose `lxc.tags` contains `infra` come up before any VMs. `tofu/main.tf` per-node `vms_<node>` modules declare `depends_on = [module.<node>_infra_lxcs]`, so a fresh `tofu apply` always brings bootserv01 up before kube/dev VMs that may reference it.

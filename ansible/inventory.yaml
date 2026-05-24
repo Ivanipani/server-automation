@@ -16,6 +16,21 @@
 #     One worker per node, sized to consume that node's whole longhorn
 #     pool (kept just under the physical pool — it is thin-provisioned,
 #     so over-committing it would let Longhorn exhaust the pool).
+#   - `lxc: { proxmox_node, cores, memory, disk_size, unprivileged,
+#     features, tags, ... }` → Tofu creates this LXC on Proxmox
+#     (parallels `vm:`). Cloned from `template_ct_ids[proxmox_node]`
+#     (Debian 13 LXC anchor). The `tags` list is significant beyond
+#     labelling: tag **`infra`** lifts the LXC into a per-node
+#     `infra_lxcs` Tofu module that VM modules `depends_on`, so infra
+#     LXCs (today: bootserv01) come up before any VM in the same
+#     `tofu apply` — the ground-up bootstrap invariant. Storage is
+#     `vms` (the only pve_storage with `rootdir` content).
+#   - `debian_netboot: { install_disk, boot_macs: [...] }` → host is a
+#     baremetal Debian target net-booted via iPXE (rendered + served by
+#     `bootserv01`). `boot_macs` are the NIC MACs that may initiate PXE
+#     — all reserved to `ip_address` on OPNsense + dispatched in the
+#     rendered iPXE script. `install_disk` is the device the preseed
+#     wipes for the Debian install (every other disk untouched).
 #   - VM MACs use the locally-administered prefix `02:` and a structured
 #     tail (02:00:00:<role>:<index>) so collisions are obvious at a glance.
 #   - `storage: {disks: [...]}` on a baremetal host → the disk layout the
@@ -162,6 +177,17 @@ baremetal:
           # post-install — the Debian installer must not touch them.
           debian_install:
             disk: /dev/nvme0n1
+          # Baremetal Debian net-boot via iPXE from the new Mellanox
+          # ConnectX-4 Lx 10GbE NIC. Both ports' MACs are reserved on
+          # OPNsense to this host's `ip_address` and dispatched in the
+          # rendered iPXE script, so PXE works regardless of which port
+          # is cabled / first in BIOS boot order. The preseed (served
+          # by bootserv01 over HTTP) wipes ONLY `install_disk`.
+          debian_netboot:
+            install_disk: /dev/nvme0n1
+            boot_macs:
+              - "e8:eb:d3:8c:86:bc"
+              - "e8:eb:d3:8c:86:bd"
           # Three disks (preview with `just disk-plan`):
           #   - Samsung ~250 GB boot NVMe  → its SSD tail = `vms`
           #     (after lvm.hdsize=100; selector: boot)
@@ -291,121 +317,151 @@ virtual-machines:
   children:
     dev:
       # Developer/scratch VMs (Ivan's devbox). Policy: group_vars/dev.yml
-      hosts:
-        devbox01:
-          ansible_host: devbox01.lan
-          ip_address: 10.1.1.120
-          mac_address: "02:00:00:00:01:01"
-          vm:
-            proxmox_node: pve-home-02
-            cores: 4
-            memory: 8192
-            disk_size: 100
-            tags: [dev, ivan]
+      # hosts:
+      #   devbox01:
+      #     ansible_host: devbox01.lan
+      #     ip_address: 10.1.1.120
+      #     mac_address: "02:00:00:00:01:01"
+      #     vm:
+      #       proxmox_node: pve-home-02
+      #       cores: 4
+      #       memory: 8192
+      #       disk_size: 100
+      #       tags: [dev, ivan]
     kubernetes:
 
 kubernetes:
   children:
     kube_control_plane:
-      hosts:
-        kube-ctl-01:
-          ansible_host: kube-ctl-01.lan
-          ip_address: 10.1.1.110
-          mac_address: "02:00:00:00:02:01"
-          vm:
-            proxmox_node: pve-home-02
-            cores: 4
-            memory: 8192
-            disk_size: 30
-            tags: [kube, control-plane]
-        kube-ctl-02:
-          ansible_host: kube-ctl-02.lan
-          ip_address: 10.1.1.111
-          mac_address: "02:00:00:00:02:02"
-          vm:
-            proxmox_node: pve-home-02
-            cores: 4
-            memory: 8192
-            disk_size: 30
-            tags: [kube, control-plane]
-        kube-ctl-03:
-          ansible_host: kube-ctl-03.lan
-          ip_address: 10.1.1.112
-          mac_address: "02:00:00:00:02:03"
-          vm:
-            # On pve-home-01 (the other CPs are on pve-home-02) so the
-            # control plane spans two physical nodes. NOTE: a 3-member
-            # etcd on 2 physical hosts survives losing pve-home-01 (2/3
-            # quorum stays) but NOT pve-home-02 (loses 2/3) — true CP HA
-            # needs one CP per physical node; move a CP here when the
-            # 3rd node lands. (Longhorn DATA safety is independent of
-            # this — it rides the per-node workers + zone anti-affinity.)
-            proxmox_node: pve-home-02
-            cores: 4
-            memory: 8192
-            disk_size: 30
-            tags: [kube, control-plane]
-    kube_workers:
-      hosts:
-        kube-worker-01:
-          ansible_host: kube-worker-01.lan
-          ip_address: 10.1.1.113
-          mac_address: "02:00:00:00:03:01"
-          vm:
-            proxmox_node: pve-home-02
-            cores: 4
-            memory: 16000
-            disk_size: 50
-            data_disk_size: 600
-            tags: [kube, worker]
-        kube-worker-02:
-          ansible_host: kube-worker-02.lan
-          ip_address: 10.1.1.114
-          mac_address: "02:00:00:00:03:02"
-          vm:
-            # On pve-home-01 → one Longhorn worker per PHYSICAL node
-            # (kube-worker-01 is on pve-home-02). With replica 2 + HARD
-            # zone anti-affinity (zone = vm.proxmox_node, set in
-            # group_vars/kubernetes.yml) every volume keeps one copy per
-            # box → survives losing either node, rebuilds when it
-            # returns. Resources match kube-worker-01 deliberately: if
-            # one box dies its workloads must reschedule onto the
-            # survivor, so an undersized peer would just move the
-            # co-location starvation, not remove it. ASSUMPTION: confirm
-            # pve-home-01 has 16 GiB to spare; lower memory/cores if not.
-            # data_disk_size 600 fits pve-home-01's ~700 GiB boot_tail
-            # `longhorn` pool with thin-pool headroom and matches
-            # kube-worker-01 so replica-2 usable capacity is symmetric
-            # (~600 GiB). Longhorn — NOT LVM — is what presents the two
-            # nodes' longhorn-data disks as one storage system.
-            proxmox_node: pve-home-01
-            cores: 4
-            memory: 16000
-            disk_size: 50
-            data_disk_size: 600
-            tags: [kube, worker]
-        # kube-worker-03: enable on the 3rd PHYSICAL node when it
-        # arrives, then raise the Longhorn replica count to 3 (Flux
-        # side). proxmox_node was pve-home-03 (RETIRED) — re-pin to the
-        # new node's name. Keep resources at parity with the others.
-        # kube-worker-03:
-        #   ansible_host: kube-worker-03.lan
-        #   ip_address: 10.1.1.115
-        #   mac_address: "02:00:00:00:03:03"
-        #   vm:
-        #     proxmox_node: <3rd-physical-node>
-        #     cores: 4
-        #     memory: 16000
-        #     disk_size: 50
-        #     data_disk_size: 600
-        #     tags: [kube, worker]
-
+    #   hosts:
+    #     kube-ctl-01:
+    #       ansible_host: kube-ctl-01.lan
+    #       ip_address: 10.1.1.110
+    #       mac_address: "02:00:00:00:02:01"
+    #       vm:
+    #         proxmox_node: pve-home-02
+    #         cores: 4
+    #         memory: 8192
+    #         disk_size: 30
+    #         tags: [kube, control-plane]
+    #     kube-ctl-02:
+    #       ansible_host: kube-ctl-02.lan
+    #       ip_address: 10.1.1.111
+    #       mac_address: "02:00:00:00:02:02"
+    #       vm:
+    #         proxmox_node: pve-home-02
+    #         cores: 4
+    #         memory: 8192
+    #         disk_size: 30
+    #         tags: [kube, control-plane]
+    #     kube-ctl-03:
+    #       ansible_host: kube-ctl-03.lan
+    #       ip_address: 10.1.1.112
+    #       mac_address: "02:00:00:00:02:03"
+    #       vm:
+    #         # On pve-home-01 (the other CPs are on pve-home-02) so the
+    #         # control plane spans two physical nodes. NOTE: a 3-member
+    #         # etcd on 2 physical hosts survives losing pve-home-01 (2/3
+    #         # quorum stays) but NOT pve-home-02 (loses 2/3) — true CP HA
+    #         # needs one CP per physical node; move a CP here when the
+    #         # 3rd node lands. (Longhorn DATA safety is independent of
+    #         # this — it rides the per-node workers + zone anti-affinity.)
+    #         proxmox_node: pve-home-02
+    #         cores: 4
+    #         memory: 8192
+    #         disk_size: 30
+    #         tags: [kube, control-plane]
+    # kube_workers:
+    #   hosts:
+    #     kube-worker-01:
+    #       ansible_host: kube-worker-01.lan
+    #       ip_address: 10.1.1.113
+    #       mac_address: "02:00:00:00:03:01"
+    #       vm:
+    #         proxmox_node: pve-home-02
+    #         cores: 4
+    #         memory: 16000
+    #         disk_size: 50
+    #         data_disk_size: 600
+    #         tags: [kube, worker]
+    #     kube-worker-02:
+    #       ansible_host: kube-worker-02.lan
+    #       ip_address: 10.1.1.114
+    #       mac_address: "02:00:00:00:03:02"
+    #       vm:
+    #         # On pve-home-01 → one Longhorn worker per PHYSICAL node
+    #         # (kube-worker-01 is on pve-home-02). With replica 2 + HARD
+    #         # zone anti-affinity (zone = vm.proxmox_node, set in
+    #         # group_vars/kubernetes.yml) every volume keeps one copy per
+    #         # box → survives losing either node, rebuilds when it
+    #         # returns. Resources match kube-worker-01 deliberately: if
+    #         # one box dies its workloads must reschedule onto the
+    #         # survivor, so an undersized peer would just move the
+    #         # co-location starvation, not remove it. ASSUMPTION: confirm
+    #         # pve-home-01 has 16 GiB to spare; lower memory/cores if not.
+    #         # data_disk_size 600 fits pve-home-01's ~700 GiB boot_tail
+    #         # `longhorn` pool with thin-pool headroom and matches
+    #         # kube-worker-01 so replica-2 usable capacity is symmetric
+    #         # (~600 GiB). Longhorn — NOT LVM — is what presents the two
+    #         # nodes' longhorn-data disks as one storage system.
+    #         proxmox_node: pve-home-01
+    #         cores: 4
+    #         memory: 16000
+    #         disk_size: 50
+    #         data_disk_size: 600
+    #         tags: [kube, worker]
+    #     # kube-worker-03: enable on the 3rd PHYSICAL node when it
+    #     # arrives, then raise the Longhorn replica count to 3 (Flux
+    #     # side). proxmox_node was pve-home-03 (RETIRED) — re-pin to the
+    #     # new node's name. Keep resources at parity with the others.
+    #     # kube-worker-03:
+    #     #   ansible_host: kube-worker-03.lan
+    #     #   ip_address: 10.1.1.115
+    #     #   mac_address: "02:00:00:00:03:03"
+    #     #   vm:
+    #     #     proxmox_node: <3rd-physical-node>
+    #     #     cores: 4
+    #     #     memory: 16000
+    #     #     disk_size: 50
+    #     #     data_disk_size: 600
+    #     #     tags: [kube, worker]
+    #
 containers:
   # LXC guests. Like VMs, each leaf group owns its inbound firewall
-  # policy in group_vars/<group>.yml. Both children are empty templates
-  # for future LXCs; the policies already exist so a host inherits them
-  # the moment it is added.
+  # policy in group_vars/<group>.yml. Hosts here carry an `lxc:` block
+  # which Tofu shapes into `proxmox_virtual_environment_container`
+  # resources (cloned from `template_ct_ids[proxmox_node]`); see the
+  # header for the namespace contract.
   children:
+    bootserv:
+      # The fleet's iPXE / Debian-netboot home base. ONE LXC per cluster
+      # is enough — TFTP + nginx are cheap and there's no reason to
+      # shard. Tagged `infra` so its Tofu module precedes every VM
+      # module on the same node (the ground-up bootstrap invariant).
+      # Lives on pve-home-01 so it survives the pve-home-02 re-image
+      # that triggers most iPXE boots.
+      #
+      # Addressing: NO `ip_address` and NO `mac_address` on purpose.
+      # PVE auto-generates a unique MAC at clone time; the LXC DHCPs
+      # into OPNsense's dynamic pool; dnsmasq's dynamic-DNS
+      # (`regdhcp: true` in 20-dnsmasq.yml) registers `bootserv01.lan`
+      # → assigned IP. The hostname `bootserv01` is set by the Tofu
+      # LXC module's `initialization.hostname` so the DHCP request
+      # advertises the right name. Every reference to the bootserv
+      # (Ansible SSH, PXE clients, iPXE scripts) goes through the
+      # hostname, never an IP literal.
+      hosts:
+        bootserv01:
+          ansible_host: bootserv01.lan
+          lxc:
+            proxmox_node: pve-home-01
+            cores: 1
+            memory: 512
+            disk_size: 30
+            unprivileged: true
+            features:
+              nesting: false
+            tags: [infra, bootserv]
     webservers:   # caddy/nginx — policy: group_vars/webservers.yml (80/443)
     # dns:        # pihole — policy: group_vars/dns.yml (53, 67, 80)
     #   hosts:

@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: bootserv
+  description: >-
+    Boot server for the homelab: TFTP-only dnsmasq + nginx serving
+    iPXE binaries, Debian 13 netboot kernel/initrd, per-host iPXE
+    dispatch scripts, and per-host preseeds. Driven by every inventory
+    host with a `debian_netboot:` block.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions:
+        - "13"
+dependencies: []

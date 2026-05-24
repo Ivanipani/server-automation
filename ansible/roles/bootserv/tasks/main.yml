@@ -1,0 +1,255 @@
+---
+# Configures bootserv01 (an LXC on pve-home-01) as the fleet's iPXE +
+# Debian-netboot home base. Idempotent — re-runs are cheap and only
+# touch the files that actually changed.
+#
+# What gets served:
+#   TFTP (port 69, dnsmasq):
+#     /srv/tftp/ipxe.efi          chainloaded by UEFI PXE clients
+#     /srv/tftp/undionly.kpxe     chainloaded by legacy BIOS PXE clients
+#   HTTP (port 80, nginx):
+#     /                            (autoindex on, for ops sanity-checks)
+#     /boot.ipxe                   the script iPXE clients fetch after chainload
+#     /hosts/<host>.ipxe           per-host dispatch (kernel/initrd/preseed URL)
+#     /debian-13/{linux,initrd.gz} pinned upstream netboot installer
+#     /preseed/<host>.cfg          per-host preseed (LAN-only)
+#     /keys/<host>.pub             per-host authorized_keys (LAN-only)
+#
+# Pre-conditions:
+#   - this play targets a fresh Debian 13 LXC with the ansible user + sudo
+#   - the LXC has outbound HTTP to ftp.debian.org for the netboot fetch
+#   - bootserv_ansible_pubkey and bootserv_root_password are non-empty
+
+- name: Assert required vars are set
+  ansible.builtin.assert:
+    that:
+      - bootserv_ansible_pubkey | length > 0
+      - bootserv_root_password | length > 0
+    fail_msg: >-
+      bootserv role needs bootserv_ansible_pubkey + bootserv_root_password.
+      Both come from the calling playbook + vault.
+
+# The Tofu LXC module clones from the Debian 13 template and cannot
+# override the template's baked-in hostname at clone time (PVE's
+# container-clone API doesn't accept the same init params as create).
+# So the hostname is set from inventory here, post-clone, and reconciled
+# every run — idempotent.
+- name: Set hostname from inventory
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Ensure /etc/hosts maps the hostname to 127.0.1.1
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1 {{ inventory_hostname }}.{{ domain | default('lan') }} {{ inventory_hostname }}"
+    state: present
+
+- name: Install dnsmasq, nginx, ipxe
+  ansible.builtin.apt:
+    name:
+      - dnsmasq        # TFTP only (port=0 disables its DNS)
+      - nginx          # HTTP static-file server
+      - ipxe           # ships /usr/lib/ipxe/{ipxe.efi,undionly.kpxe}
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ensure document-root directory tree
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0755"
+  loop:
+    - "{{ bootserv_tftp_root }}"
+    - "{{ bootserv_http_root }}"
+    - "{{ bootserv_http_root }}/debian-13"
+    - "{{ bootserv_http_root }}/hosts"
+    - "{{ bootserv_http_root }}/preseed"
+    - "{{ bootserv_http_root }}/keys"
+
+# --- TFTP: iPXE chainload binaries -----------------------------------
+# Copy from the Debian-packaged location to /srv/tftp. Source-of-truth
+# is the apt package, so no upstream pinning beyond the apt repo state.
+- name: Copy iPXE chainload binaries into TFTP root
+  ansible.builtin.copy:
+    src: "/usr/lib/ipxe/{{ item }}"
+    dest: "{{ bootserv_tftp_root }}/{{ item }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - ipxe.efi          # UEFI x86_64 chainload
+    - undionly.kpxe     # legacy BIOS chainload
+
+# --- HTTP: Debian netboot kernel + initrd ----------------------------
+# Cache SHA256SUMS to disk on bootserv01, then `awk` exact-match column
+# 2 to extract the kernel + initrd hashes. This used to be a Jinja
+# select('search', ...) pipeline; the regex variant was brittle
+# (escaping + `$` anchor + lazy-eval interactions returned an empty
+# sequence for initrd.gz even though Python re.search matched). awk on
+# whole-string column 2 is bulletproof and the saved file doubles as
+# a manual debug aid (`cat /srv/http/debian-13/.SHA256SUMS | head`).
+- name: Cache upstream Debian SHA256SUMS to disk
+  ansible.builtin.get_url:
+    url: "{{ bootserv_debian_release_url }}/SHA256SUMS"
+    dest: "{{ bootserv_http_root }}/debian-13/.SHA256SUMS"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0644"
+    force: true     # always re-fetch — SHA values may bump with mirrors
+
+- name: Extract pinned kernel SHA256 from SHA256SUMS
+  ansible.builtin.command:
+    cmd: >-
+      awk -v p='./{{ bootserv_debian_netboot_subdir }}/linux'
+          '$2 == p {print $1; found=1} END {exit found?0:1}'
+          {{ bootserv_http_root }}/debian-13/.SHA256SUMS
+  register: bootserv_kernel_sha_result
+  changed_when: false
+
+- name: Extract pinned initrd SHA256 from SHA256SUMS
+  ansible.builtin.command:
+    cmd: >-
+      awk -v p='./{{ bootserv_debian_netboot_subdir }}/initrd.gz'
+          '$2 == p {print $1; found=1} END {exit found?0:1}'
+          {{ bootserv_http_root }}/debian-13/.SHA256SUMS
+  register: bootserv_initrd_sha_result
+  changed_when: false
+
+- name: Set pinned-SHA facts
+  ansible.builtin.set_fact:
+    bootserv_kernel_sha256: "{{ bootserv_kernel_sha_result.stdout | trim }}"
+    bootserv_initrd_sha256: "{{ bootserv_initrd_sha_result.stdout | trim }}"
+
+- name: Fetch Debian netboot kernel
+  ansible.builtin.get_url:
+    url: "{{ bootserv_debian_release_url }}/{{ bootserv_debian_netboot_subdir }}/linux"
+    dest: "{{ bootserv_http_root }}/debian-13/linux"
+    checksum: "sha256:{{ bootserv_kernel_sha256 }}"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0644"
+    force: false
+
+- name: Fetch Debian netboot initrd
+  ansible.builtin.get_url:
+    url: "{{ bootserv_debian_release_url }}/{{ bootserv_debian_netboot_subdir }}/initrd.gz"
+    dest: "{{ bootserv_http_root }}/debian-13/initrd.gz"
+    checksum: "sha256:{{ bootserv_initrd_sha256 }}"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0644"
+    force: false
+
+# --- iPXE dispatcher + per-host scripts ------------------------------
+# The dispatcher matches on the MAC of the booting NIC and chains to
+# the per-host script. Hosts come from inventory: anything with a
+# `debian_netboot:` block. Each host can have multiple boot_macs (e.g.
+# multi-port NICs) — every MAC dispatches to the same per-host script.
+- name: Render the iPXE dispatcher (boot.ipxe)
+  ansible.builtin.template:
+    src: boot.ipxe.j2
+    dest: "{{ bootserv_http_root }}/boot.ipxe"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0644"
+  vars:
+    # Template iterates these by name and filters on
+    # `hostvars[name].debian_netboot is defined`.
+    netboot_hosts: "{{ groups['all'] }}"
+
+- name: Render per-host iPXE script
+  ansible.builtin.template:
+    src: host.ipxe.j2
+    dest: "{{ bootserv_http_root }}/hosts/{{ item }}.ipxe"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0644"
+  loop: "{{ groups['all'] }}"
+  when: hostvars[item].debian_netboot is defined
+  loop_control:
+    label: "{{ item }}"
+
+- name: Render per-host preseed
+  ansible.builtin.template:
+    src: preseed.cfg.j2
+    dest: "{{ bootserv_http_root }}/preseed/{{ item }}.cfg"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0640"
+  loop: "{{ groups['all'] }}"
+  when: hostvars[item].debian_netboot is defined
+  loop_control:
+    label: "{{ item }}"
+
+- name: Render per-host authorized_keys
+  ansible.builtin.copy:
+    content: "{{ bootserv_ansible_pubkey }}\n"
+    dest: "{{ bootserv_http_root }}/keys/{{ item }}.pub"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0640"
+  loop: "{{ groups['all'] }}"
+  when: hostvars[item].debian_netboot is defined
+  loop_control:
+    label: "{{ item }}"
+
+# --- dnsmasq (TFTP only) ---------------------------------------------
+- name: Configure dnsmasq for TFTP-only
+  ansible.builtin.template:
+    src: dnsmasq.conf.j2
+    dest: /etc/dnsmasq.d/bootserv.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart dnsmasq
+
+# Disable the stock /etc/dnsmasq.conf DHCP/DNS server behavior — we
+# want only the bootserv.conf snippet active. Editing the main file
+# rather than removing the package keeps the daemon happy.
+- name: Neutralize the stock dnsmasq.conf
+  ansible.builtin.copy:
+    content: |
+      # Managed by roles/bootserv. Real config in /etc/dnsmasq.d/bootserv.conf.
+      conf-dir=/etc/dnsmasq.d,*.conf
+    dest: /etc/dnsmasq.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart dnsmasq
+
+# --- nginx -----------------------------------------------------------
+- name: Configure nginx site
+  ansible.builtin.template:
+    src: nginx-bootserv.conf.j2
+    dest: /etc/nginx/sites-available/bootserv.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Enable bootserv nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/bootserv.conf
+    dest: /etc/nginx/sites-enabled/bootserv.conf
+    state: link
+  notify: Reload nginx
+
+- name: Remove stock nginx default site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: Ensure dnsmasq + nginx are enabled and running
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - dnsmasq
+    - nginx

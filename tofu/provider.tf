@@ -8,10 +8,13 @@
 #
 # Terraform cannot generate provider blocks from data — they must be
 # static. Adding a node is a 4-step checklist:
-#   1. inventory.yaml all.vars.proxmox_endpoints: add the node
+#   1. inventory.yaml all.vars.{proxmox_endpoints,template_vm_ids,template_ct_ids}: add the node
 #   2. tofu/variables.tf: add proxmox_api_token_<node>
 #   3. here: add a provider block referencing both
-#   4. tofu/main.tf: add a module call wired to the new alias
+#   4. tofu/main.tf: add BOTH module calls wired to the new alias —
+#      `infra_lxcs_<node>` (LXC module) AND `vms_<node>` (VM module
+#      with `depends_on = [module.infra_lxcs_<node>]` to keep the
+#      bootstrap invariant).
 
 provider "proxmox" {
   alias     = "pve_home_01"

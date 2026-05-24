@@ -1,0 +1,88 @@
+# Debian 13 (Trixie) preseed for {{ item }}
+# Rendered by roles/bootserv from ansible/inventory.yaml — do not edit by hand.
+# Served at http://bootserv01.lan/preseed/{{ item }}.cfg (LAN-only) and loaded
+# by d-i via preseed/url= on the kernel cmdline (see hosts/{{ item }}.ipxe).
+
+### Localization
+d-i debian-installer/locale string en_US.UTF-8
+d-i keyboard-configuration/xkb-keymap select us
+
+### Network — DHCP. Static IP comes from the OPNsense reservation tied
+### to the booting NIC's MAC.
+d-i netcfg/choose_interface select auto
+d-i netcfg/hostname string {{ item }}
+d-i netcfg/get_hostname string {{ item }}
+d-i netcfg/get_domain string {{ hostvars[item].domain | default(domain | default('lan')) }}
+d-i netcfg/wireless_wep string
+
+### Mirror
+d-i mirror/country string manual
+d-i mirror/http/hostname string deb.debian.org
+d-i mirror/http/directory string /debian
+d-i mirror/http/proxy string
+
+### Accounts — root password is break-glass; daily-driver is the
+### ansible user created in late_command with the fleet's canonical key.
+d-i passwd/root-login boolean true
+d-i passwd/root-password password {{ bootserv_root_password }}
+d-i passwd/root-password-again password {{ bootserv_root_password }}
+d-i passwd/make-user boolean false
+
+### Clock
+d-i clock-setup/utc boolean true
+d-i time/zone string {{ bootserv_timezone }}
+d-i clock-setup/ntp boolean true
+
+### Partitioning — whole-disk LVM on the inventory-declared install
+### disk. Every other disk on the host is left untouched (free for the
+### post-install hypervisor-disks role to carve, if applicable).
+d-i partman-auto/disk string {{ hostvars[item].debian_netboot.install_disk }}
+d-i partman-auto/method string lvm
+d-i partman-lvm/device_remove_lvm boolean true
+d-i partman-md/device_remove_md boolean true
+d-i partman-lvm/confirm boolean true
+d-i partman-lvm/confirm_nooverwrite boolean true
+d-i partman-auto/choose_recipe select atomic
+d-i partman-auto-lvm/new_vg_name string system
+d-i partman/confirm_write_new_label boolean true
+d-i partman/choose_partition select finish
+d-i partman/confirm boolean true
+d-i partman/confirm_nooverwrite boolean true
+
+### Apt
+d-i apt-setup/non-free boolean false
+d-i apt-setup/non-free-firmware boolean true
+d-i apt-setup/contrib boolean false
+d-i apt-setup/services-select multiselect security, updates
+
+### Packages — minimal base + SSH; the rest is Ansible's job.
+tasksel tasksel/first multiselect standard, ssh-server
+d-i pkgsel/include string openssh-server python3 sudo curl ca-certificates gnupg
+d-i pkgsel/upgrade select full-upgrade
+d-i pkgsel/update-policy select none
+popularity-contest popularity-contest/participate boolean false
+
+### Bootloader
+d-i grub-installer/only_debian boolean true
+d-i grub-installer/with_other_os boolean true
+d-i grub-installer/bootdev string {{ hostvars[item].debian_netboot.install_disk }}
+
+### Finish
+d-i finish-install/reboot_in_progress note
+
+### Late command — create the ansible user with the canonical key,
+### give it NOPASSWD sudo, and mask unattended-upgrades to match the
+### rest of the fleet's "patching is deliberate" policy. The pubkey is
+### fetched over HTTP from this same bootserv (LAN-ACL'd by nginx) so
+### we avoid escaping it inside this single-line directive.
+d-i preseed/late_command string \
+    in-target useradd -m -s /bin/bash -G sudo ansible ; \
+    in-target install -d -o ansible -g ansible -m 0700 /home/ansible/.ssh ; \
+    in-target wget -qO /home/ansible/.ssh/authorized_keys http://bootserv01.lan/keys/{{ item }}.pub ; \
+    in-target chown ansible:ansible /home/ansible/.ssh/authorized_keys ; \
+    in-target chmod 0600 /home/ansible/.ssh/authorized_keys ; \
+    in-target sh -c 'echo "ansible ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ansible' ; \
+    in-target chmod 0440 /etc/sudoers.d/ansible ; \
+    in-target sh -c 'echo "APT::Periodic::Update-Package-Lists \"0\";" > /etc/apt/apt.conf.d/99-no-auto-upgrades' ; \
+    in-target sh -c 'echo "APT::Periodic::Unattended-Upgrade \"0\";" >> /etc/apt/apt.conf.d/99-no-auto-upgrades' ; \
+    in-target systemctl mask apt-daily.timer apt-daily-upgrade.timer

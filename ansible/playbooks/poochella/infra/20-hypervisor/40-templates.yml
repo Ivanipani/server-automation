@@ -74,12 +74,12 @@
       - name: ubuntu-24-template
         image_url: https://cloud-images.ubuntu.com/noble/20260323/noble-server-cloudimg-amd64.img
         image_file: noble-server-cloudimg-amd64-20260323.img
-    build_lxc_templates: false
-    build_vm_templates: true
+    build_lxc_templates: true
+    build_vm_templates: false
     # Non-destructive by default: re-runs (and site.yml) leave existing
     # templates intact. Opt in for a deliberate clean rebuild only:
     #   -e purge_existing_templates=true
-    purge_existing_templates: false
+    purge_existing_templates: true
     # Wipe the cached customized cloud images so the next run re-bakes.
     purge_cached_images: false
     ansible_pubkey: "{{ lookup('file', '~/.ssh/ansible.pub') }}"

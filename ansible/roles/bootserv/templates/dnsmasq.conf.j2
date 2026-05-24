@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+# bootserv01: TFTP-only. OPNsense is authoritative DHCP + DNS for the
+# LAN; this dnsmasq only serves iPXE chainload binaries to clients
+# that already have a DHCP-assigned IP and were directed here by
+# `next-server` in the OPNsense reservation.
+
+# DNS off — port 0 disables the DNS function entirely.
+port=0
+
+# TFTP on, rooted at the directory roles/bootserv populates.
+enable-tftp
+tftp-root={{ bootserv_tftp_root }}
+
+# Disable block-size negotiation — some PXE ROMs (older Mellanox
+# FlexBoot included) negotiate poorly and time out; sticking to the
+# RFC 1350 default of 512 just works.
+tftp-no-blocksize
+
+# DHCP completely off — we are NOT a DHCP server here. OPNsense's
+# dnsmasq pool owns the LAN. Defense in depth: refuse to bind to
+# DHCP listen sockets on any interface.
+no-dhcp-interface=

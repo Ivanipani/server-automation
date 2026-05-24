@@ -31,18 +31,41 @@
     # nodes are reachable by name without static reservations.
     dnsmasq_register_dynamic_dns: true
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    # PXE flow: turn it on once bootserv01 is in the inventory. The
+    # role guards every PXE task with `dnsmasq_pxe_enabled`, so this
+    # is the on/off switch for the whole chainload mechanism. The
+    # TFTP server is advertised by RESOLVED IP (not hostname): the
+    # LXC has no static MAC/IP — its address is whatever dnsmasq's
+    # dynamic-DNS assigned — and we resolve it once per playbook run
+    # via OPNsense's own DNS so old PXE ROMs that don't do DNS for
+    # option 66 (e.g. some Mellanox FlexBoot revisions) still work.
+    # If the LXC ever takes a new lease, re-running the playbook
+    # refreshes this value. script_url stays as a hostname URL —
+    # iPXE itself does DNS resolution natively.
+    dnsmasq_pxe_enabled: "{{ 'bootserv01' in groups['all'] }}"
+    bootserv_fqdn: "{{ hostvars['bootserv01'].ansible_host | default('bootserv01.lan') }}"
+    # Resolved on the controller via `dig +short` against OPNsense
+    # (DNS resolver on the LAN). `pipe` lookup avoids the dnspython
+    # dependency that the community.general.dig lookup needs.
+    dnsmasq_pxe_tftp_servername: "{{ lookup('pipe', 'dig +short ' + bootserv_fqdn + ' @' + (hostvars['opnsense01'].ansible_host | default('10.1.1.1'))) | trim | split('\n') | first }}"
+    dnsmasq_pxe_script_url: "http://{{ bootserv_fqdn }}/boot.ipxe"
   pre_tasks:
     # Build the static-lease list from inventory hostvars: every host with
-    # both `mac_address` and `ip_address` defined gets a reservation,
-    # unless it has `static_ip: true` (router itself).
+    # both `mac_address` and `ip_address` defined gets ONE reservation;
+    # OPNsense's dnsmasq_host enforces unique IP per entry, so multi-NIC
+    # hosts (e.g. pve-home-02's onboard + dual-port Mellanox) collapse to
+    # a single entry with all MACs in `hardware_addr`. The MAC list is
+    # the primary `mac_address` plus any `debian_netboot.boot_macs`.
+    # `static_ip: true` (router itself) opts out of any reservation.
     - name: Build static-lease list from inventory hostvars
       ansible.builtin.set_fact:
         dnsmasq_static_leases: >-
           {{
-            dnsmasq_static_leases | default([]) + [{
+            (dnsmasq_static_leases | default([])) + [{
               'hostname': item,
               'address': hostvars[item].ip_address,
-              'mac': hostvars[item].mac_address
+              'macs': [hostvars[item].mac_address]
+                       + (hostvars[item].debian_netboot.boot_macs | default([]))
             }]
           }}
       loop: "{{ groups['all'] | sort }}"
@@ -50,5 +73,7 @@
         - hostvars[item].mac_address is defined
         - hostvars[item].ip_address is defined
         - not (hostvars[item].static_ip | default(false))
+      loop_control:
+        label: "{{ item }}"
   roles:
     - role: opnsense-dnsmasq

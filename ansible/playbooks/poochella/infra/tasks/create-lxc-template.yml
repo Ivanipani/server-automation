@@ -88,10 +88,33 @@
         - "pct exec {{ lxc_template.id }} -- sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config"
       changed_when: true
 
+    # First-boot SSH host-key regenerator. The next step deletes
+    # /etc/ssh/ssh_host_* so every clone gets unique keys, but Debian
+    # Trixie's openssh-server doesn't ship a unit that regenerates them
+    # on first boot — ssh.service then fails to start ("no host keys
+    # available") and the clone is unreachable. This drop-in runs
+    # `dpkg-reconfigure openssh-server` (which regenerates missing keys
+    # via openssh-server's postinst) as an ExecStartPre for ssh.service,
+    # gated by `! -f /etc/ssh/ssh_host_rsa_key` so subsequent boots
+    # skip the work. Installed BEFORE the reset so the drop-in itself
+    # survives templatize-and-clone.
+    - name: "Install ssh.service drop-in to regenerate host keys on first boot in {{ lxc_template.id }}"
+      ansible.builtin.shell: |
+        set -e
+        pct exec {{ lxc_template.id }} -- mkdir -p /etc/systemd/system/ssh.service.d
+        pct exec {{ lxc_template.id }} -- bash -c "cat > /etc/systemd/system/ssh.service.d/regenerate-host-keys.conf <<'EOF'
+        [Service]
+        ExecStartPre=-/bin/sh -c 'if [ ! -f /etc/ssh/ssh_host_rsa_key ]; then DEBIAN_FRONTEND=noninteractive dpkg-reconfigure openssh-server; fi'
+        EOF"
+        pct exec {{ lxc_template.id }} -- systemctl daemon-reload
+      changed_when: true
+
     # Reset host identity so every clone gets unique DHCP client-id + SSH host
     # keys. systemd-networkd derives the DHCP client-id from /etc/machine-id,
     # so without this every clone presents the same id to dnsmasq and gets the
-    # same lease.
+    # same lease. The ssh.service drop-in installed in the previous step is
+    # what makes the SSH key deletion safe — it regenerates keys on first
+    # boot before ssh.service tries to bind.
     - name: "Reset host identity in container {{ lxc_template.id }}"
       ansible.builtin.shell: |
         pct exec {{ lxc_template.id }} -- truncate -s 0 /etc/machine-id

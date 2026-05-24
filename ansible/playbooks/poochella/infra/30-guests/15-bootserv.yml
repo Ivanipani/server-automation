@@ -1,0 +1,37 @@
+---
+# Configure bootserv01 (the fleet's iPXE + Debian netboot home base) as
+# an LXC on pve-home-01. Runs FIRST among the guest-config plays so any
+# subsequent baremetal that net-boots into Debian can fetch its kernel /
+# initrd / preseed from a known-good bootserv.
+#
+# Addressing model: bootserv01 carries NO MAC or IP in inventory. PVE
+# auto-generates a unique MAC at clone time, the LXC DHCPs into the
+# dynamic pool, and OPNsense's dnsmasq registers `bootserv01.lan` →
+# whatever-IP-it-got via dynamic-DNS (`regdhcp: true` is on in
+# 20-dnsmasq.yml). The Tofu LXC module sets the LXC's hostname to
+# `bootserv01` via `initialization.hostname` at clone time so the DHCP
+# request advertises the right name. Everything that needs to reach the
+# bootserv (Ansible SSH, PXE clients, iPXE script) uses the hostname.
+#
+# Pre-conditions:
+#   - 10-opentofu.yml completed (Tofu cloned bootserv01 from the
+#     pve-home-01 Debian 13 LXC template; template bakes the `ansible`
+#     user with the canonical key + sets hostname=bootserv01 via
+#     `initialization.hostname`).
+#   - 10-router/20-dnsmasq.yml has run at least once (dnsmasq's
+#     `regdhcp: true` is on so dynamic leases register in DNS).
+#   - `vault_baremetal_root_password` exists in vault (break-glass root
+#     pw baked into every rendered preseed).
+
+- name: Configure bootserv01 (TFTP + nginx + iPXE + Debian netboot)
+  hosts: bootserv01
+  become: true
+  gather_facts: true
+  vars:
+    # Read the canonical bootstrap SSH key off the controller laptop.
+    # Same key the existing automation expects everywhere
+    # (~/.ssh/ansible.pub).
+    bootserv_ansible_pubkey: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/ansible.pub') }}"
+  roles:
+    - role: apt-no-auto-upgrades
+    - role: bootserv
