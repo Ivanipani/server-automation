@@ -21,8 +21,13 @@ d-i mirror/http/hostname string deb.debian.org
 d-i mirror/http/directory string /debian
 d-i mirror/http/proxy string
 
-### Accounts — root password is break-glass; daily-driver is the
-### ansible user created in late_command with the fleet's canonical key.
+### Accounts — root password is one break-glass path; the dedicated
+### break-glass account is `tourmanager` (created in late_command with a
+### password) and the automation account is `ansible` (created in
+### late_command with the fleet's canonical key). These two accounts are
+### the install-time GUARANTEE that every freshly-netbooted Debian host
+### has equal-shape ansible + break-glass access, independent of any
+### later host-base run.
 d-i passwd/root-login boolean true
 d-i passwd/root-password password {{ bootserv_root_password }}
 d-i passwd/root-password-again password {{ bootserv_root_password }}
@@ -70,11 +75,27 @@ d-i grub-installer/bootdev string {{ hostvars[item].debian_netboot.install_disk 
 ### Finish
 d-i finish-install/reboot_in_progress note
 
-### Late command — create the ansible user with the canonical key,
-### give it NOPASSWD sudo, and mask unattended-upgrades to match the
-### rest of the fleet's "patching is deliberate" policy. The pubkey is
-### fetched over HTTP from this same bootserv (LAN-ACL'd by nginx) so
-### we avoid escaping it inside this single-line directive.
+### Late command — create the two guaranteed-access accounts and mask
+### unattended-upgrades to match the rest of the fleet's "patching is
+### deliberate" policy.
+###
+###   ansible      → key-only automation account, NOPASSWD sudo. Pubkey
+###                  is fetched over HTTP from this same bootserv
+###                  (LAN-ACL'd by nginx) so we avoid escaping it inside
+###                  this single-line directive.
+###   tourmanager  → password-only break-glass account, NOPASSWD sudo.
+###                  Hash is computed by Ansible with a deterministic
+###                  per-host salt so re-rendering this template is
+###                  idempotent (no spurious `changed:` on the file).
+###                  Plaintext never reaches disk: useradd -p takes the
+###                  crypt(3) hash directly, which is shell-safe.
+###
+### Both are also created/reconciled later by host-base on every
+### Ansible run; the preseed copies exist so a freshly-installed Debian
+### node has them BEFORE any play touches it.
+{% set _tm_salt = (item ~ '-tourmanager-salt-v1') | hash('sha256') %}
+{% set _tm_salt = _tm_salt[:16] %}
+{% set _tm_hash = bootserv_tourmanager_password | password_hash('sha512', _tm_salt) %}
 d-i preseed/late_command string \
     in-target useradd -m -s /bin/bash -G sudo ansible ; \
     in-target install -d -o ansible -g ansible -m 0700 /home/ansible/.ssh ; \
@@ -83,6 +104,9 @@ d-i preseed/late_command string \
     in-target chmod 0600 /home/ansible/.ssh/authorized_keys ; \
     in-target sh -c 'echo "ansible ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ansible' ; \
     in-target chmod 0440 /etc/sudoers.d/ansible ; \
+    in-target useradd -m -s /bin/bash -G sudo -p '{{ _tm_hash }}' tourmanager ; \
+    in-target sh -c 'echo "tourmanager ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tourmanager' ; \
+    in-target chmod 0440 /etc/sudoers.d/tourmanager ; \
     in-target sh -c 'echo "APT::Periodic::Update-Package-Lists \"0\";" > /etc/apt/apt.conf.d/99-no-auto-upgrades' ; \
     in-target sh -c 'echo "APT::Periodic::Unattended-Upgrade \"0\";" >> /etc/apt/apt.conf.d/99-no-auto-upgrades' ; \
     in-target systemctl mask apt-daily.timer apt-daily-upgrade.timer

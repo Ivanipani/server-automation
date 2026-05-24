@@ -21,7 +21,7 @@ k3s_kube_vip_address: "10.1.1.50"
 # survive a VIP renumber with a single DNS edit. DNS is sugar ON TOP of
 # kube-vip, not a replacement: kube-vip still owns sub-second L2
 # failover between CPs, the DNS layer just hides the literal VIP.
-k3s_api_dns_name: "api.doghouse.lan"
+k3s_api_dns_name: "api.lan"
 
 # Fetch kubeconfig back to the controller after the cluster is up so you
 # can `export KUBECONFIG=$(pwd)/kubeconfig && kubectl get nodes` from

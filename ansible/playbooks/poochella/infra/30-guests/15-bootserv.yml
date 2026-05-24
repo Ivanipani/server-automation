@@ -22,6 +22,11 @@
 #     `regdhcp: true` is on so dynamic leases register in DNS).
 #   - `vault_baremetal_root_password` exists in vault (break-glass root
 #     pw baked into every rendered preseed).
+#   - `vault_tourmanager_user_pass` exists in vault (break-glass
+#     `tourmanager` user password; preseed's late_command useradd's
+#     tourmanager with a per-host-salted crypt hash of this value so
+#     every netbooted Debian host has the same break-glass account that
+#     host-base + ssh-hardening's Match block expect).
 
 - name: Configure bootserv01 (TFTP + nginx + iPXE + Debian netboot)
   hosts: bootserv01

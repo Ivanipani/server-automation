@@ -25,9 +25,11 @@
     that:
       - bootserv_ansible_pubkey | length > 0
       - bootserv_root_password | length > 0
+      - bootserv_tourmanager_password | length > 0
     fail_msg: >-
-      bootserv role needs bootserv_ansible_pubkey + bootserv_root_password.
-      Both come from the calling playbook + vault.
+      bootserv role needs bootserv_ansible_pubkey + bootserv_root_password
+      + bootserv_tourmanager_password. All three come from the calling
+      playbook + vault.
 
 # The Tofu LXC module clones from the Debian 13 template and cannot
 # override the template's baked-in hostname at clone time (PVE's

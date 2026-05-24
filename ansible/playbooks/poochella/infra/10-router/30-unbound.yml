@@ -18,21 +18,46 @@
       api_key: "{{ opnsense_api_key }}"
       api_secret: "{{ opnsense_api_secret }}"
       ssl_verify: false
+    # Match on description rather than the module default
+    # ['hostname','domain','record_type','value','prio']. The default
+    # matcher is broken for A/AAAA records: check() forces the desired
+    # `prio` to None while `_simplify_existing` returns the existing
+    # `prio` as '', and `get_matching` compares them as
+    # `str(None) != str('')` — so the matcher NEVER finds the live
+    # entry and OPNsense's add_host_override happily appends another
+    # row on every run. Stacking duplicates eventually breaks Unbound
+    # (multiple A answers, then a startup failure that takes DNS down
+    # for the whole LAN). Description is unique per managed entry and
+    # is also what the orphan-cleanup pass below keys on, so using it
+    # for matching keeps both passes consistent.
+    oxlorg.opnsense.unbound_host:
+      match_fields: [description]
   vars:
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
-  tasks:
-    # Wildcard *.doghouse.lan resolves to the MetalLB IP pinned for the
-    # Traefik ingress (see k3s HelmChartConfig override), so any Ingress
-    # host under doghouse.lan reaches the cluster's ingress controller.
-    # Unbound treats hostname '*' as a wildcard match for the domain.
-    - name: Wildcard *.doghouse.lan -> Traefik ingress VIP
-      oxlorg.opnsense.unbound_host:
-        hostname: "*"
-        domain: doghouse.lan
-        record_type: A
-        value: 10.1.1.250
-        description: doghouse-ingress-wildcard
-        state: present
+    # Prefix scoping orphan cleanup to records THIS play owns; every
+    # entry in `unbound_host_overrides` MUST have a description that
+    # starts with it. Hand-managed OPNsense entries (anything without
+    # this prefix) are never touched.
+    unbound_host_prefix: doghouse-
+  pre_tasks:
+    # ── Desired state ──────────────────────────────────────────────
+    # Built imperatively so the api.lan entry can be conditionally
+    # appended (see its `when:` gate). Both the apply step and the
+    # orphan-cleanup pass below read from this single list, so adding
+    # a new managed record is a one-place edit.
+    - name: Seed desired Unbound host-overrides
+      ansible.builtin.set_fact:
+        unbound_host_overrides:
+          # Wildcard *.doghouse.lan resolves to the MetalLB IP pinned
+          # for the Traefik ingress (see k3s HelmChartConfig override),
+          # so any Ingress host under doghouse.lan reaches the
+          # cluster's ingress controller. Unbound treats hostname '*'
+          # as a wildcard match for the domain.
+          - description: doghouse-ingress-wildcard
+            hostname: "*"
+            domain: doghouse.lan
+            record_type: A
+            value: 10.1.1.250
 
     # Stable name in front of the k3s apiserver (kube-vip L2 VIP).
     # Lives in the top-level `lan` zone (transparent), NOT under
@@ -44,31 +69,93 @@
     # ingress, not a service behind it.
     #
     # Hostname + domain are split out of k3s_api_dns_name so this
-    # playbook stays inventory-driven: change the name (and the VIP) in
-    # group_vars/kubernetes.yml only, and both Unbound and the k3s role
-    # follow.
+    # playbook stays inventory-driven: change the name (and the VIP)
+    # in group_vars/kubernetes.yml only, and both Unbound and the k3s
+    # role follow.
     #
     # We bounce through ANY `kubernetes` member's hostvars (not just a
     # control plane) because `k3s_api_dns_name` and
-    # `k3s_kube_vip_address` are group_vars/kubernetes.yml — every kube
-    # member (CP, VM worker, baremetal worker) inherits the same
+    # `k3s_kube_vip_address` are group_vars/kubernetes.yml — every
+    # kube member (CP, VM worker, baremetal worker) inherits the same
     # cluster-wide value. `kube_control_plane` is empty today
-    # (worker-home-02 is currently the only kube node), and indexing an
-    # empty list trips Ansible's lazy-templating error. The `when:`
-    # gate makes the task skip cleanly when the `kubernetes` group has
-    # no members at all.
-    - name: api.lan -> k3s apiserver VIP
-      oxlorg.opnsense.unbound_host:
-        hostname: "{{ hostvars[groups['kubernetes'][0]].k3s_api_dns_name.split('.', 1)[0] }}"
-        domain: "{{ hostvars[groups['kubernetes'][0]].k3s_api_dns_name.split('.', 1)[1] }}"
-        record_type: A
-        value: "{{ hostvars[groups['kubernetes'][0]].k3s_kube_vip_address }}"
-        description: doghouse-apiserver
-        state: present
+    # (worker-home-02 is currently the only kube node), and indexing
+    # an empty list trips Ansible's lazy-templating error. The
+    # `when:` gate makes the task skip cleanly when the `kubernetes`
+    # group has no members at all — and orphan-cleanup will then drop
+    # any previously-applied api.lan entry.
+    - name: Append api.lan -> k3s apiserver VIP to desired state
+      ansible.builtin.set_fact:
+        unbound_host_overrides: "{{ unbound_host_overrides + [{
+          'description': 'doghouse-apiserver',
+          'hostname': hostvars[groups['kubernetes'][0]].k3s_api_dns_name.split('.', 1)[0],
+          'domain':   hostvars[groups['kubernetes'][0]].k3s_api_dns_name.split('.', 1)[1],
+          'record_type': 'A',
+          'value':    hostvars[groups['kubernetes'][0]].k3s_kube_vip_address,
+        }] }}"
       when: groups['kubernetes'] | length > 0
 
-    # NOTE: `nas01.lan` is intentionally NOT defined here. The NAS gets
-    # a dnsmasq static DHCP reservation (inventory has its MAC), and
-    # dnsmasq_register_static_dns auto-publishes the DNS record — same
-    # path every other named LAN host uses. Re-adding an Unbound host
-    # override would be a second source of truth for the same name.
+    # ── Orphan cleanup ─────────────────────────────────────────────
+    # Drop any host-override whose description starts with our prefix
+    # but is no longer in the desired list. This is what makes
+    # RENAMING a record (or removing one — e.g. tearing down the kube
+    # cluster) safe: without it the old entry lingers, Unbound returns
+    # multiple answers for the same name, and downstream resolution
+    # gets non-deterministic.
+    - name: Fetch current OPNsense Unbound state (for orphan detection)
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}/api/unbound/settings/get"
+        method: GET
+        user: "{{ opnsense_api_key }}"
+        password: "{{ opnsense_api_secret }}"
+        force_basic_auth: true
+        validate_certs: false
+        return_content: true
+      register: _opnsense_unbound_state
+      # Always fetch — even in `--check`. The GET is read-only; without
+      # this the orphan detector would see an empty state under check
+      # mode and report "nothing to clean up" even when entries are
+      # actually stale.
+      check_mode: false
+
+    - name: Compute the set of descriptions we want present
+      ansible.builtin.set_fact:
+        _unbound_desired_descriptions: "{{ unbound_host_overrides | map(attribute='description') | list }}"
+
+    - name: Find orphan host-overrides (our prefix, not in desired set)
+      ansible.builtin.set_fact:
+        _unbound_stale_descriptions: >-
+          {{ (_opnsense_unbound_state.json.unbound.hosts.host | default({}) | dict2items)
+             | map(attribute='value')
+             | selectattr('description', 'defined')
+             | selectattr('description', 'match', '^' ~ (unbound_host_prefix | regex_escape))
+             | rejectattr('description', 'in', _unbound_desired_descriptions)
+             | map(attribute='description')
+             | list }}
+
+    # hostname/domain/value are required parameters on the module but
+    # ignored for matching here (match_fields is [description]), so any
+    # syntactically-valid placeholder works.
+    - name: Remove orphan Unbound host-overrides (rename / deletion cleanup)
+      oxlorg.opnsense.unbound_host:
+        description: "{{ item }}"
+        hostname: orphan
+        domain: orphan.invalid
+        record_type: A
+        value: 0.0.0.0
+        state: absent
+      loop: "{{ _unbound_stale_descriptions }}"
+      loop_control:
+        label: "{{ item }}"
+
+  tasks:
+    - name: Apply desired Unbound host-overrides
+      oxlorg.opnsense.unbound_host:
+        hostname: "{{ item.hostname }}"
+        domain: "{{ item.domain }}"
+        record_type: "{{ item.record_type }}"
+        value: "{{ item.value }}"
+        description: "{{ item.description }}"
+        state: present
+      loop: "{{ unbound_host_overrides }}"
+      loop_control:
+        label: "{{ item.description }}"
