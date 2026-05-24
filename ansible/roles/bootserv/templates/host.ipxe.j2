@@ -13,11 +13,19 @@ echo  install_disk = {{ hostvars[item].debian_netboot.install_disk }}
 echo  preseed      = ${base}/preseed/${host}.cfg
 echo
 
+# BOOTIF=01-<hyphenated-mac-with-01-htype-prefix> tells debian-installer
+# which NIC was used to PXE-boot, so its netcfg component auto-selects
+# that interface instead of prompting "Multiple network interfaces..."
+# when the host has more than one linked NIC (e.g. onboard + dual-port
+# Mellanox on this hardware). 01 = ethernet hardware type per the PXE
+# spec; ${net0/mac:hexhyp} yields the booting NIC's MAC with hyphen
+# separators (xx-xx-xx-xx-xx-xx).
 kernel ${base}/debian-13/linux \
   auto=true priority=critical \
   preseed/url=${base}/preseed/${host}.cfg \
   hostname=${host} domain=${domain} \
   locale=en_US.UTF-8 keymap=us \
+  BOOTIF=01-${net0/mac:hexhyp} \
   --- quiet
 initrd ${base}/debian-13/initrd.gz
 boot
