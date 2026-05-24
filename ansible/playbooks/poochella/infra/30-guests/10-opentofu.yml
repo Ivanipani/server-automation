@@ -73,11 +73,10 @@
         state: present
         force_init: true
       environment:
-        # One TF_VAR per node — matches the static per-node provider
-        # blocks in tofu/provider.tf. Adding a node: add a line here and
-        # see the checklist in tofu/provider.tf.
+        # One TF_VAR per hypervisor — matches the static per-node
+        # provider blocks in tofu/provider.tf. Adding a hypervisor: add
+        # a line here and see the checklist in tofu/provider.tf.
         TF_VAR_proxmox_api_token_pve_home_01: "{{ proxmox_api_tokens['pve-home-01'] }}"
-        TF_VAR_proxmox_api_token_pve_home_02: "{{ proxmox_api_tokens['pve-home-02'] }}"
         # NOTE: an earlier iteration also exported TF_VAR_ansible_pubkey
         # so tofu/modules/lxc could inject it via
         # `initialization.user_account.keys`. PVE's container-clone API

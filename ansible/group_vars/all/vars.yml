@@ -4,7 +4,15 @@
 
 postgres_pass: "{{ vault_postgres_pass }}"
 router_root_pass: "{{ vault_router_root_pass }}"
-hypervisor_root_pass: "{{ vault_hypervisor_root_pass }}"
+# Root password for every baremetal Linux host (set by host-base on
+# first run, used by 17-host/10-bootstrap.yml + 20-hypervisor/10-bootstrap.yml
+# for the very-first SSH-as-root probe). Renamed 2026-05-23 from
+# `hypervisor_root_pass`; the underlying vault key stayed
+# `vault_hypervisor_root_pass` to avoid re-encrypting an unchanged
+# secret. Match this to whatever the preseed / PVE auto-installer baked
+# in (`baremetal_root_password` on workers, the PVE answerfile on
+# hypervisors), or override per-host.
+host_root_pass: "{{ vault_hypervisor_root_pass }}"
 # Root password baked into the Debian-baremetal preseed (img/debian/).
 # Console fallback only — the `ansible` user + key handles automation, so
 # treat this like a break-glass credential. Add to vault.yml with

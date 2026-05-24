@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Declarative homelab automation for **poochella**: a small Proxmox VE fleet running a k3s Kubernetes cluster on node-local LVM-thin-backed VMs, fronted by an OPNsense router. OpenTofu provisions infrastructure on Proxmox; Ansible configures everything else. The control node is the user's laptop.
 
-**Physical hosts split by role, not by hardware.** Today: `pve-home-01` is the only Proxmox hypervisor (mini PC); `pve-home-02` is plain Debian 13 baremetal (gaming-PC hardware that replaced the old crash-looping unit, since de-Proxmoxed for use as a Linux worker). `pve-home-03` was retired. Inventory umbrella groups: `physical` = every baremetal Linux box (`hypervisors` ∪ `workers`); `hypervisors` is PVE-only; `workers` is plain Linux. The hostname `pve-home-02` is now a misnomer kept to defer renaming.
+**Physical hosts split by role, not by hardware.** Today: `pve-home-01` is the only Proxmox hypervisor (mini PC); `worker-home-02` (renamed from `pve-home-02`) is plain Debian 13 baremetal (gaming-PC hardware that replaced the old crash-looping unit, since de-Proxmoxed for use as a Linux worker — both VM-host and baremetal kube_worker). `pve-home-03` was retired. Inventory umbrella groups: `physical` = every baremetal Linux box (`hypervisors` ∪ `workers`); `hypervisors` is PVE-only; `workers` is plain Linux.
 
 **Proxmox topology is per-group, and clustered + standalone can coexist** (see `inventory.yaml` header). Today every hypervisor sits in `pve_standalone` — **no corosync, no shared storage, no HA, no live-migration**. The corosync path is still fully wired and supported for any node placed under a `pve_cluster` child group; it is simply a no-op while every node is standalone.
 
@@ -69,7 +69,7 @@ Groups define topology:
   - `hypervisors` → PVE hosts only (the 20-hypervisor tier targets this). Children:
     - `pve_standalone` → independent nodes, **no corosync** (currently `pve-home-01` only)
     - `pve_cluster` → parent of zero or more corosync clusters. Each **child** group is one cluster: the group name *is* the cluster name, and `group_vars/<name>.yml` sets `proxmox_cluster_name: <name>`. Empty today.
-  - `workers` → plain Linux baremetal (no PVE). k3s baremetal workers, app hosts, etc. Currently: `pve-home-02` (hostname kept for now). Workers do NOT appear in `proxmox_endpoints` / `template_*_ids` and Tofu does not see them.
+  - `workers` → plain Linux baremetal (no PVE). k3s baremetal workers, app hosts, etc. Currently: `worker-home-02` (also listed in `kube_workers`). Workers do NOT appear in `proxmox_endpoints` / `template_*_ids` and Tofu does not see them.
 - `switches` → managed network gear that wants a static lease
 - `virtual-machines` → has children `databases` and `kubernetes`
 - `kubernetes` → children `kube_control_plane` (kube-ctl-01..03) and `kube_workers` (kube-worker-01; -02/-03 commented out). All VM-based kube nodes are pinned to `pve-home-01` while it is the only hypervisor.
@@ -81,7 +81,7 @@ Groups define topology:
 
 VMs are declared once in `inventory.yaml` (any host with a `vm:` block). `tofu/locals.tf` walks the inventory, shapes those entries, and **partitions them by `proxmox_node`** into `vms_by_node`. The MAC declared in inventory is set on the VM NIC, so the static DHCP reservation pushed to OPNsense in step 1 of the bootstrap (`just do-router-dhcp`) lights up the moment the VM DHCPs — VMs come up on their reserved IP rather than whatever the pool hands out.
 
-**Provider-per-node**: independent nodes don't share an API (pve-home-01's endpoint can't create a VM on pve-home-02), so `tofu/provider.tf` declares **one aliased `proxmox` provider per node**, and `tofu/main.tf` instantiates the reusable `tofu/modules/vm` module **once per node**, wiring each to its alias and its `vms_by_node` slice. Terraform can't generate provider blocks from data, so they are static — adding a node is the 4-step checklist in `tofu/provider.tf` (endpoint, token var, provider block, module call). This structure also works for cluster members, so one shape serves both topologies.
+**Provider-per-hypervisor**: independent hypervisors don't share an API (hypervisor-A's endpoint can't create a VM on hypervisor-B), so `tofu/provider.tf` declares **one aliased `proxmox` provider per hypervisor**, and `tofu/main.tf` instantiates the reusable `tofu/modules/vm` module **once per hypervisor**, wiring each to its alias and its `vms_by_node` slice. Terraform can't generate provider blocks from data, so they are static — adding a hypervisor is the 4-step checklist in `tofu/provider.tf` (endpoint, token var, provider block, module call). This structure also works for cluster members, so one shape serves both topologies.
 
 `playbooks/poochella/infra/30-guests/10-opentofu.yml`:
 1. For **every** hypervisor, asserts a token exists for it in the vault (`proxmox_api_tokens[node]`) **and** that `tofu-lan` exists on that node via its own `pveum user token list`
@@ -101,7 +101,7 @@ Longhorn (future) is **workers-only by design**: only `kube_workers` declare `vm
 
 ### k3s + kube-vip
 
-`playbooks/poochella/infra/11-install-kubernetes.yml` builds an embedded-etcd HA cluster (k3s runs *inside the guest VMs*, independent of the Proxmox-layer topology — but note all CPs currently land on the single `pve-home-02`, so that host is the etcd blast radius):
+`playbooks/poochella/infra/40-kube/20-k3s.yml` builds an embedded-etcd HA cluster (k3s runs inside VM-based control planes, plus an agent on the baremetal `worker-home-02`; CP VMs are all pinned to `pve-home-01` while it is the only hypervisor, so that host is the etcd blast radius):
 1. First CP runs `k3s server --cluster-init`; kube-vip is then deployed only on that node to bring up the L2 VIP at `k3s_kube_vip_address` (currently `10.1.1.50`)
 2. Remaining CPs join `serial: 1` via `https://<api-endpoint>:6443` where api-endpoint is `k3s_api_dns_name` if set, else the VIP; workers join after
 3. kubeconfig is fetched back to `{{ playbook_dir }}/../../../kubeconfig` (repo root) with its `server:` URL rewritten to the DNS name (else the VIP) — `export KUBECONFIG=$(pwd)/kubeconfig` to use it

@@ -80,12 +80,11 @@
 #                            group_vars/<name>.yml sets
 #                            `proxmox_cluster_name: <name>`. Empty today.
 #   - `workers`        → plain Linux baremetal (no PVE). k3s baremetal
-#                        workers, app hosts, etc. Today: pve-home-02
-#                        (hostname kept for now; rename deferred). Only
-#                        pve-home-01 remains a hypervisor — the old
-#                        crash-loop unit was replaced by the gaming PC,
-#                        pve-home-03 retired, and the gaming-PC box has
-#                        since been de-Proxmoxed to plain Debian.
+#                        workers, app hosts, etc. Today: worker-home-02
+#                        (renamed from pve-home-02 after the gaming-PC
+#                        box was de-Proxmoxed to plain Debian; old
+#                        crash-loop unit replaced, pve-home-03 retired).
+#                        Only pve-home-01 remains a hypervisor.
 
 all:
   vars:
@@ -213,18 +212,20 @@ workers:
   # `all.vars.proxmox_endpoints` / `template_*_ids` and Tofu does not
   # see them (no `vm:` / `lxc:` block).
   hosts:
-    pve-home-02:
-      # Hostname kept for now (rename to e.g. worker-home-02 is a
-      # deferred follow-up). Reached via DHCP reservation pinned to the
-      # MAC declared here — same path every other baremetal host uses.
-      ansible_host: pve-home-02.lan
+    worker-home-02:
+      # Renamed 2026-05-23 from `pve-home-02` — this host was originally
+      # a PVE node and got de-Proxmoxed for use as a baremetal Linux
+      # worker. The MAC is unchanged, so the OPNsense DHCP reservation
+      # follows the rename via the dnsmasq playbook. The `host-base`
+      # role enforces hostname == inventory_hostname so a re-run of
+      # 17-host/10-bootstrap.yml carries the rename onto the live box.
+      ansible_host: worker-home-02.lan
       ip_address: 10.1.1.106
       mac_address: "3c:7c:3f:1f:96:af"
       # Debian unattended install: the installer wipes ONLY this disk.
-      # The other disks (1 TB NVMe + WDC HDD) are left untouched — once
-      # this host joins as a k3s baremetal worker they will become
-      # Longhorn data disks, formatted by a future workers-side
-      # equivalent of 40-kube/10-longhorn-host-prep.yml.
+      # The other disks (1 TB NVMe + WDC HDD) are left untouched —
+      # they're reserved for future Longhorn baremetal data storage
+      # (see follow-up note in 40-kube/10-longhorn-host-prep.yml).
       debian_install:
         disk: /dev/nvme0n1
       # Baremetal Debian net-boot via iPXE from the Mellanox ConnectX-4
@@ -293,6 +294,11 @@ virtual-machines:
   # is safe: tofu/locals.tf walks the inventory tree (depth 3, this is
   # depth 2) and the dnsmasq playbook walks groups['all'], so neither
   # the VM-provisioning nor the DHCP-reservation path is affected.
+  #
+  # NOTE: `kubernetes` USED TO be a child of this group when every kube
+  # node was a VM. With a baremetal kube_worker (worker-home-02) that's
+  # no longer true, so `kubernetes` is now a top-level group and the
+  # firewall play covers both groups explicitly.
   children:
     dev:
       # Developer/scratch VMs (Ivan's devbox). Policy: group_vars/dev.yml
@@ -302,14 +308,17 @@ virtual-machines:
       #     ip_address: 10.1.1.120
       #     mac_address: "02:00:00:00:01:01"
       #     vm:
-      #       proxmox_node: pve-home-02
+      #       proxmox_node: pve-home-01
       #       cores: 4
       #       memory: 8192
       #       disk_size: 100
       #       tags: [dev, ivan]
-    kubernetes:
 
 kubernetes:
+  # Top-level group (not a child of `virtual-machines` — see the note
+  # there). Today: `kube_control_plane` is empty until VM CPs come up,
+  # and `kube_workers` contains the baremetal worker-home-02. Both VMs
+  # and baremetal can coexist as members.
   children:
     kube_control_plane:
     #   hosts:
@@ -318,7 +327,11 @@ kubernetes:
     #       ip_address: 10.1.1.110
     #       mac_address: "02:00:00:00:02:01"
     #       vm:
-    #         proxmox_node: pve-home-02
+    #         # Only pve-home-01 is a hypervisor today; pin all CP VMs
+    #         # there until a second hypervisor exists. With one
+    #         # hypervisor an etcd CP cluster has zero failure tolerance
+    #         # at the physical layer (any CP loss = etcd loss).
+    #         proxmox_node: pve-home-01
     #         cores: 4
     #         memory: 8192
     #         disk_size: 30
@@ -328,7 +341,7 @@ kubernetes:
     #       ip_address: 10.1.1.111
     #       mac_address: "02:00:00:00:02:02"
     #       vm:
-    #         proxmox_node: pve-home-02
+    #         proxmox_node: pve-home-01
     #         cores: 4
     #         memory: 8192
     #         disk_size: 30
@@ -338,73 +351,42 @@ kubernetes:
     #       ip_address: 10.1.1.112
     #       mac_address: "02:00:00:00:02:03"
     #       vm:
-    #         # On pve-home-01 (the other CPs are on pve-home-02) so the
-    #         # control plane spans two physical nodes. NOTE: a 3-member
-    #         # etcd on 2 physical hosts survives losing pve-home-01 (2/3
-    #         # quorum stays) but NOT pve-home-02 (loses 2/3) — true CP HA
-    #         # needs one CP per physical node; move a CP here when the
-    #         # 3rd node lands. (Longhorn DATA safety is independent of
-    #         # this — it rides the per-node workers + zone anti-affinity.)
-    #         proxmox_node: pve-home-02
+    #         proxmox_node: pve-home-01
     #         cores: 4
     #         memory: 8192
     #         disk_size: 30
     #         tags: [kube, control-plane]
-    # kube_workers:
-    #   hosts:
-    #     kube-worker-01:
-    #       ansible_host: kube-worker-01.lan
-    #       ip_address: 10.1.1.113
-    #       mac_address: "02:00:00:00:03:01"
-    #       vm:
-    #         proxmox_node: pve-home-02
-    #         cores: 4
-    #         memory: 16000
-    #         disk_size: 50
-    #         data_disk_size: 600
-    #         tags: [kube, worker]
-    #     kube-worker-02:
-    #       ansible_host: kube-worker-02.lan
-    #       ip_address: 10.1.1.114
-    #       mac_address: "02:00:00:00:03:02"
-    #       vm:
-    #         # On pve-home-01 → one Longhorn worker per PHYSICAL node
-    #         # (kube-worker-01 is on pve-home-02). With replica 2 + HARD
-    #         # zone anti-affinity (zone = vm.proxmox_node, set in
-    #         # group_vars/kubernetes.yml) every volume keeps one copy per
-    #         # box → survives losing either node, rebuilds when it
-    #         # returns. Resources match kube-worker-01 deliberately: if
-    #         # one box dies its workloads must reschedule onto the
-    #         # survivor, so an undersized peer would just move the
-    #         # co-location starvation, not remove it. ASSUMPTION: confirm
-    #         # pve-home-01 has 16 GiB to spare; lower memory/cores if not.
-    #         # data_disk_size 600 fits pve-home-01's ~700 GiB boot_tail
-    #         # `longhorn` pool with thin-pool headroom and matches
-    #         # kube-worker-01 so replica-2 usable capacity is symmetric
-    #         # (~600 GiB). Longhorn — NOT LVM — is what presents the two
-    #         # nodes' longhorn-data disks as one storage system.
-    #         proxmox_node: pve-home-01
-    #         cores: 4
-    #         memory: 16000
-    #         disk_size: 50
-    #         data_disk_size: 600
-    #         tags: [kube, worker]
-    #     # kube-worker-03: enable on the 3rd PHYSICAL node when it
-    #     # arrives, then raise the Longhorn replica count to 3 (Flux
-    #     # side). proxmox_node was pve-home-03 (RETIRED) — re-pin to the
-    #     # new node's name. Keep resources at parity with the others.
-    #     # kube-worker-03:
-    #     #   ansible_host: kube-worker-03.lan
-    #     #   ip_address: 10.1.1.115
-    #     #   mac_address: "02:00:00:00:03:03"
-    #     #   vm:
-    #     #     proxmox_node: <3rd-physical-node>
-    #     #     cores: 4
-    #     #     memory: 16000
-    #     #     disk_size: 50
-    #     #     data_disk_size: 600
-    #     #     tags: [kube, worker]
-    #
+    kube_workers:
+      hosts:
+        # worker-home-02 is BAREMETAL (also a member of the `workers`
+        # group at top level — the 17-host tier applies: users,
+        # ssh-hardening, firewall, tailscale, node-exporter). Listed
+        # here so the 40-kube tier's `agent` play runs on it,
+        # group_vars/kube_workers.yml's firewall_inbound_allow opens
+        # k3s ports, and the Longhorn create-default-disk node label
+        # lands on it.
+        #
+        # Caveat: 40-kube/10-longhorn-host-prep.yml's data-disk play
+        # hard-codes `/dev/vdb` (VM virtio second disk) and has a
+        # `when:` guard that skips it on baremetal. Baremetal Longhorn
+        # storage prep is a known follow-up (the host has 1 TB NVMe +
+        # 1 TB HDD that need their own format/mount scheme — likely an
+        # LVM+ext4 mount at /var/lib/longhorn, OR multiple disks
+        # registered separately to Longhorn).
+        worker-home-02:
+      # Aspirational VM-based kube_workers (commented until provisioned):
+      #   kube-worker-01:
+      #     ansible_host: kube-worker-01.lan
+      #     ip_address: 10.1.1.113
+      #     mac_address: "02:00:00:00:03:01"
+      #     vm:
+      #       proxmox_node: pve-home-01
+      #       cores: 4
+      #       memory: 16000
+      #       disk_size: 50
+      #       data_disk_size: 600
+      #       tags: [kube, worker]
+
 containers:
   # LXC guests. Like VMs, each leaf group owns its inbound firewall
   # policy in group_vars/<group>.yml. Hosts here carry an `lxc:` block
@@ -417,7 +399,7 @@ containers:
       # is enough — TFTP + nginx are cheap and there's no reason to
       # shard. Tagged `infra` so its Tofu module precedes every VM
       # module on the same node (the ground-up bootstrap invariant).
-      # Lives on pve-home-01 so it survives the pve-home-02 re-image
+      # Lives on pve-home-01 so it survives the worker-home-02 re-image
       # that triggers most iPXE boots.
       #
       # Addressing: NO `ip_address` and NO `mac_address` on purpose.

@@ -1,6 +1,25 @@
 ---
 # Generic baseline for every baremetal Linux host. See meta/main.yml.
 
+# Keep the live hostname == inventory_hostname. Catches drift after an
+# inventory rename (e.g. pve-home-02 → worker-home-02 on 2026-05-23):
+# next time this role runs, the module writes /etc/hostname + updates
+# the kernel hostname so the change persists across reboots.
+- name: Enforce hostname == inventory_hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+# Replace any stale 127.0.1.1 entry pointing at the OLD hostname with
+# one for the current `inventory_hostname`. Debian sets a 127.0.1.1
+# alias to the install-time hostname, so without this `sudo hostname`
+# warns about an "unable to resolve host" mismatch after the rename.
+- name: Ensure /etc/hosts has a 127.0.1.1 line for the current hostname
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s+'
+    line: "127.0.1.1\t{{ inventory_hostname }}"
+    state: present
+
 # Disable automatic apt upgrades + apt-daily lock contention BEFORE the
 # first apt install below. Masking apt-daily also stops it grabbing the
 # dpkg lock mid-play.
@@ -29,6 +48,6 @@
 - name: Set root password from vault
   ansible.builtin.user:
     name: root
-    password: "{{ hypervisor_root_pass | password_hash('sha512') }}"
+    password: "{{ host_root_pass | password_hash('sha512') }}"
     update_password: always
   no_log: true

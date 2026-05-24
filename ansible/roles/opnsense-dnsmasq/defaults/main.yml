@@ -35,7 +35,7 @@ dnsmasq_dhcp_range:
   domain: lan
 
 # Static reservations. Caller passes a list of dicts, one per host:
-#   - hostname: pve-home-02
+#   - hostname: worker-home-02
 #     address: 10.1.1.106
 #     macs:
 #       - "3c:7c:3f:1f:96:af"        # onboard

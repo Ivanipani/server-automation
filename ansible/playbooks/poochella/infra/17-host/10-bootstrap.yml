@@ -31,10 +31,10 @@
     # First-time bootstrap connects as root with the vault password. The
     # role then resets root to the same value via `ansible.builtin.user`,
     # so subsequent runs (which use the ansible key) don't need it. Note:
-    # this assumes `hypervisor_root_pass` matches whatever the preseed /
-    # PVE auto-installer baked in (`baremetal_root_password` on workers,
-    # the PVE installer answerfile on hypervisors). Keep the two vault
-    # entries in sync, or override `hypervisor_root_pass` per host.
-    ansible_password: "{{ hypervisor_root_pass if use_root_password | default(false) else omit }}"
+    # `host_root_pass` (group_vars/all/vars.yml) must match whatever the
+    # preseed / PVE auto-installer baked in (`baremetal_root_password`
+    # on workers, the PVE installer answerfile on hypervisors). Keep
+    # those in sync, or override `host_root_pass` per host.
+    ansible_password: "{{ host_root_pass if use_root_password | default(false) else omit }}"
   roles:
     - role: host-base

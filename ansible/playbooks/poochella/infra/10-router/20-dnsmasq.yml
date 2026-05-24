@@ -53,7 +53,7 @@
     # Build the static-lease list from inventory hostvars: every host with
     # both `mac_address` and `ip_address` defined gets ONE reservation;
     # OPNsense's dnsmasq_host enforces unique IP per entry, so multi-NIC
-    # hosts (e.g. pve-home-02's onboard + dual-port Mellanox) collapse to
+    # hosts (e.g. worker-home-02's onboard + dual-port Mellanox) collapse to
     # a single entry with all MACs in `hardware_addr`. The MAC list is
     # the primary `mac_address` plus any `debian_netboot.boot_macs`.
     # `static_ip: true` (router itself) opts out of any reservation.

@@ -41,7 +41,7 @@
 # override (avoid; prefer the per-disk field):
 #   ansible-playbook --vault-password-file ansible-pass \
 #     playbooks/poochella/infra/20-hypervisor/30-storage.yml \
-#     -e hypervisor_disks_force_wipe=true --limit pve-home-02
+#     -e hypervisor_disks_force_wipe=true --limit pve-home-01
 #
 # Disk swap / capacity-expansion runbook: docs/storage-disk-runbook.md
 # (drain the Longhorn worker → verify the volume's replica is healthy on

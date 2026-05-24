@@ -26,6 +26,6 @@
   become: true
   remote_user: "{{ bootstrap_user }}"
   vars:
-    ansible_password: "{{ hypervisor_root_pass if use_root_password | default(false) else omit }}"
+    ansible_password: "{{ host_root_pass if use_root_password | default(false) else omit }}"
   roles:
     - role: hypervisor
