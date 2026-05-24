@@ -1,0 +1,18 @@
+---
+# Tier 17 — Install + bring up Tailscale on every baremetal Linux host.
+#
+# Day-2 service, NOT a bootstrap prerequisite: Ansible reaches every
+# host over the LAN (`ansible_host`), never over the tailnet, so this
+# can run any time after 10-bootstrap and is safe to re-run in
+# isolation (`just run --limit <host>`) for piecemeal dev — key
+# rotation, re-auth, adding a node — without touching the rest of the
+# tier. The `tailscale` role is idempotent. Default-off via
+# group_vars/physical.yml's `tailscale_enabled`.
+#
+# Pre-condition: 10-bootstrap.yml has run (ansible user exists).
+
+- name: Install Tailscale on every physical host
+  hosts: physical
+  become: true
+  roles:
+    - role: tailscale

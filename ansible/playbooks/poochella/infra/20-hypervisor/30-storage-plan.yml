@@ -1,5 +1,5 @@
 ---
-# READ-ONLY companion to 30-storage.yml. Prints every baremetal node's
+# READ-ONLY companion to 30-storage.yml. Prints every hypervisor's
 # disks (model / serial / size / rotational / removable / signatures /
 # existing partlabels) plus a paste-ready `storage.disks` skeleton with
 # STABLE selectors. Writes nothing — safe anytime.
@@ -10,7 +10,7 @@
 # inventory.yaml by hand and re-run `just do-storage`.
 
 - name: Disk plan (read-only)
-  hosts: baremetal
+  hosts: hypervisors
   become: true
   gather_facts: false
   tasks:

@@ -1,0 +1,40 @@
+---
+# Tier 17 — Bootstrap baseline on every baremetal Linux host.
+#
+# Ensures the 'ansible' user (+ pani + tourmanager) exists on every host
+# in the `physical` group: PVE hypervisors AND plain Linux workers.
+# Tries SSH as 'ansible' first; falls back to root with vault password
+# (same path the old 20-hypervisor/10-bootstrap.yml took, just
+# generalised to the wider `physical` umbrella).
+#
+# Must run before any other physical-host playbook so later plays can
+# connect as 'ansible'. The PVE-specific 20-hypervisor/10-bootstrap.yml
+# now only flips repos and depends on this play having created the
+# ansible user.
+
+- name: Detect SSH user for every physical host
+  hosts: physical
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Detect bootstrap user
+      ansible.builtin.include_tasks:
+        file: ../tasks/detect-bootstrap-user.yml
+      vars:
+        fallback_user: root
+
+- name: Apply baseline (host-base role) on every physical host
+  hosts: physical
+  become: true
+  remote_user: "{{ bootstrap_user }}"
+  vars:
+    # First-time bootstrap connects as root with the vault password. The
+    # role then resets root to the same value via `ansible.builtin.user`,
+    # so subsequent runs (which use the ansible key) don't need it. Note:
+    # this assumes `hypervisor_root_pass` matches whatever the preseed /
+    # PVE auto-installer baked in (`baremetal_root_password` on workers,
+    # the PVE installer answerfile on hypervisors). Keep the two vault
+    # entries in sync, or override `hypervisor_root_pass` per host.
+    ansible_password: "{{ hypervisor_root_pass if use_root_password | default(false) else omit }}"
+  roles:
+    - role: host-base

@@ -1,0 +1,17 @@
+---
+# ssh-hardening role
+#
+# Drops /etc/ssh/sshd_config.d/10-hardening.conf onto a host: disables
+# password + root login globally, except for a single break-glass user
+# (`ssh_hardening.password_breakglass_user`) that retains password auth.
+#
+# Policy is whatever's in `ssh_hardening` — `group_vars/physical.yml`
+# carries the defaults. Override per-group/per-host as needed.
+#
+# Must run AFTER host-base (which creates the ansible/pani keys). The
+# 17-host tier orders them that way.
+dependencies: []
+
+galaxy_info:
+  role_name: ssh-hardening
+  description: Lock down sshd to key-only with a per-user password break-glass

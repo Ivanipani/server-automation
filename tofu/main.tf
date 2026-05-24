@@ -1,10 +1,13 @@
 # One `vm` and (where the inventory has any) `infra_lxcs` module
 # instance per Proxmox node, each wired to that node's aliased provider
 # (provider.tf) and fed only the guests pinned to it (locals).
-# Independent nodes don't share an API, so a VM on pve-home-02 must be
-# created through pve-home-02's own provider — the module-per-node
-# split is what makes that possible (Terraform won't let `providers`
-# be selected dynamically inside a single resource).
+# Independent hypervisors don't share an API: a VM on hypervisor-B
+# must be created through hypervisor-B's own provider — the
+# module-per-node split is what makes that possible (Terraform won't
+# let `providers` be selected dynamically inside a single resource).
+# Today only pve-home-01 is a hypervisor; the shape stays
+# multi-module-ready so adding a second hypervisor is purely the
+# 4-step checklist in tofu/provider.tf.
 #
 # **Ordering invariant**: each `vms_<node>` module declares
 # `depends_on = [module.infra_lxcs_<node>]`, so infra LXCs come up
@@ -25,24 +28,10 @@ module "infra_lxcs_pve_home_01" {
   providers = { proxmox = proxmox.pve_home_01 }
 }
 
-module "infra_lxcs_pve_home_02" {
-  source    = "./modules/lxc"
-  lxcs      = local.infra_lxcs_by_node["pve-home-02"]
-  providers = { proxmox = proxmox.pve_home_02 }
-}
-
 module "vms_pve_home_01" {
   source    = "./modules/vm"
   vms       = local.vms_by_node["pve-home-01"]
   providers = { proxmox = proxmox.pve_home_01 }
 
   depends_on = [module.infra_lxcs_pve_home_01]
-}
-
-module "vms_pve_home_02" {
-  source    = "./modules/vm"
-  vms       = local.vms_by_node["pve-home-02"]
-  providers = { proxmox = proxmox.pve_home_02 }
-
-  depends_on = [module.infra_lxcs_pve_home_02]
 }

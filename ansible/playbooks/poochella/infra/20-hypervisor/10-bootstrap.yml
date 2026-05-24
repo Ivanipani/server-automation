@@ -1,9 +1,17 @@
 ---
-# Ensures the 'ansible' user exists on baremetal hypervisors.
-# Tries SSH as 'ansible' first; falls back to root with vault password.
-# Must run before any other playbook so later plays can connect as 'ansible'.
-- name: Detect SSH user for baremetal
-  hosts: baremetal
+# PVE-only bootstrap: switch from enterprise → no-subscription PVE/Ceph
+# repos. Generic baremetal setup (users, sudo/zsh, root password,
+# apt-no-auto-upgrades) lives in 17-host/10-bootstrap.yml; the slimmed
+# `hypervisor` role here only flips repos.
+#
+# Pre-condition (happy-path order): 17-host/10-bootstrap.yml has run,
+# so the `ansible` user exists. Self-detect still falls back to root +
+# vault password so this playbook is safe to run in isolation
+# (`just run --limit pve-home-01`) even on a host that hasn't been
+# through the 17-host tier yet.
+
+- name: Detect SSH user for hypervisors
+  hosts: hypervisors
   gather_facts: false
   connection: local
   tasks:
@@ -13,18 +21,11 @@
       vars:
         fallback_user: root
 
-- name: Configure hypervisors for automated management
-  hosts: baremetal
+- name: Flip Proxmox enterprise → no-subscription repos
+  hosts: hypervisors
   become: true
   remote_user: "{{ bootstrap_user }}"
   vars:
     ansible_password: "{{ hypervisor_root_pass if use_root_password | default(false) else omit }}"
   roles:
     - role: hypervisor
-
-# Tailscale is intentionally NOT installed here. It is a baremetal day-2
-# service (not a bootstrap prerequisite — Ansible reaches hosts over the
-# LAN, not the tailnet), kept in its own idempotent, standalone playbook
-# (50-tailscale.yml) so it can be re-run in isolation for piecemeal dev
-# (key rotation, re-auth) without re-running the whole hypervisor
-# bootstrap. site.yml still runs it; so does `just do-hypervisor-init`.

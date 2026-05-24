@@ -1,0 +1,18 @@
+---
+# Tier 17 — Baseline for every baremetal Linux host (hypervisors +
+# workers). Sits between 15-nas (independent storage appliance) and
+# 20-hypervisor (PVE-only). Targets the `physical` group everywhere.
+#
+# Critical path (hard deps within this tier):
+#   10-bootstrap → 20-ssh-hardening   (must create users before
+#                                      locking down password auth)
+#
+# 30-firewall / 40-tailscale / 50-node-exporter are order-independent
+# day-2 services; they depend only on 10-bootstrap and nothing
+# depends on them — placed last in the tier so the critical chain
+# reads contiguously.
+- import_playbook: 10-bootstrap.yml
+- import_playbook: 20-ssh-hardening.yml
+- import_playbook: 30-firewall.yml
+- import_playbook: 40-tailscale.yml
+- import_playbook: 50-node-exporter.yml

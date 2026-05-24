@@ -33,7 +33,7 @@
 #     wipes for the Debian install (every other disk untouched).
 #   - VM MACs use the locally-administered prefix `02:` and a structured
 #     tail (02:00:00:<role>:<index>) so collisions are obvious at a glance.
-#   - `storage: {disks: [...]}` on a baremetal host → the disk layout the
+#   - `storage: {disks: [...]}` on a hypervisor host → the disk layout the
 #     hypervisor-disks role realises (20-hypervisor/30-storage.yml).
 #     DISK-CENTRIC + STABLE SELECTORS, declared not discovered. Each disk:
 #       select: boot                       # the auto-detected PVE boot disk
@@ -56,26 +56,36 @@
 #     one needs NO edit when the selector is attribute-based. Preview
 #     resolution + a paste-ready block with `just disk-plan`.
 #
-#   CONVENTION (enforced in preflight): every baremetal node yields BOTH
+#   CONVENTION (enforced in preflight): every hypervisor node yields BOTH
 #   a `vms` and a `longhorn-data` PVE storage. Baseline hardware = one
 #   ≥1 TB boot NVMe (carved into both); additional disks are optional and
-#   extend `longhorn-data`. See group_vars/baremetal.yml.
+#   extend `longhorn-data`. See group_vars/hypervisors.yml.
 #
 # VMs always DHCP-boot. The static IP comes from the reservation tied to
 # the MAC declared here — not from cloud-init.
 #
-# Proxmox topology is PER-GROUP (clustered and standalone can coexist):
-#   - `baremetal`      → umbrella for ALL Proxmox hosts. Shared roles
-#                        target this; children flatten into it.
-#   - `pve_standalone` → independent nodes, NO corosync. Each is its own
-#                        API surface; Tofu uses a provider per node.
-#   - `pve_cluster`    → parent of zero or more corosync clusters. Each
-#                        CHILD group is ONE cluster: the group name is the
-#                        cluster name, and group_vars/<name>.yml sets
-#                        `proxmox_cluster_name: <name>`. Empty today —
-#                        poochella runs as two independent standalone nodes
-#                        (the gaming-PC pve-home-02 replaced the old
-#                        crash-looping unit; pve-home-03 retired).
+# Group topology — physical hosts are split by what they run, not by
+# hardware. `physical` is the umbrella for EVERY baremetal Linux box, so
+# generic baseline work (ansible/pani/tourmanager users, SSH hardening,
+# firewall, tailscale, node-exporter — the 17-host tier) targets it once.
+# Two children narrow further:
+#   - `hypervisors`    → PVE hosts. PVE-specific work (repos, cluster,
+#                        LVM-thin storage carve, template bake — the
+#                        20-hypervisor tier) targets this. Children:
+#       - `pve_standalone` → independent nodes, NO corosync. Each is its
+#                            own API surface; Tofu uses a provider per node.
+#       - `pve_cluster`    → parent of zero or more corosync clusters.
+#                            Each CHILD group is ONE cluster: the group
+#                            name is the cluster name, and
+#                            group_vars/<name>.yml sets
+#                            `proxmox_cluster_name: <name>`. Empty today.
+#   - `workers`        → plain Linux baremetal (no PVE). k3s baremetal
+#                        workers, app hosts, etc. Today: pve-home-02
+#                        (hostname kept for now; rename deferred). Only
+#                        pve-home-01 remains a hypervisor — the old
+#                        crash-loop unit was replaced by the gaming PC,
+#                        pve-home-03 retired, and the gaming-PC box has
+#                        since been de-Proxmoxed to plain Debian.
 
 all:
   vars:
@@ -83,20 +93,21 @@ all:
     network_gateway: "10.1.1.1"
     network_cidr: "/24"
     ansible_python_interpreter: /usr/bin/python3
-    # Proxmox API endpoints, one per baremetal node. Read by Tofu via
+    # Proxmox API endpoints, one per HYPERVISOR. Read by Tofu via
     # tofu/locals.tf → provider.tf, which declares one aliased provider
     # per node. With independent (non-clustered) nodes a single endpoint
     # cannot place VMs on a peer, so each node is addressed directly. In a
     # cluster every member exposes the full API; pointing each provider at
-    # its own node is uniform and works for both topologies.
-    # Adding a node = add it here + a provider block in tofu/provider.tf +
-    # a token var (see tofu/variables.tf) + a module call in tofu/main.tf.
+    # its own node is uniform and works for both topologies. Workers (plain
+    # Linux baremetal) do NOT appear here — they don't run the PVE API.
+    # Adding a hypervisor = add it here + a provider block in
+    # tofu/provider.tf + a token var (see tofu/variables.tf) + a module
+    # call in tofu/main.tf.
     proxmox_endpoints:
       pve-home-01: "https://pve-home-01.lan:8006"
-      pve-home-02: "https://pve-home-02.lan:8006"
-    # Per-node Proxmox template IDs. Read by Ansible
+    # Per-hypervisor Proxmox template IDs. Read by Ansible
     # (04-prepare-templates.yml) and Tofu (tofu/locals.tf). VM storage is
-    # node-local LVM-thin, so every baremetal node bakes its own local
+    # node-local LVM-thin, so every hypervisor bakes its own local
     # template. These maps are the single source of truth — no offset
     # arithmetic, no group-ordering coupling. The value is each node's
     # *anchor* (first/default template) ID; 04-prepare-templates.yml
@@ -108,12 +119,10 @@ all:
     # so families don't collide.
     template_vm_ids:
       pve-home-01: 9001
-      pve-home-02: 9011
       # pve-home-03: 9021
       # pve-home-04: 9031
     template_ct_ids:
       pve-home-01: 9101
-      pve-home-02: 9111
       # pve-home-03: 9121
       # pve-home-04: 9131
 
@@ -124,10 +133,21 @@ router:
       ip_address: "10.1.1.1"
       static_ip: true
 
-baremetal:
-  # Umbrella for every Proxmox baremetal host. Topology is decided by
-  # which child group a host sits in (see header). `hosts:` here would be
-  # topology-ambiguous, so all hosts live under a child group.
+physical:
+  # Umbrella for EVERY baremetal Linux host (hypervisors + plain workers).
+  # The 17-host tier targets this group: ansible/pani/tourmanager users,
+  # SSH hardening, firewall, tailscale, node-exporter. Defined as a parent
+  # of `hypervisors` and `workers` (which carry the actual host entries).
+  children:
+    hypervisors:
+    workers:
+
+hypervisors:
+  # PVE hypervisors only. The 20-hypervisor tier targets this group
+  # (Proxmox repo flip, cluster, LVM-thin storage carve, template bake).
+  # Topology is decided by which child group a host sits in (see header).
+  # `hosts:` here would be topology-ambiguous, so all hosts live under a
+  # child group.
   children:
     pve_standalone:
       # Independent PVE nodes — no corosync, no HA, no live-migration.
@@ -167,80 +187,6 @@ baremetal:
                     pve_storage: longhorn-data
                     content: images
                     size: "0"          # fill the boot tail
-        pve-home-02:
-          ansible_host: pve-home-02.lan
-          ip_address: 10.1.1.106
-          mac_address: "3c:7c:3f:1f:96:af"
-          # See pve-home-01 for the rationale. nvme0n1 is the Samsung
-          # ~250 GB boot NVMe (selector: boot below). The new ~1 TB NVMe +
-          # WDC HDD are data disks, owned by the hypervisor-disks role
-          # post-install — the Debian installer must not touch them.
-          debian_install:
-            disk: /dev/nvme0n1
-          # Baremetal Debian net-boot via iPXE from the new Mellanox
-          # ConnectX-4 Lx 10GbE NIC. Both ports' MACs are reserved on
-          # OPNsense to this host's `ip_address` and dispatched in the
-          # rendered iPXE script, so PXE works regardless of which port
-          # is cabled / first in BIOS boot order. The preseed (served
-          # by bootserv01 over HTTP) wipes ONLY `install_disk`.
-          debian_netboot:
-            install_disk: /dev/nvme0n1
-            boot_macs:
-              - "e8:eb:d3:8c:86:bc"
-              - "e8:eb:d3:8c:86:bd"
-          # Three disks (preview with `just disk-plan`):
-          #   - Samsung ~250 GB boot NVMe  → its SSD tail = `vms`
-          #     (after lvm.hdsize=100; selector: boot)
-          #   - new ~1 TB NVMe             → `longhorn-data` (fast tier)
-          #   - freed ~1 TB WDC HDD        → SAME `longhorn-data`
-          #     (additional capacity: one combined longhorndata VG /
-          #      longhornthin pool spans BOTH the NVMe and the HDD)
-          #
-          # NOTE (2026-05-19): both data disks carry foreign signatures —
-          # the new NVMe a stale 3-partition GPT from a prior install, the
-          # HDD the OLD longhorndata VG (it previously WAS longhorn-data).
-          # Both therefore declare `wipe: force` (scoped, deliberate). The
-          # HDD's live data is safe to destroy because Longhorn keeps a
-          # replica on the peer node (kube-worker-02 / pve-home-01) and
-          # the operator is taking the workers down for this rebuild — see
-          # docs/storage-disk-runbook.md. Selectors are attribute-based
-          # (rotational splits NVMe vs HDD), so an identical/larger
-          # replacement of either disk needs NO edit here.
-          #
-          # ⚠ Mixing NVMe + HDD in one LVM-thin pool means extents that
-          # land on the HDD run at HDD speed; LVM cannot pin Longhorn's
-          # hot data to the NVMe. This is a deliberate capacity-over-
-          # uniform-latency choice; segregate at the Longhorn layer
-          # (Flux) if it ever matters. Splitting back to two pools is a
-          # one-line change (give the HDD its own vg/thinpool/pve_storage).
-          storage:
-            disks:
-              - select: boot
-                partitions:
-                  - label: vm-storage
-                    vg: vmdata
-                    thinpool: vmthin
-                    pve_storage: vms
-                    content: images,rootdir,iso,vztmpl,snippets
-                    size: "0"          # fill the boot SSD tail
-              - select: { min_size_gib: 900, rotational: false }
-                wipe: force            # stale prior-install GPT
-                partitions:
-                  - label: longhorn-nvme
-                    vg: longhorndata
-                    thinpool: longhornthin
-                    pve_storage: longhorn-data
-                    content: images
-                    size: "0"          # whole disk
-              - select: { min_size_gib: 900, rotational: true }
-                wipe: force            # old longhorndata VG (now freed)
-                partitions:
-                  - label: longhorn-hdd
-                    vg: longhorndata
-                    thinpool: longhornthin
-                    pve_storage: longhorn-data
-                    content: images
-                    size: "0"          # whole disk
     pve_cluster:
       # Parent of all corosync clusters. Each child group is ONE cluster
       # (group name = cluster name; set proxmox_cluster_name in
@@ -259,6 +205,39 @@ baremetal:
       #           mac_address: "<unique-mac>"
       children: {}
 
+workers:
+  # Plain Linux baremetal hosts (no PVE). k3s baremetal workers, app
+  # hosts, etc. These boxes get the full 17-host baseline (users,
+  # ssh-hardening, firewall, tailscale, node-exporter) but skip the
+  # 20-hypervisor tier entirely. They DO NOT appear in
+  # `all.vars.proxmox_endpoints` / `template_*_ids` and Tofu does not
+  # see them (no `vm:` / `lxc:` block).
+  hosts:
+    pve-home-02:
+      # Hostname kept for now (rename to e.g. worker-home-02 is a
+      # deferred follow-up). Reached via DHCP reservation pinned to the
+      # MAC declared here — same path every other baremetal host uses.
+      ansible_host: pve-home-02.lan
+      ip_address: 10.1.1.106
+      mac_address: "3c:7c:3f:1f:96:af"
+      # Debian unattended install: the installer wipes ONLY this disk.
+      # The other disks (1 TB NVMe + WDC HDD) are left untouched — once
+      # this host joins as a k3s baremetal worker they will become
+      # Longhorn data disks, formatted by a future workers-side
+      # equivalent of 40-kube/10-longhorn-host-prep.yml.
+      debian_install:
+        disk: /dev/nvme0n1
+      # Baremetal Debian net-boot via iPXE from the Mellanox ConnectX-4
+      # Lx 10GbE NIC. Both ports' MACs are reserved on OPNsense to this
+      # host's `ip_address` and dispatched in the rendered iPXE script,
+      # so PXE works regardless of which port is cabled / first in BIOS
+      # boot order. The preseed (served by bootserv01 over HTTP) wipes
+      # ONLY `install_disk`.
+      debian_netboot:
+        install_disk: /dev/nvme0n1
+        boot_macs:
+          - "e8:eb:d3:8c:86:bc"
+          - "e8:eb:d3:8c:86:bd"
 
 switches:
   hosts:

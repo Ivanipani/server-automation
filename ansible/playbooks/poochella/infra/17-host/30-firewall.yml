@@ -1,0 +1,23 @@
+---
+# Tier 17 — Default-deny firewall on every baremetal Linux host.
+#
+# Same group-driven pattern as 30-guests/40-firewall.yml: the per-group
+# inbound allow-list lives in group_vars/<group>.yml as
+# `firewall_inbound_allow`, and resolves to the most-specific group
+# defining it. Today:
+#   group_vars/physical.yml   → SSH (22/tcp)            (every host)
+#   group_vars/workers.yml    → extends with worker services
+#   group_vars/hypervisors.yml → extends with PVE (8006), corosync, etc.
+#
+# Outbound is "allow" by default — uniform with the existing fleet
+# baseline; tighten per-group if you want a deny-list there.
+#
+# Pre-condition: 10-bootstrap.yml has run (ansible user exists).
+
+- name: Configure host firewall on every physical host
+  hosts: physical
+  become: true
+  roles:
+    - role: firewall-basic
+      vars:
+        inbound_allow: "{{ firewall_inbound_allow | default([]) }}"

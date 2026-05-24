@@ -12,6 +12,11 @@ hypervisor_root_pass: "{{ vault_hypervisor_root_pass }}"
 baremetal_root_password: "{{ vault_baremetal_root_password }}"
 ansible_user_pass: "{{ vault_ansible_user_pass }}"
 pani_user_pass: "{{ vault_pani_user_pass }}"
+# Break-glass account on every physical host (host-base role +
+# ssh-hardening's Match block). The ONLY user that can SSH with a
+# password after 17-host/20-ssh-hardening.yml runs.
+# Add the secret with: `just secret-encrypt vault_tourmanager_user_pass`
+tourmanager_user_pass: "{{ vault_tourmanager_user_pass }}"
 github_pat: "{{ vault_github_pat }}"
 tailscale_auth_key: "{{ vault_tailscale_auth_key }}"
 set_user_passwords: true
@@ -20,15 +25,15 @@ github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCp
 opnsense_api_key: "{{ vault_opnsense_api_key }}"
 opnsense_api_secret: "{{ vault_opnsense_api_secret }}"
 proxmox_api_token: "{{ vault_proxmox_api_token }}"
-# Per-node Proxmox API tokens (independent nodes don't share /etc/pve, so
-# each node has its own token minted on it). Keyed by the inventory node
-# name; consumed by 05-provision-infrastructure.yml which passes each as
-# TF_VAR_proxmox_api_token_<node> to OpenTofu. pve-home-01 reuses the
-# existing vault secret; pve-home-02 needs `vault_proxmox_api_token_pve_home_02`
-# added to vault.yml (see the 05 playbook header for the bootstrap steps).
+# Per-hypervisor Proxmox API tokens (independent nodes don't share
+# /etc/pve, so each node has its own token minted on it). Keyed by the
+# inventory node name; consumed by 30-guests/10-opentofu.yml which
+# passes each as TF_VAR_proxmox_api_token_<node> to OpenTofu. Only PVE
+# hosts appear here — workers (plain Debian) do not run the PVE API.
+# Add a hypervisor = mint a `tofu-lan` token on it and add the secret
+# with `just secret-encrypt vault_proxmox_api_token_<host>`.
 proxmox_api_tokens:
   pve-home-01: "{{ vault_proxmox_api_token_pve_home_01 }}"
-  pve-home-02: "{{ vault_proxmox_api_token_pve_home_02 }}"
 k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
 
 # NAS publish/consume coordinates, re-exported from the single source of

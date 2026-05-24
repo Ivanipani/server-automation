@@ -5,12 +5,18 @@
 # tier so steps insert without renumbering.
 #
 #   10-router      → OPNsense DNS/DHCP foundation (precedes everything)
-#   15-nas         → Synology NAS (gap-5 break — see 15-nas/site.yml
-#                    for why: nas sits between router and hypervisor
-#                    in the dep graph; renumbering downstream tiers
-#                    would churn every other import for one insertion)
-#   20-hypervisor  → Proxmox baremetal fabric (the critical path —
-#                    its 40-bake-images depends on 15-nas being up)
+#   15-nas         → Synology NAS (gap-5 break — independent of host
+#                    bootstrap; admin'd via DSM, not the ansible
+#                    user/key path the 17-host tier sets up)
+#   17-host        → Baseline for every baremetal Linux host
+#                    (`physical` = hypervisors + workers): ansible /
+#                    pani / tourmanager users, SSH hardening, firewall,
+#                    tailscale, node-exporter. Gap-2 break because
+#                    15-nas already occupies the 15- slot.
+#   20-hypervisor  → Proxmox-only fabric (repo flip, cluster, LVM-thin
+#                    carve, template bake). Depends on 17-host having
+#                    created the ansible user, and on 15-nas being up
+#                    for the bake-images NFS publish.
 #   30-guests      → OpenTofu barrier (router + hypervisor converge)
 #   40-kube        → VM/container config + k3s
 #
@@ -20,6 +26,7 @@
 # pre-conditions, so this ordering is the happy path, not the only one.
 - import_playbook: 10-router/site.yml
 - import_playbook: 15-nas/site.yml
+- import_playbook: 17-host/site.yml
 - import_playbook: 20-hypervisor/site.yml
 - import_playbook: 30-guests/site.yml
 - import_playbook: 40-kube/site.yml

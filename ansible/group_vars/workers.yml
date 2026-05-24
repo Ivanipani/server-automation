@@ -1,0 +1,9 @@
+---
+# Vars for plain Linux baremetal hosts (no PVE). Empty today: the
+# 17-host tier picks up every worker through `physical` (see
+# group_vars/physical.yml). Add worker-specific knobs here as needed —
+# e.g. service ports on top of the physical baseline:
+#
+# firewall_inbound_allow:
+#   - { proto: tcp, port: 22,    comment: "ssh" }
+#   - { proto: tcp, port: 6443,  comment: "k3s api" }

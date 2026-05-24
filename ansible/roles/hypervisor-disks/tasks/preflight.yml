@@ -11,7 +11,7 @@
       - confirm_carve_data_disk | default(false) | bool
     fail_msg: >-
       `confirm_carve_data_disk` is not true on {{ inventory_hostname }}.
-      Set it in group_vars/baremetal.yml or
+      Set it in group_vars/hypervisors.yml or
       host_vars/{{ inventory_hostname }}.yml, then re-run.
 
 - name: Assert this node declares a storage layout
@@ -93,7 +93,7 @@
       Only regenerable templates exist on {{ inventory_hostname }} —
       VMs {{ _tmpl_vmids }}, containers {{ _tmpl_ctids }} — but
       `carve_destroy_templates` is not true. Set it in
-      group_vars/baremetal.yml (or `-e carve_destroy_templates=true`)
+      group_vars/hypervisors.yml (or `-e carve_destroy_templates=true`)
       to have preflight `qm/pct destroy --purge` them first;
       40-templates.yml re-bakes them in the next tier step.
 

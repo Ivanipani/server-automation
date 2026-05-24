@@ -3,7 +3,7 @@
 #
 # DECLARED, NOT DISCOVERED — but disks are now named by STABLE SELECTOR,
 # not by a fragile /dev/disk/by-id symlink. The layout is the
-# `storage.disks` list on each baremetal host in inventory.yaml (single
+# `storage.disks` list on each hypervisor host in inventory.yaml (single
 # source of truth). This role never auto-claims a disk: it resolves each
 # declared `select:` to EXACTLY ONE non-boot, non-removable disk (0 or >1
 # matches is a HARD preflight failure — it refuses to guess), then carves
@@ -67,7 +67,7 @@
 # declared layout fails preflight loudly rather than guessing.
 
 # DESTRUCTIVE: setting this true authorizes sgdisk to write the GPT.
-# Per-host opt-in lives in group_vars/baremetal.yml or host_vars.
+# Per-host opt-in lives in group_vars/hypervisors.yml or host_vars.
 confirm_carve_data_disk: false
 
 # EXTRA-DESTRUCTIVE fleet-wide escape hatch — EMERGENCY USE ONLY. Prefer

@@ -1,0 +1,24 @@
+---
+# host-base role
+#
+# Generic baseline applied to every physical Linux host (hypervisors +
+# workers). Carries the bits that used to live inline in the `hypervisor`
+# role's main.yml when `baremetal` meant "every PVE host" — split out
+# because workers (plain Debian, no PVE) need exactly the same baseline
+# minus the PVE-specific repo + cluster work.
+#
+# What this role guarantees:
+#   - sudo + zsh installed (pani's shell)
+#   - automatic apt upgrades disabled (apt-no-auto-upgrades)
+#   - ansible / pani / tourmanager users exist with the policy in
+#     defaults/main.yml's `host_base_users`
+#   - root password set from vault
+#
+# SSH hardening lives in its sibling role `ssh-hardening`, which the
+# 17-host tier runs immediately AFTER this role so the ansible/pani keys
+# are enrolled before password auth is turned off.
+dependencies: []
+
+galaxy_info:
+  role_name: host-base
+  description: Baseline setup for every baremetal Linux host (users, sudo, zsh)

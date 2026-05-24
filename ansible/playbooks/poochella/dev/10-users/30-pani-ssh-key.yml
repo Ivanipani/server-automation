@@ -1,6 +1,6 @@
 ---
 - name: Deploy shared GitHub SSH key for pani user
-  hosts: dev:baremetal
+  hosts: physical:dev
   remote_user: pani
   become: false
   tasks:

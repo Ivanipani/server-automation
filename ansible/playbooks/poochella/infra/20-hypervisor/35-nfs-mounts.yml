@@ -1,5 +1,5 @@
 ---
-# Phase H3.5: Mount NFS shares from nas01 onto every PVE baremetal host.
+# Phase H3.5: Mount NFS shares from nas01 onto every hypervisor.
 #
 # Slots between 30-storage (local LVM-thin) and 40-bake-images
 # (which writes qcow2s into the NAS via the `proxmox` mount this
@@ -7,8 +7,8 @@
 # is: 15-nas/30-storage creates the shares on the NAS → this play
 # mounts them on the PVE hosts → 40-bake-images writes through.
 #
-# What gets mounted (declared in group_vars/baremetal.yml's
-# `baremetal_nfs_mounts`; one source of truth):
+# What gets mounted (declared in group_vars/hypervisors.yml's
+# `hypervisor_nfs_mounts`; one source of truth):
 #   - nas01:/volume1/pxe       → /mnt/nas/pxe       (RO)
 #   - nas01:/volume1/proxmox   → /mnt/nas/proxmox   (RW)
 #
@@ -32,8 +32,8 @@
 # on the live mount; running this when everything is already correct
 # is a no-op.
 
-- name: Mount nas01 NFS shares onto PVE baremetal hosts
-  hosts: baremetal
+- name: Mount nas01 NFS shares onto every hypervisor
+  hosts: hypervisors
   gather_facts: false
   become: true
   tasks:
@@ -55,7 +55,7 @@
       ansible.builtin.command:
         cmd: "mkdir -p {{ item.path | quote }}"
         creates: "{{ item.path }}"
-      loop: "{{ baremetal_nfs_mounts }}"
+      loop: "{{ hypervisor_nfs_mounts }}"
       loop_control:
         label: "{{ item.path }}"
 
@@ -66,6 +66,6 @@
         fstype: nfs
         opts: "{{ item.options }}"
         state: mounted
-      loop: "{{ baremetal_nfs_mounts }}"
+      loop: "{{ hypervisor_nfs_mounts }}"
       loop_control:
         label: "{{ item.share }} → {{ item.path }}"

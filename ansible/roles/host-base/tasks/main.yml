@@ -1,0 +1,34 @@
+---
+# Generic baseline for every baremetal Linux host. See meta/main.yml.
+
+# Disable automatic apt upgrades + apt-daily lock contention BEFORE the
+# first apt install below. Masking apt-daily also stops it grabbing the
+# dpkg lock mid-play.
+- name: Disable automatic apt upgrades + apt-daily lock contention
+  ansible.builtin.import_role:
+    name: apt-no-auto-upgrades
+
+- name: Install baseline packages (sudo + zsh)
+  # zsh is installed eagerly because pani's shell is /usr/bin/zsh — if a
+  # worker hasn't yet been through the dev tier, useradd would otherwise
+  # fail (or silently fall back to /bin/sh) when create-user runs.
+  ansible.builtin.apt:
+    name:
+      - sudo
+      - zsh
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Bootstrap host users (ansible, pani, tourmanager)
+  ansible.builtin.import_role:
+    name: create-user
+  vars:
+    users: "{{ host_base_users }}"
+
+- name: Set root password from vault
+  ansible.builtin.user:
+    name: root
+    password: "{{ hypervisor_root_pass | password_hash('sha512') }}"
+    update_password: always
+  no_log: true

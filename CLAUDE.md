@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Declarative homelab automation for **poochella**: a small Proxmox VE fleet running a k3s Kubernetes cluster on node-local LVM-thin-backed VMs, fronted by an OPNsense router. OpenTofu provisions infrastructure on Proxmox; Ansible configures everything else. The control node is the user's laptop.
 
-**Proxmox topology is per-group, and clustered + standalone can coexist** (see the `inventory.yaml` header). Today poochella runs **two independent, non-clustered nodes** — `pve-home-01` (original hardware) and `pve-home-02` (new gaming-PC hardware that replaced the old crash-looping unit); `pve-home-03` was retired. There is **no corosync, no shared storage, no HA, no live-migration**. The corosync path is still fully wired and supported for any node placed under a `pve_cluster` child group; it is simply a no-op while every node is standalone.
+**Physical hosts split by role, not by hardware.** Today: `pve-home-01` is the only Proxmox hypervisor (mini PC); `pve-home-02` is plain Debian 13 baremetal (gaming-PC hardware that replaced the old crash-looping unit, since de-Proxmoxed for use as a Linux worker). `pve-home-03` was retired. Inventory umbrella groups: `physical` = every baremetal Linux box (`hypervisors` ∪ `workers`); `hypervisors` is PVE-only; `workers` is plain Linux. The hostname `pve-home-02` is now a misnomer kept to defer renaming.
+
+**Proxmox topology is per-group, and clustered + standalone can coexist** (see `inventory.yaml` header). Today every hypervisor sits in `pve_standalone` — **no corosync, no shared storage, no HA, no live-migration**. The corosync path is still fully wired and supported for any node placed under a `pve_cluster` child group; it is simply a no-op while every node is standalone.
 
 (Ceph was removed in favour of node-local storage; the `ceph`/`ceph-csi` roles remain on disk as dormant reference, and the old ceph playbooks were lifted out of `infra/` into `playbooks/wip/`. Nothing wires ceph into any playbook or recipe.)
 
@@ -23,28 +25,31 @@ All workflows are wrapped in `justfile` recipes — prefer `just <recipe>` over 
 - `just secret-encrypt <name>` — `ansible-vault encrypt_string` for adding values to `group_vars/all/vault.yml`
 - `just tofu-{validate,init,plan,apply}` — OpenTofu wrappers (operate from `tofu/`)
 
-**Infra layout (tier directories).** `playbooks/poochella/infra/` is four ordered tiers, each a directory with its own ordered `site.yml`; ordinals are gap-10 *within* a tier so steps insert without renumbering. The directory **is** the target tier:
+**Infra layout (tier directories).** `playbooks/poochella/infra/` is **six** ordered tiers, each a directory with its own ordered `site.yml`; ordinals are gap-10 *within* a tier so steps insert without renumbering. The directory **is** the target tier:
 - `10-router/` — OPNsense DNS/DHCP foundation (precedes everything)
-- `20-hypervisor/` — Proxmox baremetal fabric, the critical path: `10-bootstrap → 20-cluster (no-op standalone) → 30-storage (DESTRUCTIVE carve + LVM-thin + PVE register, merged) → 40-templates`; `50-tailscale`/`60-node-exporter` are order-independent day-2 services
-- `30-provision/` — the OpenTofu barrier (`10-opentofu.yml`); the single point where the router + hypervisor tracks converge and guests come into existence
-- `40-guests/` — guest config: `10-bootstrap (ansible user) → 20-disable-auto-upgrades → 30-firewall (opens k3s ports) → 40-longhorn-host-prep → 50-k3s`
+- `15-nas/` — Synology NAS (gap-5 break; independent of host bootstrap, admin'd via DSM rather than the ansible-user path)
+- `17-host/` — Baseline for every baremetal Linux host (`physical` = hypervisors + workers): `10-bootstrap (ansible/pani/tourmanager users) → 20-ssh-hardening → 30-firewall → 40-tailscale → 50-node-exporter`. Gap-2 break because 15-nas already occupies 15-.
+- `20-hypervisor/` — Proxmox-only fabric (the critical PVE path): `10-bootstrap (repo flip) → 20-cluster (no-op standalone) → 30-storage (DESTRUCTIVE carve + LVM-thin + PVE register, merged) → 35-nfs-mounts → 40-bake-images`. Targets `hypervisors`.
+- `30-guests/` — OpenTofu barrier (`10-opentofu.yml` + `15-bootserv.yml`); the single point where the router + hypervisor tracks converge and guests come into existence
+- `40-kube/` — guest config: `10-longhorn-host-prep → 20-k3s`
 
 Each playbook self-bootstraps (`../tasks/detect-bootstrap-user.yml`) and asserts its own pre-conditions, so the ordering is the happy path, not the only path — any single tier playbook is runnable in isolation for piecemeal dev (`just run --limit <host>` then fzf-pick it).
 
-**Bootstrap ordering** (recipes encode the dependencies):
-1. `just do-router-dhcp` — push dnsmasq static leases onto OPNsense for baremetal MACs
-2. `just do-hypervisor-init` — bootstrap PVE nodes (+tailscale), shell, users, dev tools
-3. `just do-cluster-init` — form corosync clusters **per group**. Scoped to hosts under `pve_cluster` child groups; a **no-op when every node is standalone** (poochella's current state). Kept in the bootstrap so adding a cluster group is the only change needed.
-4. `just do-storage` — **DESTRUCTIVE** carve, then LVM-thin pools + PVE storage registration (`vms`, `longhorn-data`) — one merged playbook (`20-hypervisor/30-storage.yml`), see warning below
+**Bootstrap ordering** (the recipes that exist as `just`-shortcuts; the full chain is `just run` + `site.yml`):
+1. `just do-router-dhcp` — push dnsmasq static DHCP+DNS leases onto OPNsense for every physical-host MAC
+2. `just do-host-init` — apply the full 17-host tier to every `physical` host: users (ansible / pani / tourmanager), SSH hardening, firewall, tailscale, node-exporter
+3. `just do-bootserv-config` — re-render bootserv01's iPXE + preseed templates (fast iteration during the netboot trial)
+4. `just disk-plan` — read-only: dump every hypervisor's disks + paste-ready `storage.disks` skeleton. Run after any disk add/swap
 
-(After VM provisioning + k3s, `just do-longhorn-storage` formats/mounts the workers' second disk at `/var/lib/longhorn`.)
+The PVE tier (`20-hypervisor/` — cluster join, DESTRUCTIVE storage carve, template bake) and 30-guests / 40-kube don't have dedicated `just-do-X` recipes; run them via `just run` (fzf-picks a playbook) or by invoking the tier's `site.yml` directly.
 
-Full end-to-end is `playbooks/poochella/site.yml` (imports `infra/site.yml` then `trunk/site.yml`); `infra/site.yml` imports the four tier `site.yml`s in order, and each tier `site.yml` imports its playbooks in ordinal order.
+Full end-to-end is `playbooks/poochella/site.yml` (imports `infra/site.yml`); `infra/site.yml` imports the six tier `site.yml`s in order, and each tier `site.yml` imports its playbooks in ordinal order.
 
 ### Vault
 
 - Indirection layer: roles/playbooks reference unprefixed names (`proxmox_api_token`, `k3s_cluster_token`, …) defined in `group_vars/all/vars.yml`, which re-export `vault_*` values from the encrypted `group_vars/all/vault.yml`. When adding a new secret, edit both files.
-- **Per-node Proxmox tokens**: independent nodes don't share `/etc/pve`, so each has its own `tofu-lan` API token. `group_vars/all/vars.yml` exposes a `proxmox_api_tokens` map keyed by node name; `pve-home-01` reuses the legacy `vault_proxmox_api_token`, every other node needs `vault_proxmox_api_token_<node>` added to the vault (mint with `pveum user token add root@pam tofu-lan --privsep 0` on that node, then `just secret-encrypt`). See the header of `05-provision-infrastructure.yml`.
+- **Per-hypervisor Proxmox tokens**: independent nodes don't share `/etc/pve`, so each PVE host has its own `tofu-lan` API token. `group_vars/all/vars.yml` exposes a `proxmox_api_tokens` map keyed by hypervisor name (workers don't run the PVE API and don't appear here). Add a hypervisor = mint with `pveum user token add root@pam tofu-lan --privsep 0` on that node, then `just secret-encrypt vault_proxmox_api_token_<host>`. See the header of `30-guests/10-opentofu.yml`.
+- **Break-glass account**: the `tourmanager` user is the ONLY account that can SSH with a password after `17-host/20-ssh-hardening.yml` runs (a `Match User tourmanager` block in the sshd drop-in keeps password auth for it alone). The password lives in `vault_tourmanager_user_pass`.
 
 ## Architecture
 
@@ -60,15 +65,17 @@ Per-host fields:
 
 Groups define topology:
 - `router` → OPNsense (`opnsense01` at `10.1.1.1`)
-- `baremetal` → umbrella for **all** PVE hosts (shared roles target this; children flatten into it). Topology is decided by which child group a host sits in:
-  - `pve_standalone` → independent nodes, **no corosync** (currently `pve-home-01`, `pve-home-02`)
-  - `pve_cluster` → parent of zero or more corosync clusters. Each **child** group is one cluster: the group name *is* the cluster name, and `group_vars/<name>.yml` sets `proxmox_cluster_name: <name>`. Empty today.
+- `physical` → umbrella for **every** baremetal Linux box (the 17-host tier targets this). Children:
+  - `hypervisors` → PVE hosts only (the 20-hypervisor tier targets this). Children:
+    - `pve_standalone` → independent nodes, **no corosync** (currently `pve-home-01` only)
+    - `pve_cluster` → parent of zero or more corosync clusters. Each **child** group is one cluster: the group name *is* the cluster name, and `group_vars/<name>.yml` sets `proxmox_cluster_name: <name>`. Empty today.
+  - `workers` → plain Linux baremetal (no PVE). k3s baremetal workers, app hosts, etc. Currently: `pve-home-02` (hostname kept for now). Workers do NOT appear in `proxmox_endpoints` / `template_*_ids` and Tofu does not see them.
 - `switches` → managed network gear that wants a static lease
 - `virtual-machines` → has children `databases` and `kubernetes`
-- `kubernetes` → children `kube_control_plane` (kube-ctl-01..03) and `kube_workers` (kube-worker-01; -02/-03 commented out). All VMs are currently pinned to `pve-home-02`.
-- `containers` → currently only `webservers` as a child (template for future LXCs)
+- `kubernetes` → children `kube_control_plane` (kube-ctl-01..03) and `kube_workers` (kube-worker-01; -02/-03 commented out). All VM-based kube nodes are pinned to `pve-home-01` while it is the only hypervisor.
+- `containers` → `bootserv` (bootserv01 LXC on pve-home-01) + `webservers` placeholder
 
-`all.vars.proxmox_endpoints` is a `{node → https://…:8006}` map (one API endpoint per node). Adding a node touches four places — see the checklist in `tofu/provider.tf`.
+`all.vars.proxmox_endpoints` is a `{hypervisor → https://…:8006}` map (one API endpoint per PVE host). Adding a hypervisor touches four places — see the checklist in `tofu/provider.tf`.
 
 ### Provisioning flow
 
@@ -76,17 +83,17 @@ VMs are declared once in `inventory.yaml` (any host with a `vm:` block). `tofu/l
 
 **Provider-per-node**: independent nodes don't share an API (pve-home-01's endpoint can't create a VM on pve-home-02), so `tofu/provider.tf` declares **one aliased `proxmox` provider per node**, and `tofu/main.tf` instantiates the reusable `tofu/modules/vm` module **once per node**, wiring each to its alias and its `vms_by_node` slice. Terraform can't generate provider blocks from data, so they are static — adding a node is the 4-step checklist in `tofu/provider.tf` (endpoint, token var, provider block, module call). This structure also works for cluster members, so one shape serves both topologies.
 
-`playbooks/poochella/infra/05-provision-infrastructure.yml`:
-1. For **every** baremetal node, asserts a token exists for it in the vault (`proxmox_api_tokens[node]`) **and** that `tofu-lan` exists on that node via its own `pveum user token list`
+`playbooks/poochella/infra/30-guests/10-opentofu.yml`:
+1. For **every** hypervisor, asserts a token exists for it in the vault (`proxmox_api_tokens[node]`) **and** that `tofu-lan` exists on that node via its own `pveum user token list`
 2. Runs `community.general.terraform` against `tofu/` from `localhost`, passing each node's token via a per-node `TF_VAR_proxmox_api_token_<node>` env var (never written to disk in plaintext)
 
-VM disks live on the **node-local** `vms` LVM-thin storage (same storage ID on every node, each backed by that node's own VG). Every node bakes its **own** templates: `04-prepare-templates.yml` runs on all of `baremetal` and each node downloads, customizes, syspreps and templatizes locally (the old bake-once + `qm migrate` path needed a cluster and is removed; `tasks/distribute-templates-to-node.yml` is now dormant). Cloud image URLs are **pinned to dated upstream snapshots** so per-node bakes are deterministic — re-pin by bumping `image_url` + `image_file` together. Each node's template VMID comes from the explicit `template_vm_ids` / `template_ct_ids` maps in `inventory.yaml` (single source of truth, also read by `tofu/locals.tf`). Each VM is created on and pinned to its `proxmox_node` and cloned from that node's local template. The bpg/proxmox v0.106 `initialization` block has no `hostname` field — VM `name` propagates to cloud-init instead. DNS + search domain reach guests via DHCP options set on OPNsense (single source of truth for DNS).
+VM disks live on the **node-local** `vms` LVM-thin storage (same storage ID on every hypervisor, each backed by that node's own VG). Every hypervisor bakes its **own** templates: `20-hypervisor/40-templates.yml` runs on all of `hypervisors` and each node downloads, customizes, syspreps and templatizes locally (the old bake-once + `qm migrate` path needed a cluster and is removed; `tasks/distribute-templates-to-node.yml` is now dormant). Cloud image URLs are **pinned to dated upstream snapshots** so per-node bakes are deterministic — re-pin by bumping `image_url` + `image_file` together. Each node's template VMID comes from the explicit `template_vm_ids` / `template_ct_ids` maps in `inventory.yaml` (single source of truth, also read by `tofu/locals.tf`). Each VM is created on and pinned to its `proxmox_node` and cloned from that node's local template. The bpg/proxmox v0.106 `initialization` block has no `hostname` field — VM `name` propagates to cloud-init instead. DNS + search domain reach guests via DHCP options set on OPNsense (single source of truth for DNS).
 
 ### Storage carving (DESTRUCTIVE)
 
-**Declared, not discovered — but by stable selector, not device name.** Each baremetal host's disk layout is the `storage.disks` list in `inventory.yaml` (single source of truth). Each disk has a `select:` (`boot` | `{model,serial}` | `{min_size_gib|size_gib, rotational}`), an optional per-disk `wipe: refuse|force`, and an ordered `partitions:` list. A non-`boot` selector **must resolve to exactly one** non-boot, non-removable disk — 0 or >1 matches is a **hard preflight failure** (the role never guesses, never auto-claims). Selectors match hardware attributes, so kernel renames (`sdX`/`nvmeXnY` shuffle on disk add) are irrelevant and swapping a disk for an identical/larger one needs **no inventory edit** when the selector is attribute-based. `just disk-plan` (read-only `30-storage-plan.yml`) prints every node's disks + a paste-ready skeleton; it replaces the never-implemented `just disk-ids`.
+**Declared, not discovered — but by stable selector, not device name.** Each hypervisor's disk layout is the `storage.disks` list in `inventory.yaml` (single source of truth; workers don't declare `storage.disks` — the carve is PVE-only). Each disk has a `select:` (`boot` | `{model,serial}` | `{min_size_gib|size_gib, rotational}`), an optional per-disk `wipe: refuse|force`, and an ordered `partitions:` list. A non-`boot` selector **must resolve to exactly one** non-boot, non-removable disk — 0 or >1 matches is a **hard preflight failure** (the role never guesses, never auto-claims). Selectors match hardware attributes, so kernel renames (`sdX`/`nvmeXnY` shuffle on disk add) are irrelevant and swapping a disk for an identical/larger one needs **no inventory edit** when the selector is attribute-based. `just disk-plan` (read-only `30-storage-plan.yml`) prints every hypervisor's disks + a paste-ready skeleton.
 
-Each partition declares content-addressed identifiers — `label` (GPT partlabel + idempotency key, **unique per node**), `vg`, `thinpool`, `pve_storage` (a **frozen contract**: `tofu/modules/vm` hardcodes `vms`/`longhorn-data`; Tofu does *not* read `storage:` so the schema is Ansible-only), `content`, `size` (sgdisk `+SIZE`; `0` = fill). Several partitions on **different physical disks** may share one `vg`/`thinpool`/`pve_storage` — that is how a NVMe + HDD present as one larger `longhorn-data` pool (pve-home-02). The convention (asserted in preflight, see `group_vars/baremetal.yml`): every baremetal node yields **both** `vms` and `longhorn-data`; baseline HW is one ≥1 TB boot NVMe, extra disks optional and extend `longhorn-data`.
+Each partition declares content-addressed identifiers — `label` (GPT partlabel + idempotency key, **unique per node**), `vg`, `thinpool`, `pve_storage` (a **frozen contract**: `tofu/modules/vm` hardcodes `vms`/`longhorn-data`; Tofu does *not* read `storage:` so the schema is Ansible-only), `content`, `size` (sgdisk `+SIZE`; `0` = fill). Several partitions on **different physical disks** may share one `vg`/`thinpool`/`pve_storage` — that is how a NVMe + HDD present as one larger `longhorn-data` pool. The convention (asserted in preflight, see `group_vars/hypervisors.yml`): every hypervisor yields **both** `vms` and `longhorn-data`; baseline HW is one ≥1 TB boot NVMe, extra disks optional and extend `longhorn-data`.
 
 `30-storage.yml` (`preflight.yml` → `_resolve_disk.yml` → `carve.yml` → `_wipe_disk.yml` + `_carve_one.yml` → `storage_pools.yml`): preflight resolves every selector to exactly one device and asserts the partlabel-uniqueness / pve_storage-consistency / frozen-contract invariants (plus a **non-fatal** advisory that a pinned worker's `data_disk_size` fits the longhorn pool). preflight also classifies existing guests by their `template:` config key: any **real (non-template)** VM/container is a hard refusal, while **regenerable templates** only block unless `carve_destroy_templates: true`, in which case preflight `qm/pct destroy --purge`es them first (40-templates.yml re-bakes them next tier). Carve runs a per-disk **wipe gate** once per disk (boot disk never wiped; a disk already carrying our partlabels is skipped — idempotent; a disk with **foreign signatures** is REFUSED unless it declares `wipe: force`), then carves each partition in declared order (idempotent on the GPT partlabel). `storage_pools.yml` builds the `vg`/`thinpool` LVM-thin pool (a VG may span multiple PVs) and **grows** an existing thin pool onto a newly-fitted larger disk (`lvextend +100%FREE`); `30-storage.yml`'s last play registers each **unique** `pve_storage` once, scoped `--nodes <self>` (independent nodes ⇒ per-node `/etc/pve/storage.cfg`). Disk swap / capacity / NAS-backup runbook: `docs/storage-disk-runbook.md`. **Data safety is a Longhorn-layer property (separate Flux repo), not an LVM one** — the carve only makes the empty re-init safe; Longhorn's replica-2 + zone anti-affinity is what survives a disk pull.
 
@@ -104,18 +111,22 @@ The VIP must be a free address on the same L2 segment as the control planes. Con
 ### Roles
 
 Roles under `roles/` are units of work, not "things to install":
-- `hypervisor`, `hypervisor-disks` — PVE node setup; **declared, selector-based** (inventory `storage.disks`) disk carving + node-local LVM-thin pool/PVE-storage provisioning (`preflight.yml` → `_resolve_disk.yml`, `carve.yml` → `_wipe_disk.yml` + `_carve_one.yml`, `storage_pools.yml`; read-only `discover.yml` behind `just disk-plan`). Disks selected by `boot` / model+serial / size+rotational; multiple partitions/disks may back one pve_storage. `hypervisor`'s `cluster_ssh.yml` / `cluster_create.yml` / `cluster_join.yml` are **active but per-group**: scoped to `groups[proxmox_cluster_name]`, driven by `02b-cluster-hypervisor.yml`, no-op when standalone (not dormant like ceph)
+- `host-base` — every physical-host baseline: install sudo+zsh, import `apt-no-auto-upgrades`, create `ansible`/`pani`/`tourmanager` users via `create-user`, set root password from vault. Driven by `17-host/10-bootstrap.yml`. The user policy is in `defaults/main.yml`'s `host_base_users`.
+- `ssh-hardening` — drops `/etc/ssh/sshd_config.d/10-hardening.conf` from a template: disables password+root login globally, but a `Match User <breakglass>` block keeps password auth for one specific user (defaults to `tourmanager`). Runs after `host-base` in the 17-host tier so the keys are enrolled before password auth turns off. Asserts the break-glass user exists; the drop-in is validated with `sshd -t` before it lands.
+- `hypervisor` — PVE-only repo flip (enterprise → no-subscription PVE+Ceph). Its `cluster_ssh.yml` / `cluster_create.yml` / `cluster_join.yml` are **active but per-group**: scoped to `groups[proxmox_cluster_name]`, driven by `20-hypervisor/20-cluster.yml`, no-op when standalone (not dormant like ceph). Driven by `20-hypervisor/10-bootstrap.yml`. Generic baremetal setup that used to live inline here is now in `host-base`.
+- `hypervisor-disks` — **declared, selector-based** (inventory `storage.disks`) disk carving + node-local LVM-thin pool/PVE-storage provisioning (`preflight.yml` → `_resolve_disk.yml`, `carve.yml` → `_wipe_disk.yml` + `_carve_one.yml`, `storage_pools.yml`; read-only `discover.yml` behind `just disk-plan`). Disks selected by `boot` / model+serial / size+rotational; multiple partitions/disks may back one pve_storage.
 - `ceph`, `ceph-csi` — **dormant** (Ceph removed): kept on disk for reference, not referenced by any active playbook/recipe
 - `k3s` — task-file-per-phase (`server_init.yml`, `kube_vip.yml`, `server_join.yml`, `agent.yml`, `fetch_kubeconfig.yml`); playbooks `import_role` with `tasks_from:` rather than running the role as a whole
-- `apt-no-auto-upgrades` — disable automatic ("unattended") apt upgrading: pins `APT::Periodic` to `"0"` + masks the apt-daily timers. Used by the `hypervisor` role (baremetal) and `06b-disable-auto-upgrades.yml` (VMs); the kill-switch is also baked into the golden template by `04-prepare-templates.yml`. Patching is deliberate, not unattended — the `unattended-upgrades` package is left installed
+- `apt-no-auto-upgrades` — disable automatic ("unattended") apt upgrading: pins `APT::Periodic` to `"0"` + masks the apt-daily timers. Imported by `host-base` (every physical host) and `30-guests/30-disable-auto-upgrades.yml` (VMs); the kill-switch is also baked into the golden template by `20-hypervisor/40-templates.yml`. Patching is deliberate, not unattended — the `unattended-upgrades` package is left installed
+- `firewall-basic` — ufw default-deny + per-group `inbound_allow` / `outbound_deny`. Driven from both `17-host/30-firewall.yml` (every physical host) and `30-guests/40-firewall.yml` (every guest). Each leaf group's policy lives in its `group_vars/<group>.yml`.
 - `opnsense-dnsmasq` — DHCP static leases + DNS records on the router
 - `create-user`, `ivan-user`, `dev-tools`, `python`, `golang`, `node`, `install-rust` — user/dev environment
-- `caddy`, `nginx`, `postgres`, `pihole`, `docker`, `tailscale`, `firewall-basic` — services
+- `caddy`, `nginx`, `postgres`, `pihole`, `docker`, `tailscale`, `node-exporter` — services
 
 ## Conventions
 
-- Playbook filenames are prefixed `NN-` to encode run order within `infra/` and `trunk/`. Don't reorder by renumbering unless you also understand the dependencies.
-- The Ansible remote user is `ansible` with key `~/.ssh/ansible` (set in `ansible.cfg`). Cloud-init bakes this user into VM templates (`04-prepare-templates.yml`).
+- Playbook filenames are prefixed `NN-` to encode run order within `infra/`. Don't reorder by renumbering unless you also understand the dependencies.
+- The Ansible remote user is `ansible` with key `~/.ssh/ansible` (set in `ansible.cfg`). Cloud-init bakes this user into VM templates (`20-hypervisor/40-templates.yml`); the `host-base` role creates it on every physical host.
 - Pre-conditions are documented as comment blocks at the top of each infra playbook — read those before editing.
 - `playbooks/wip/` is scratchpad / in-progress work, not part of `site.yml`.
 

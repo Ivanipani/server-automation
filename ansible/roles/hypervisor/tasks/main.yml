@@ -1,3 +1,9 @@
+---
+# PVE-only configuration. Generic baremetal setup (sudo, zsh, users,
+# root password, apt-no-auto-upgrades) lives in the `host-base` role,
+# which the 17-host tier runs first. Sequence on a hypervisor:
+#   17-host/10-bootstrap.yml  → host-base       (every physical host)
+#   20-hypervisor/10-bootstrap.yml → this role  (PVE only)
 
 - name: Remove Proxmox enterprise PVE repo
   ansible.builtin.file:
@@ -29,38 +35,3 @@
     dest: /etc/apt/sources.list.d/ceph-no-subscription.list
     content: "deb http://download.proxmox.com/debian/ceph-squid trixie no-subscription\n"
     mode: "0644"
-
-# Disable automatic ("unattended") apt upgrading BEFORE the first apt
-# install below. Masking apt-daily also stops it grabbing the dpkg lock
-# mid-play — the long-standing lock-contention pain the brute-force block
-# that used to live here was fighting. See roles/apt-no-auto-upgrades.
-- name: Disable automatic apt upgrades + apt-daily lock contention
-  ansible.builtin.import_role:
-    name: apt-no-auto-upgrades
-
-- name: Install sudo
-  ansible.builtin.apt:
-    name: sudo
-    state: present
-    update_cache: true
-
-- name: Bootstrap ansible user (baremetal)
-  import_role:
-    name: create-user
-  vars:
-    users:
-      - name: ansible
-        groups: [ansible, sudo]
-        shell: /bin/bash
-        ssh_key: "~/.ssh/ansible.pub"
-        password: "{{ ansible_user_pass }}"
-        sudoers:
-          commands: ALL
-          nopassword: true
-
-- name: Set root password from vault
-  ansible.builtin.user:
-    name: root
-    password: "{{ hypervisor_root_pass | password_hash('sha512') }}"
-    update_password: always
-  no_log: true

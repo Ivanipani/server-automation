@@ -1,0 +1,20 @@
+---
+# Tier 17 — Lock down sshd on every baremetal Linux host.
+#
+# Drops /etc/ssh/sshd_config.d/10-hardening.conf with:
+#   - PasswordAuthentication no
+#   - PermitRootLogin no
+#   - PubkeyAuthentication yes
+#   - Match User tourmanager → password auth re-enabled (break-glass)
+#
+# Policy lives in group_vars/physical.yml's `ssh_hardening` block.
+#
+# Pre-condition: 10-bootstrap.yml has run. The break-glass user
+# (tourmanager) MUST already exist before we render the Match block;
+# the role's preflight asserts that.
+
+- name: Harden sshd on every physical host
+  hosts: physical
+  become: true
+  roles:
+    - role: ssh-hardening

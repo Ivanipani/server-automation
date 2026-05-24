@@ -23,7 +23,7 @@
 #   re-encrypt the new secret over its block in group_vars/all/vault.yml
 
 - name: Verify each node's Proxmox API token exists in PVE and the vault
-  hosts: baremetal
+  hosts: hypervisors
   become: true
   gather_facts: false
   vars:

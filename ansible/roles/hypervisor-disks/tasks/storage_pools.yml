@@ -1,6 +1,6 @@
 ---
 # Build a node-local LVM-thin pool per declared pve_storage. Idempotent.
-# Runs on every baremetal node; nodes are independent (no shared pmxcfs)
+# Runs on every hypervisor; nodes are independent (no shared pmxcfs)
 # so each owns its identically-named VG/thinpool and registers its own
 # PVE storage (the pvesm play in 30-storage.yml).
 #

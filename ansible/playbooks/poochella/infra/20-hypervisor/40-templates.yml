@@ -6,7 +6,7 @@
 # independent (per-group topology; see inventory.yaml). The old
 # bake-once-then-`qm migrate`-to-peers optimization required a cluster
 # (migrate won't cross independent nodes), so it is gone — every node in
-# `baremetal` downloads, customizes, syspreps and templatizes its OWN
+# `hypervisors` downloads, customizes, syspreps and templatizes its OWN
 # images locally. tasks/distribute-templates-to-node.yml is kept on disk
 # as dormant reference (no longer wired here).
 #
@@ -55,7 +55,7 @@
 # 30-provision tier (30-provision/10-opentofu.yml).
 
 - name: Bake VM/LXC templates on every Proxmox node (independent)
-  hosts: baremetal
+  hosts: hypervisors
   gather_facts: false
   become: true
   vars:

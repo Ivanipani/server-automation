@@ -1,6 +1,6 @@
 ---
-# Node-local storage, end to end, in one playbook: for each baremetal
-# node's declared `storage.disks` (inventory.yaml) it (1) preflights +
+# Node-local storage, end to end, in one playbook: for each hypervisor's
+# declared `storage.disks` (inventory.yaml) it (1) preflights +
 # resolves selectors, (2) gates each disk then carves its GPT
 # partition(s) in declared order, (3) builds the LVM-thin pool(s), then
 # (4) registers each as PVE storage. The storage IDs (`vms`,
@@ -54,12 +54,12 @@
 #   - PVE installed with LVM/ext4 root AND `lvm.hdsize = 100` so the boot
 #     disk has an unpartitioned tail for the boot pool. See the answer
 #     files under scripts/images/proxmox/pve-home-0X.toml.
-#   - `storage.disks` declared for each baremetal host in inventory.yaml
+#   - `storage.disks` declared for each hypervisor host in inventory.yaml
 #     (preview the resolution with `just disk-plan`)
 #   - No VMs or containers exist yet on any node
 
 - name: Disk preflight (gates + boot detection + selector resolution)
-  hosts: baremetal
+  hosts: hypervisors
   become: true
   tasks:
     - ansible.builtin.import_role:
@@ -67,15 +67,15 @@
         tasks_from: preflight.yml
 
 - name: Wipe-gate each disk, then carve its partitions in order
-  hosts: baremetal
+  hosts: hypervisors
   become: true
   tasks:
     - ansible.builtin.import_role:
         name: hypervisor-disks
         tasks_from: carve.yml
 
-- name: Build / grow LVM-thin pools on every baremetal node
-  hosts: baremetal
+- name: Build / grow LVM-thin pools on every hypervisor
+  hosts: hypervisors
   become: true
   tasks:
     - ansible.builtin.import_role:
@@ -83,7 +83,7 @@
         tasks_from: storage_pools.yml
 
 - name: Register PVE storage on each node (per-node storage.cfg)
-  hosts: baremetal
+  hosts: hypervisors
   become: true
   tasks:
     - name: Read the current storage.cfg

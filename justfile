@@ -147,9 +147,14 @@ ssh-refresh:
     echo "Done."
 
 
-# READ-ONLY: inspect every baremetal node's disks and print a paste-ready `storage.disks` selector skeleton. Run after any disk add/swap
+# READ-ONLY: inspect every hypervisor's disks and print a paste-ready `storage.disks` selector skeleton. Run after any disk add/swap
 disk-plan:
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/20-hypervisor/30-storage-plan.yml
+
+
+# Run the full 17-host tier on every physical host (users, ssh-hardening, firewall, tailscale, node-exporter). Safe to re-run.
+do-host-init: check
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/site.yml
 
 
 # Build a per-host unattended Debian 13 install ISO (writes to img/debian/output/). Flash with img/burn-to-disc.sh.

@@ -1,6 +1,6 @@
 ---
 - name: Set up zellij, basic zsh
-  hosts: dev:baremetal
+  hosts: physical:dev
   become: true
   tasks:
     - name: Install development tools

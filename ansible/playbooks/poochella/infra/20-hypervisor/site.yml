@@ -1,29 +1,29 @@
 ---
-# Tier H — Proxmox hypervisor fabric (baremetal).
+# Tier H — Proxmox hypervisor fabric (PVE-only).
 #
-# Critical path (hard deps): 10-bootstrap → 20-cluster (no-op while
-# standalone) → 30-storage (DESTRUCTIVE carve + LVM-thin + PVE
-# register, merged) → 40-templates. 40-templates must finish before
-# the 30-provision tier (Tofu clones the templates).
-# register, merged) → 35-nfs-mounts (mount nas01 shares — needs the
-# 15-nas tier to have run on the NAS side first) → 40-bake-images
-# (writes qcow2s into the NFS-mounted proxmox share). 40-bake-images
-# must finish before the 30-provision tier (Tofu pulls the published
-# qcow2 onto each node's `local` ISO storage and `disk.import_from`s
-# the new VM's boot disk from it).
+# Generic baremetal setup (users, sudo/zsh, SSH hardening, firewall,
+# tailscale, node-exporter) lives in the 17-host tier and runs against
+# the wider `physical` group. This tier shrinks to the PVE-only chain
+# and targets `hypervisors`.
+#
+# Critical path (hard deps): 10-bootstrap → 30-storage (DESTRUCTIVE
+# carve + LVM-thin + PVE register) → 35-nfs-mounts (needs the 15-nas
+# tier to have run on the NAS side first) → 40-bake-images (writes
+# qcow2s into the NFS-mounted proxmox share). 40-bake-images must
+# finish before the 30-guests tier (Tofu pulls the published qcow2
+# onto each node's `local` ISO storage and `disk.import_from`s the
+# new VM's boot disk from it).
 #
 # 40-templates.yml is LEGACY (per-node `virt-customize` + `qm template`
 # bake; consumed by the now-removed `clone {}` block in
 # tofu/modules/vm/main.tf). Kept on disk for rollback only — not
 # imported here. See its header for the rollback recipe.
 #
-# 50-tailscale / 60-node-exporter are order-independent baremetal
-# day-2 services (depend only on 10-bootstrap, nothing depends on
-# them) — last in the tier so the critical chain reads contiguously.
+# 20-cluster.yml is a no-op while every node sits in `pve_standalone`;
+# kept active so adding a `pve_cluster.<name>` child group is the only
+# change needed to form a cluster.
 - import_playbook: 10-bootstrap.yml
 - import_playbook: 20-cluster.yml
 - import_playbook: 30-storage.yml
 - import_playbook: 35-nfs-mounts.yml
 - import_playbook: 40-bake-images.yml
-- import_playbook: 50-tailscale.yml
-- import_playbook: 60-node-exporter.yml

@@ -1,0 +1,14 @@
+---
+# Tier 17 — Install Prometheus node_exporter on every baremetal Linux host.
+#
+# Day-2 service, like 40-tailscale.yml: depends on nothing past
+# 10-bootstrap, nothing depends on it, idempotent, safe to run in
+# isolation (`just run --limit <host>`) for piecemeal dev.
+#
+# Pre-condition: 10-bootstrap.yml has run (ansible user exists).
+
+- name: Install Prometheus node_exporter on every physical host
+  hosts: physical
+  become: true
+  roles:
+    - role: node-exporter

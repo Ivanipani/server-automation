@@ -29,7 +29,7 @@
 #
 # WHAT RUNS WHERE: this playbook targets a SINGLE PVE node (the
 # `image_build_host`, default `pve-home-01`). Packer needs KVM + a few
-# hundred MiB of scratch under /var/tmp; running it on every baremetal
+# hundred MiB of scratch under /var/tmp; running it on every hypervisor
 # would be wasteful and would race for the NAS rsync target.
 #
 # OUTPUT: ${nas_rsync_target}/<family>-YYYYMMDDhhmm.qcow2 plus a

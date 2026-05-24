@@ -1,0 +1,28 @@
+---
+# Vars shared by EVERY baremetal Linux host (hypervisors + workers).
+# Consumed by the 17-host tier (host-base, ssh-hardening, firewall-basic,
+# tailscale, node-exporter). PVE-only knobs live in hypervisors.yml.
+
+# Tailscale: off by default. Flip per-host (host_vars/<name>.yml) or
+# per-group (group_vars/workers.yml, group_vars/hypervisors.yml).
+tailscale_enabled: false
+
+# SSH hardening policy (consumed by the ssh-hardening role's template).
+# A single `Match User tourmanager` block carves out the break-glass
+# account so it CAN still log in with a password after lockdown.
+ssh_hardening:
+  password_authentication: false
+  permit_root_login: false
+  kbd_interactive_authentication: false
+  challenge_response_authentication: false
+  pubkey_authentication: true
+  permit_empty_passwords: false
+  # Account that retains password access. Empty string disables the
+  # Match block entirely.
+  password_breakglass_user: tourmanager
+
+# Firewall default-allow rules (consumed by 17-host/30-firewall.yml +
+# firewall-basic role). Per-group can extend; workers and hypervisors
+# add their own service ports on top.
+firewall_inbound_allow:
+  - { proto: tcp, port: 22, comment: "ssh" }
