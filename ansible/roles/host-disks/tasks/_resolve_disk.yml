@@ -11,10 +11,17 @@
 # non-boot, non-removable disk. Zero or many matches → hard failure (we
 # never guess, never auto-claim, and the kernel name is never used).
 #
-# Each partition declares EXACTLY ONE of:
+# Each partition declares AT MOST ONE of:
 #   - `pve_storage` + `content`      → PVE-side: thin pool registered with pvesm
 #   - `mount: { path, fstype, ... }` → worker-side: ext4 on a thin LV
-# Enforced below (XOR). label/vg/thinpool/size are required either way.
+#   - neither (bare pool member)     → joins a (vg,thinpool) whose target is
+#                                      declared on another partition (the
+#                                      multi-disk-one-pool convention:
+#                                      NVMe + HDD → one larger longhornthin
+#                                      with the mount on exactly one of them)
+# Enforced below. label/vg/thinpool/size are required either way; the
+# "at least one target per (vg,thinpool)" invariant is asserted in the
+# cross-pool consistency pass in preflight.yml.
 
 - name: "[{{ disk.select | string }}] Validate the disk declaration"
   ansible.builtin.assert:
@@ -32,23 +39,37 @@
     fail_msg: >-
       Bad storage.disks entry on {{ inventory_hostname }}:
       {{ disk | to_json }}. Need `select`, a non-empty `partitions` list
-      (each with label/vg/thinpool/size, plus EITHER `pve_storage`+`content`
-      OR `mount.{path,fstype}`), optional `wipe: refuse|force`, and
-      `exclude_boot` may not be false (the OS disk is never carved as a
-      data disk).
+      (each with label/vg/thinpool/size, plus AT MOST ONE of
+      `pve_storage`+`content` or `mount.{path,fstype}` — bare partitions
+      that just declare label/vg/thinpool/size are allowed and join a
+      pool whose target is declared on another partition), optional
+      `wipe: refuse|force`, and `exclude_boot` may not be false (the OS
+      disk is never carved as a data disk).
 
-- name: "[{{ disk.select | string }}] Each partition declares pve_storage XOR mount"
+- name: "[{{ disk.select | string }}] Each partition declares pve_storage, mount, or neither"
   ansible.builtin.assert:
     that:
+      # Allowed shapes:
+      #   pve_storage + content                  → PVE-registered thin pool
+      #   mount.{path,fstype}                    → role-mounted ext4 on a thin LV
+      #   neither pve_storage/content nor mount  → bare pool member; another
+      #                                            partition with the same
+      #                                            (vg,thinpool) carries the
+      #                                            target (preflight asserts
+      #                                            at least one target exists
+      #                                            per pool).
       - (item.pve_storage is defined and item.content is defined and item.mount is not defined)
-        or (item.mount is defined and item.pve_storage is not defined and item.content is not defined)
-      - item.mount is not defined or (item.mount.path is defined and item.mount.fstype is defined)
+        or (item.mount is defined and item.mount.path is defined and item.mount.fstype is defined
+            and item.pve_storage is not defined and item.content is not defined)
+        or (item.pve_storage is not defined and item.content is not defined and item.mount is not defined)
     fail_msg: >-
       Partition {{ item.label | default('?') }} on
       {{ inventory_hostname }} must declare EITHER `pve_storage:` +
       `content:` (PVE-registered thin pool) OR `mount:` (with `path` +
-      `fstype`, role-mounted ext4 on a thin LV) — exactly one, not both.
-      Got: {{ item | to_json }}.
+      `fstype`, role-mounted ext4 on a thin LV) OR neither (bare pool
+      member — another partition with the same vg+thinpool carries the
+      target). Mixing the two on one partition is forbidden. Got:
+      {{ item | to_json }}.
   loop: "{{ disk.partitions }}"
   loop_control:
     label: "{{ item.label | default('?') }}"
@@ -139,10 +160,13 @@
                   or (host_disks_force_wipe | default(false) | bool)
                else 'refuse') }}
 
-# Per-partition signature. Two partitions naming the same vg+thinpool
-# must produce the same _sig — i.e. agree on what sits on top of that
-# pool. Mixed pve_storage+mount on one pool is a preflight failure
-# (caught by the cross-pool consistency check in preflight.yml).
+# Per-partition signature. Targeted partitions (pve_storage OR mount)
+# naming the same vg+thinpool must produce the same _sig — i.e. agree on
+# what sits on top of that pool. BARE partitions (neither pve_storage
+# nor mount) produce a `bare|…` sig that the cross-pool consistency
+# check (preflight.yml) filters out before its uniqueness assertion,
+# then separately asserts every pool has at least ONE targeted
+# partition. Mixed pve_storage+mount on one pool is caught there too.
 - name: "[{{ _dev }}] Append this disk's partitions (carve order preserved)"
   ansible.builtin.set_fact:
     host_disks_resolved: >-
@@ -157,11 +181,15 @@
                 'pve|' ~ item.vg ~ '|' ~ item.thinpool
                        ~ '|' ~ item.pve_storage ~ '|' ~ item.content
                 if item.pve_storage is defined
-                else 'mnt|' ~ item.vg ~ '|' ~ item.thinpool
-                       ~ '|' ~ item.mount.path
-                       ~ '|' ~ item.mount.fstype
-                       ~ '|' ~ (item.mount.lv_name | default(item.thinpool ~ '-data'))
-                       ~ '|' ~ (item.mount.lv_size | default('100%FREE'))
+                else (
+                  'mnt|' ~ item.vg ~ '|' ~ item.thinpool
+                         ~ '|' ~ item.mount.path
+                         ~ '|' ~ item.mount.fstype
+                         ~ '|' ~ (item.mount.lv_name | default(item.thinpool ~ '-data'))
+                         ~ '|' ~ (item.mount.lv_size | default('100%FREE'))
+                  if item.mount is defined
+                  else 'bare|' ~ item.vg ~ '|' ~ item.thinpool
+                )
              ),
            })
          ] }}

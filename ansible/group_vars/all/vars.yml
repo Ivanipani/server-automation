@@ -67,3 +67,5 @@ nas_images_dir:      "{{ hostvars['nas01'].nas.images_dir }}"
 nas_rsync_user:      "{{ hostvars['nas01'].nas.rsync_user }}"
 nas_rsync_target:    "{{ hostvars['nas01'].nas.rsync_user }}@{{ hostvars['nas01'].ansible_host }}:{{ hostvars['nas01'].nas.images_dir }}"
 nas_ssh_target:      "{{ hostvars['nas01'].nas.rsync_user }}@{{ hostvars['nas01'].ansible_host }}"
+synology_dsm_password: "{{ vault_synology_dsm_password }}"
+synology_dsm_username: pani

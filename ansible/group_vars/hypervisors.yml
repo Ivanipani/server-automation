@@ -42,7 +42,7 @@
 # TEMPLATE-only guests and then proceeds; 40-templates.yml re-bakes them
 # in the next tier step. Any REAL (non-template) VM or container still
 # HARD REFUSES regardless of this flag — it only ever touches templates.
-carve_destroy_templates: false
+carve_destroy_templates: true
 
 # ── NFS mounts from nas01 (hypervisor-side override) ────────────────
 # Overrides the empty `physical_nfs_mounts` default in physical.yml to

@@ -24,13 +24,23 @@
 # (on different physical disks) may share one vg/thinpool — that is how
 # a NVMe + HDD present as a single, larger pool.
 #
-# Per partition, declare EXACTLY ONE of (XOR, enforced in preflight):
+# Per partition, declare AT MOST ONE of (enforced in preflight):
 #   - `pve_storage:` + `content:`      → PVE-registered thin pool (the
 #                                        register step lives in
 #                                        20-hypervisor/30-pve-storage-register.yml)
 #   - `mount: { path, fstype, ... }`   → ext4 on a thin LV, fstab-mounted
 #                                        (worker convention: one
 #                                        /var/lib/longhorn mount per node)
+#   - neither                          → bare pool member: just label/vg/
+#                                        thinpool/size. Joins a
+#                                        (vg,thinpool) whose target is
+#                                        declared on another partition.
+#                                        This is the multi-disk-one-pool
+#                                        convention — NVMe + HDD share
+#                                        one longhornthin with the mount
+#                                        declared on exactly one of them.
+# Preflight additionally asserts every (vg,thinpool) has AT LEAST ONE
+# targeted partition (you can't have an all-bare pool).
 #
 # DECLARED, NOT DISCOVERED: a selector MUST resolve to exactly one
 # non-boot, non-removable disk. Zero or many matches is a HARD preflight

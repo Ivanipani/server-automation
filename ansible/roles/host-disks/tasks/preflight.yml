@@ -5,6 +5,20 @@
 #   host_disks_resolved  — one entry per PARTITION, in carve order
 #   host_disks_devices   — one entry per unique DISK to act on
 
+# PVE hypervisors ship gdisk+lvm2 as Proxmox dependencies; plain Debian
+# workers don't. Install them at the start of preflight so the carve +
+# pool-build stages have the binaries they shell out to. Idempotent
+# no-op once present (hypervisors), and runs BEFORE the boot-disk
+# detection below which already uses `lvs`.
+- name: Install disk-management utilities (gdisk for sgdisk, lvm2)
+  ansible.builtin.apt:
+    name:
+      - gdisk
+      - lvm2
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
 - name: Assert opt-in flag is set (refuses to run without explicit confirmation)
   ansible.builtin.assert:
     that:
@@ -197,22 +211,34 @@
       GPT label and the idempotency key).
 
 # Cross-pool consistency: partitions naming the same (vg,thinpool) must
-# agree on the rest of their target (`_sig` set in _resolve_disk.yml).
-# Applies to both pve_storage- and mount-backed pools — they may share
-# a thinpool too (NVMe + HDD → one larger longhornthin).
-- name: "Assert every partition of one (vg,thinpool) agrees on target"
+# (a) include AT LEAST ONE targeted partition (pve_storage OR mount) and
+# (b) any partitions that DO declare a target must agree on it. `_sig`
+# (set in _resolve_disk.yml) is `pve|…` / `mnt|…` for targeted partitions
+# and `bare|…` for pool members with no target. We filter `bare|…` out
+# before the uniqueness check, then assert the remaining set is exactly
+# one. Length 0 means the whole pool is bare (no target declared
+# anywhere); length > 1 means targets disagree. Applies to pve_storage-
+# and mount-backed pools alike — both may span multiple disks (NVMe +
+# HDD → one larger longhornthin / longhorn-data) and the convention is
+# to declare the target on exactly one partition per pool.
+- name: "Assert every (vg,thinpool) has exactly one declared target"
   ansible.builtin.assert:
     that:
       - >-
         host_disks_resolved
         | selectattr('_pool_key', 'equalto', item)
+        | rejectattr('_sig', 'match', '^bare\|')
         | map(attribute='_sig') | unique | length == 1
     fail_msg: >-
-      On {{ inventory_hostname }} partitions naming the same (vg,thinpool)
-      pair '{{ item }}' disagree on the rest of their target. Multiple
-      disks may back ONE pool (NVMe + HDD becoming one larger pool) but
-      they must share vg, thinpool, and either consistent pve_storage+content
-      (hypervisor-side) or consistent mount target (worker-side).
+      On {{ inventory_hostname }} the (vg,thinpool) pair '{{ item }}'
+      must have AT LEAST ONE partition declaring a target (pve_storage +
+      content, or mount) and any other targeted partitions must agree
+      with it. Multiple disks may back ONE pool (NVMe + HDD → one larger
+      pool) — declare the target on exactly ONE partition (the
+      convention) or repeat it identically on all. Got sigs:
+      {{ host_disks_resolved
+         | selectattr('_pool_key', 'equalto', item)
+         | map(attribute='_sig') | list }}.
   loop: "{{ host_disks_resolved | map(attribute='_pool_key') | unique | list }}"
 
 # ── Hypervisor-only frozen-contract assertions ───────────────────────

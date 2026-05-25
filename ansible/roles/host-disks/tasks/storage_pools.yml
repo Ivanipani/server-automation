@@ -36,6 +36,34 @@
       {{ dict(_devpaths.results | map(attribute='item.label') | list
               | zip(_devpaths.results | map(attribute='stdout') | map('trim') | list)) }}
 
+# Stale-state cleanup: if a previous run left a declared VG in a
+# degraded state — typically because a disk that backed the VG was
+# removed / repartitioned without first running `vgremove` so the VG
+# metadata still references a now-vanished PV — `community.general.lvg`
+# below will fail with "Cannot change VG ... while PVs are missing".
+# We own these VG names (they're declared in inventory) so a missing-PV
+# instance is by definition stale: drop the missing reference (and any
+# LV with extents on it — typically a partial thinpool from the aborted
+# run; this play recreates it cleanly below). The VG itself is
+# preserved along with its real PVs so the idempotent re-run path
+# (lvg = no-op when PVs already match) stays fast. Idempotent no-op
+# when the VG is absent or has no missing PVs.
+- name: Drop stale "missing-PV" references from our declared VGs (idempotent)
+  ansible.builtin.shell: |
+    set -u
+    vg={{ item }}
+    missing=$(vgs --noheadings -o vg_missing_pv_count "$vg" 2>/dev/null \
+              | awk '{$1=$1;print}' || true)
+    if [ -n "${missing:-}" ] && [ "$missing" -gt 0 ]; then
+      vgchange -an "$vg" 2>/dev/null || true
+      vgreduce --removemissing -f --force "$vg"
+    fi
+  loop: "{{ _parts | map(attribute='vg') | unique | list }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _vg_clean
+  changed_when: (_vg_clean.stdout | default('')) | length > 0
+
 - name: Create / extend the VG across all PVs that back it
   community.general.lvg:
     vg: "{{ item }}"

@@ -48,9 +48,13 @@
 #                                          # `force` is DECLARED + scoped
 #                                          # (replaces the global -e flag)
 #       partitions: [ {label, vg, thinpool, size, ...} ]
-#     Each partition declares EXACTLY ONE of (XOR):
+#     Each partition declares AT MOST ONE of:
 #       pve_storage: <id>, content: <pvesm content>   # PVE-side (hypervisor)
 #       mount: { path, fstype, lv_name?, lv_size? }   # worker-side (ext4 mount)
+#       (neither)                                     # bare pool member;
+#                                                     # the target is declared
+#                                                     # on another partition
+#                                                     # with the same vg+thinpool
 #     `label` is the GPT partlabel (unique per node, the idempotency
 #     key); `size` is sgdisk +SIZE ("0" = fill). `pve_storage` is a
 #     FROZEN contract (Tofu hardcodes `vms`/`longhorn-data`). A
@@ -59,7 +63,10 @@
 #     never guesses). Several partitions, on different disks, may share
 #     one vg/thinpool → that is how a NVMe + HDD become one larger pool
 #     (`longhorn-data` on a hypervisor, `longhornthin` mounted at
-#     /var/lib/longhorn on a worker). Selectors match hardware
+#     /var/lib/longhorn on a worker). Convention: declare the target
+#     on EXACTLY ONE partition per (vg,thinpool); the rest just declare
+#     label/vg/thinpool/size and join the pool. Preflight enforces "at
+#     least one targeted partition per pool". Selectors match hardware
 #     attributes, so kernel renames are irrelevant and swapping a disk
 #     for an identical/larger one needs NO edit when the selector is
 #     attribute-based. Preview resolution + a paste-ready block with
@@ -296,13 +303,13 @@ workers:
       # otherwise so the role refuses to clobber unexpected data.
       storage:
         disks:
-          - select: { min_size_gib: 900, rotational: false }
+          - select: { model: "Samsung SSD 980 1TB", serial: "S64ANG0R323366R" }
             partitions:
               - label: longhorn-nvme
                 vg: longhorndata
                 thinpool: longhornthin
                 size: "0"
-          - select: { min_size_gib: 900, rotational: true }
+          - select: { model: "WDC WD10EZEX-08WN4A0", serial: "WD-WCC6Y1LPLUY3" }
             partitions:
               - label: longhorn-hdd
                 vg: longhorndata
@@ -397,21 +404,21 @@ kubernetes:
   # and baremetal can coexist as members.
   children:
     kube_control_plane:
-    #   hosts:
-    #     kube-ctl-01:
-    #       ansible_host: kube-ctl-01.lan
-    #       ip_address: 10.1.1.110
-    #       mac_address: "02:00:00:00:02:01"
-    #       vm:
-    #         # Only pve-home-01 is a hypervisor today; pin all CP VMs
-    #         # there until a second hypervisor exists. With one
-    #         # hypervisor an etcd CP cluster has zero failure tolerance
-    #         # at the physical layer (any CP loss = etcd loss).
-    #         proxmox_node: pve-home-01
-    #         cores: 4
-    #         memory: 8192
-    #         disk_size: 30
-    #         tags: [kube, control-plane]
+      hosts:
+        kube-ctl-01:
+          ansible_host: kube-ctl-01.lan
+          ip_address: 10.1.1.110
+          mac_address: "02:00:00:00:02:01"
+          vm:
+            # Only pve-home-01 is a hypervisor today; pin all CP VMs
+            # there until a second hypervisor exists. With one
+            # hypervisor an etcd CP cluster has zero failure tolerance
+            # at the physical layer (any CP loss = etcd loss).
+            proxmox_node: pve-home-01
+            cores: 4
+            memory: 8192
+            disk_size: 30
+            tags: [kube, control-plane]
     #     kube-ctl-02:
     #       ansible_host: kube-ctl-02.lan
     #       ip_address: 10.1.1.111
@@ -497,7 +504,14 @@ containers:
             disk_size: 30
             unprivileged: true
             features:
-              nesting: false
+              # nesting=on matches the live PVE state and is harmless for
+              # bootserv01 (it doesn't use it). Was previously `false`
+              # until tofu apply 403'd: non-root@pam tokens can't change
+              # feature flags, and the bpg provider re-sends the entire
+              # features struct on any update — so flipping nesting tripped
+              # PVE's "features other than nesting" guard via unchanged-
+              # adjacent fields. Aligning to reality clears the diff.
+              nesting: true
             tags: [infra, bootserv]
           firewall_inbound_allow:
             - { proto: tcp, port: 22, comment: "ssh" }

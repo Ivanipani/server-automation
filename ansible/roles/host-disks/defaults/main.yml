@@ -3,7 +3,7 @@
 # Runs against every baremetal Linux host (`physical` group) — both PVE
 # hypervisors and plain Linux workers. The role builds the LVM substrate
 # uniformly; what sits on top depends on which field the partition
-# declares (XOR, enforced in preflight):
+# declares (at most one, enforced in preflight):
 #   - `pve_storage:` → the partition's thin pool is registered as a PVE
 #                      lvmthin storage (hypervisors only; the actual
 #                      `pvesm add` lives in a PVE-only playbook, not in
@@ -11,6 +11,11 @@
 #   - `mount:`        → the partition's thin pool gets a thin LV, ext4'd
 #                      and mounted via /etc/fstab (workers, e.g.
 #                      /var/lib/longhorn on a kube_worker)
+#   - (neither)       → bare pool member: the partition just declares
+#                      label/vg/thinpool/size and joins a (vg,thinpool)
+#                      whose target is declared on another partition.
+#                      Preflight asserts every pool has AT LEAST ONE
+#                      targeted partition.
 #
 # DECLARED, NOT DISCOVERED — but disks are named by STABLE SELECTOR, not
 # by a fragile /dev/disk/by-id symlink. The layout is the `storage.disks`
@@ -53,7 +58,9 @@
 # hardcodes `vms` and `longhorn-data`. Renaming it is a breaking change
 # across Tofu/templates.
 #
-# Schema (each partition declares EXACTLY ONE of pve_storage XOR mount):
+# Schema (each partition declares AT MOST ONE of pve_storage or mount;
+# bare partitions — neither — join a pool whose target is declared on a
+# sibling partition with the same vg+thinpool):
 #   storage:
 #     disks:
 #       - select: boot                 # OR a selector dict (see above)
@@ -71,7 +78,7 @@
 #             pve_storage: vms         # PVE storage id (frozen contract)
 #             content: images,rootdir  # pvesm --content value
 #             size: "200G"             # sgdisk +SIZE; "0" = fill the rest
-#           # ── Worker-side (ext4 mount) ───────────────────────────────
+#           # ── Worker-side (ext4 mount, single-disk pool) ─────────────
 #           - label: longhorn
 #             vg: longhorndata
 #             thinpool: longhornthin
@@ -81,6 +88,25 @@
 #               fstype: ext4
 #               lv_name: longhorn-data   # optional; default `<thinpool>-data`
 #               # lv_size: 100%FREE       # optional; default 100%FREE
+#       # ── Worker-side, multi-disk pool (NVMe + HDD → one larger pool) ─
+#       # Convention: the mount lives on EXACTLY ONE partition per pool;
+#       # the other partition just declares label/vg/thinpool/size.
+#       - select: { model: "Samsung SSD 980 1TB", serial: "..." }
+#         partitions:
+#           - label: longhorn-nvme       # bare pool member (no mount, no pve_storage)
+#             vg: longhorndata
+#             thinpool: longhornthin
+#             size: "0"
+#       - select: { model: "WDC WD10EZEX-...", serial: "..." }
+#         partitions:
+#           - label: longhorn-hdd
+#             vg: longhorndata
+#             thinpool: longhornthin
+#             size: "0"
+#             mount:                     # target declared here, once per pool
+#               path: /var/lib/longhorn
+#               fstype: ext4
+#               lv_name: longhorn-data
 #
 # There is intentionally NO default `storage` here — a node with no
 # declared layout is silently skipped by the playbook-level `when:`

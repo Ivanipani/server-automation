@@ -48,11 +48,14 @@ k3s_cluster_name: "doghouse"
 # This MUST live in infra: only inventory knows the VM→physical-node
 # mapping (`vm.proxmox_node`), and Longhorn's anti-affinity is otherwise
 # blind to the fact that several VM "nodes" share one Proxmox host.
-# Evaluated per-host (vm.proxmox_node resolves to each host's own
-# value); consumed by the k3s role's k3s_node_labels → --node-label in
-# server_init / server_join / agent. Note k3s applies --node-label only
-# at FIRST registration: relabel any already-joined node by hand once
-# (see roles/k3s/defaults/main.yml).
-k3s_zone_label: "topology.kubernetes.io/zone={{ vm.proxmox_node }}"
+# Evaluated per-host: VMs use `vm.proxmox_node` (their hypervisor);
+# baremetal kube members (no `vm:` block) fall back to their own
+# inventory_hostname — they ARE their own physical node, so the
+# hostname is the correct zone identifier and gives Longhorn a distinct
+# zone per physical box. Consumed by the k3s role's k3s_node_labels →
+# --node-label in server_init / server_join / agent. Note k3s applies
+# --node-label only at FIRST registration: relabel any already-joined
+# node by hand once (see roles/k3s/defaults/main.yml).
+k3s_zone_label: "topology.kubernetes.io/zone={{ vm.proxmox_node | default(inventory_hostname) }}"
 k3s_node_labels:
   - "{{ k3s_zone_label }}"
