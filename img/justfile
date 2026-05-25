@@ -1,0 +1,90 @@
+# Justfile for flashing USB media with infrastructure install images.
+#
+# Linux only. Targets shell out to ../img/burn-to-disc.sh which already
+# handles unmount + confirmation + `dd` with progress reporting.
+#
+# Device argument is the bare kernel name (e.g. `sdb`, `nvme0n1`) — same
+# convention as burn-to-disc.sh, which prepends `/dev/`. Use `just list`
+# first to identify the right device.
+
+here := justfile_directory()
+burn := here / "burn-to-disc.sh"
+
+# Default: show available recipes
+default:
+    @just --list --unsorted
+
+
+# List candidate block devices on this host (use to pick the USB target)
+list:
+    lsblk -d -o NAME,SIZE,MODEL,TRAN,VENDOR,HOTPLUG
+
+
+# Flash an arbitrary image file to /dev/<device>
+flash image device:
+    {{burn}} "{{image}}" "{{device}}"
+
+
+# fzf-pick any image under img/ and flash to /dev/<device>
+flash-pick device:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    image=$(find {{here}} -type f \( -name '*.iso' -o -name '*.img' \) \
+        -not -path '*/.cache/*' \
+        -not -path '*/legacy/*' \
+        -not -path '*/target/*' \
+        | sort | fzf --prompt='image> ')
+    [ -n "$image" ] || { echo "No image selected." >&2; exit 1; }
+    {{burn}} "$image" "{{device}}"
+
+
+# Flash the per-host Debian 13 unattended-install ISO. Builds it first if missing.
+flash-debian host device:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    iso="{{here}}/debian/output/debian-13-{{host}}.iso"
+    if [ ! -f "$iso" ]; then
+        echo "ISO not found; building via debian/build.sh {{host}} ..."
+        "{{here}}/debian/build.sh" "{{host}}"
+    fi
+    {{burn}} "$iso" "{{device}}"
+
+
+# fzf-pick a Proxmox 9.1 ISO (vanilla / autoinstall) and flash it
+flash-proxmox device:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    iso=$(find "{{here}}/proxmox/images" -maxdepth 1 -name '*.iso' \
+        | sort | fzf --prompt='proxmox iso> ')
+    [ -n "$iso" ] || { echo "No iso selected." >&2; exit 1; }
+    {{burn}} "$iso" "{{device}}"
+
+
+# fzf-pick an iPXE artifact (bios / uefi / vanilla) and flash it
+flash-ipxe device:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out_dir="{{here}}/ipxe/output"
+    if ! ls "$out_dir"/ipxe-*.iso >/dev/null 2>&1; then
+        echo "No iPXE artifacts in $out_dir." >&2
+        echo "Build them first:" >&2
+        echo "  {{here}}/ipxe/build.sh              # customized BIOS + UEFI" >&2
+        echo "  {{here}}/ipxe/build.sh --vanilla    # stock upstream hybrid ISO" >&2
+        exit 1
+    fi
+    iso=$(find "$out_dir" -maxdepth 1 -name 'ipxe-*.iso' \
+        | sort | fzf --prompt='ipxe iso> ')
+    [ -n "$iso" ] || { echo "No iso selected." >&2; exit 1; }
+    sudo {{burn}} "$iso" "{{device}}"
+
+
+# Flash the OPNsense installer image. Downloads + extracts via opnsense/01-prepare.sh if missing.
+flash-opnsense device:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    img="{{here}}/opnsense/OPNsense-26.1.2-vga-amd64.img"
+    if [ ! -f "$img" ]; then
+        echo "Image not found; running opnsense/01-prepare.sh ..."
+        (cd "{{here}}/opnsense" && ./01-prepare.sh)
+    fi
+    {{burn}} "$img" "{{device}}"

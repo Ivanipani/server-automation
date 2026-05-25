@@ -42,7 +42,7 @@ firewall_inbound_allow:
 # to leave true fleet-wide because of that secondary gate; the boot
 # disk is never wiped. Hosts without a `storage:` block are skipped
 # entirely by the playbook-level `when:` guard in 17-host/15-storage.yml.
-confirm_carve_data_disk: true
+confirm_carve_data_disk: false
 
 # ── NFS mounts from nas01 (consumed by 17-host/16-nfs-mounts.yml) ────
 # Default is empty — workers don't mount NAS shares today. Hypervisors

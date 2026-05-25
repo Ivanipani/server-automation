@@ -13,6 +13,13 @@
 #   - ansible / pani / tourmanager users exist with the policy in
 #     defaults/main.yml's `host_base_users`
 #   - root password set from vault
+#   - proxmox-auto-install-assistant (+ xorriso) installed so any
+#     physical host can rebuild PVE unattended-install ISOs. On Debian
+#     workers we wire the pve-no-subscription repo + an apt-pin that
+#     blocks every package from that repo EXCEPT the two we want — so
+#     `apt upgrade` can't accidentally pull in pve-kernel/libpve-*/etc.
+#     Hypervisors get the package via PVE's own repo (no pin — would
+#     break PVE upgrades).
 #
 # SSH hardening lives in its sibling role `ssh-hardening`, which the
 # 17-host tier runs immediately AFTER this role so the ansible/pani keys

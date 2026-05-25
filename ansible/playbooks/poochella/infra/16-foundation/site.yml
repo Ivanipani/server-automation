@@ -40,10 +40,10 @@
 # ── 17-host baseline on the foundation hypervisor(s) ────────────────────
 - import_playbook: ../17-host/10-bootstrap.yml
   vars: { target_hosts: foundation }
-- import_playbook: ../17-host/15-storage.yml
-  vars: { target_hosts: foundation }
-- import_playbook: ../17-host/16-nfs-mounts.yml
-  vars: { target_hosts: foundation }
+# - import_playbook: ../17-host/15-storage.yml
+#   vars: { target_hosts: foundation }
+# - import_playbook: ../17-host/16-nfs-mounts.yml
+#   vars: { target_hosts: foundation }
 - import_playbook: ../17-host/20-ssh-hardening.yml
   vars: { target_hosts: foundation }
 - import_playbook: ../17-host/30-firewall.yml
