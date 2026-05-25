@@ -13,18 +13,21 @@ echo  install_disk = {{ hostvars[item].debian_netboot.install_disk }}
 echo  preseed      = ${base}/preseed/${host}.cfg
 echo
 
-# BOOTIF=01-<hyphenated-mac-with-01-htype-prefix> tells debian-installer
-# which NIC was used to PXE-boot, so its netcfg component auto-selects
-# that interface instead of prompting "Multiple network interfaces..."
-# when the host has more than one linked NIC (e.g. onboard + dual-port
-# Mellanox on this hardware). 01 = ethernet hardware type per the PXE
-# spec; ${net0/mac:hexhyp} yields the booting NIC's MAC with hyphen
-# separators (xx-xx-xx-xx-xx-xx).
+# netcfg/choose_interface=<MAC> is the FORCEFUL form that suppresses
+# "Multiple network interfaces..." even when several NICs are linked
+# (e.g. onboard + dual-port Mellanox on this hardware). BOOTIF=01-<hex
+# hyphenated MAC> is the softer hint form; some d-i builds prompt
+# anyway when more than one NIC has carrier, so we pass both. iPXE's
+# ${net0/mac} resolves to the actually-booting NIC's MAC (colon-form
+# for choose_interface; ${net0/mac:hexhyp} for BOOTIF's 01-xx-...
+# format). No inventory field needed — the booting NIC is whichever
+# port iPXE chained through.
 kernel ${base}/debian-13/linux \
   auto=true priority=critical \
   preseed/url=${base}/preseed/${host}.cfg \
   hostname=${host} domain=${domain} \
   locale=en_US.UTF-8 keymap=us \
+  netcfg/choose_interface=${net0/mac} \
   BOOTIF=01-${net0/mac:hexhyp} \
   --- quiet
 initrd ${base}/debian-13/initrd.gz

@@ -1,35 +1,66 @@
 #!/usr/bin/env bash
-# Build the iPXE rescue/debug bootable image pair.
+# Build the iPXE rescue/debug bootable image pair, OR fetch the stock
+# upstream image with no local customizations.
 #
-# Usage:  img/ipxe/build.sh
+# Usage:
+#   img/ipxe/build.sh                # build customized iPXE (default)
+#   img/ipxe/build.sh --vanilla      # fetch stock ipxe.org image (no build)
 #
-# Produces two artifacts in img/ipxe/output/:
+# DEFAULT (customized) build produces two artifacts in img/ipxe/output/:
 #   ipxe-bios.iso   -- legacy-BIOS hybrid ISO (boots from optical and from
 #                      USB via `dd`)
 #   ipxe-uefi.iso   -- UEFI ISO with an EFI system partition (also
 #                      USB-`dd`-able on UEFI machines)
+# Both binaries embed our auto-chain script (see the embed section below)
+# and a config overlay enabling extra diagnostic commands.
 #
-# Both binaries embed a tiny script that DHCPs and drops to the iPXE
-# shell. The point is a rescue stick that stays useful when the normal
-# NIC-PXE → OPNsense → bootserv01 chain is broken — DHCP failure does not
-# abort to firmware, it lands in the shell where the operator can
-# `ifstat` / `ping` / `chain` by hand. To pick up the standard
-# bootserv flow manually from the shell:
+# `--vanilla` produces ONE artifact:
+#   ipxe-vanilla.iso -- the stock hybrid ISO from https://boot.ipxe.org/
+# No build, no embed, no overlay — useful as a sanity check when the
+# customized image misbehaves on weird firmware. Stock iPXE's default
+# autoboot DHCPs each NIC, identifies as user-class=iPXE, and chains
+# whatever filename DHCP returns — so with our OPNsense `ipxe` tag rule
+# already serving `http://bootserv01.lan/boot.ipxe`, vanilla iPXE
+# auto-installs end-to-end with zero embed-script involvement.
+#
+# To pick up the standard bootserv flow manually from the shell on any
+# variant (default or vanilla, if you end up in one):
 #
 #     iPXE> chain http://bootserv01.lan/boot.ipxe
 #
-# Built natively on a Debian 13 / Proxmox VE 9 host (typically
-# pve-home-01). Build deps must be installed once:
+# Customized builds run natively on a Debian 13 / Proxmox VE 9 host
+# (typically pve-home-01). Build deps must be installed once:
 #
 #     sudo apt install -y build-essential perl liblzma-dev mtools \
 #         dosfstools xorriso isolinux syslinux-common
 #
 # None of the above conflict with PVE's apt hook (the blocklist is
 # qemu-system-x86 / qemu-utils / ovmf / ansible-metapackage).
+# `--vanilla` only needs curl + shasum (both ship with the base OS).
 #
 # References: https://ipxe.org/download  https://ipxe.org/embed
 
 set -euo pipefail
+
+# --- Argument parsing -----------------------------------------------------
+VANILLA=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --vanilla)
+            VANILLA=true
+            shift
+            ;;
+        -h|--help)
+            sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            echo "Usage: $0 [--vanilla]" >&2
+            exit 64
+            ;;
+    esac
+done
 
 # --- Pinned upstream ------------------------------------------------------
 # iPXE ships no release cadence we can pin to; master is the de-facto
@@ -46,8 +77,55 @@ SRC_DIR="${CACHE_DIR}/ipxe"
 EMBED_FILE="${CACHE_DIR}/embed.ipxe"
 OUT_BIOS="${OUTPUT_DIR}/ipxe-bios.iso"
 OUT_UEFI="${OUTPUT_DIR}/ipxe-uefi.iso"
+OUT_VANILLA="${OUTPUT_DIR}/ipxe-vanilla.iso"
 
-# --- Dependency check -----------------------------------------------------
+mkdir -p "${OUTPUT_DIR}"
+
+# --- Vanilla mode short-circuit ------------------------------------------
+# Fetch the stock hybrid ISO from boot.ipxe.org, hash it, exit. This path
+# deliberately avoids every customization (no embed script, no config
+# overlay, no local build). It's the canonical "what does upstream do?"
+# sanity check — useful when the customized build misbehaves on quirky
+# firmware (USB keyboard not enumerating, embed script parsing issues,
+# etc.). Upstream publishes only "latest master" — no version pinning
+# available on the prebuilt artifact, so accept that this image floats
+# with whatever ipxe.org built most recently.
+if [ "${VANILLA}" = "true" ]; then
+    require_vanilla() {
+        if ! command -v "$1" >/dev/null 2>&1; then
+            echo "Missing dependency: $1 (needed even for --vanilla)" >&2
+            exit 1
+        fi
+    }
+    require_vanilla curl
+    require_vanilla shasum
+
+    readonly IPXE_VANILLA_URL="https://boot.ipxe.org/ipxe.iso"
+    echo "[1/2] Fetching stock iPXE ISO from ${IPXE_VANILLA_URL}"
+    curl --fail --location --output "${OUT_VANILLA}.partial" "${IPXE_VANILLA_URL}"
+    mv "${OUT_VANILLA}.partial" "${OUT_VANILLA}"
+
+    echo "[2/2] Hashing"
+    (
+        cd "${OUTPUT_DIR}"
+        shasum -a 256 "$(basename "${OUT_VANILLA}")" > "$(basename "${OUT_VANILLA}").sha256"
+    )
+
+    echo ""
+    echo "Fetched stock iPXE (no customization):"
+    printf '  %-40s %s\n' "${OUT_VANILLA}" "$(shasum -a 256 "${OUT_VANILLA}" | awk '{print $1}')"
+    echo ""
+    echo "Flash to USB (hybrid ISO — works on both BIOS and UEFI hosts):"
+    echo "  img/burn-to-disc.sh '${OUT_VANILLA}' <device>"
+    echo ""
+    echo "Stock iPXE's autoboot DHCPs as user-class=iPXE and chains the"
+    echo "filename it gets back, so OPNsense's existing ipxe-tag rule"
+    echo "(serving http://bootserv01.lan/boot.ipxe) drives the install"
+    echo "with zero embed-script involvement."
+    exit 0
+fi
+
+# --- Dependency check (build path only) ----------------------------------
 APT_LINE="sudo apt install -y build-essential perl liblzma-dev mtools dosfstools xorriso isolinux syslinux-common"
 
 require() {
