@@ -12,3 +12,4 @@ img/debian/.cache/
 img/debian/output/
 *tfstate*
 .playwright-mcp*
+img/bytepen/target

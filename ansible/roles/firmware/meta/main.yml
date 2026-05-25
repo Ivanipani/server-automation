@@ -1,0 +1,29 @@
+---
+# firmware role
+#
+# Install fwupd and ensure the LVFS remote (https://fwupd.org) is
+# enabled, so component firmware updates (NVMe SSDs, NICs, TPMs,
+# integrated GPUs, dock controllers, etc.) are reachable on every
+# baremetal host via `fwupdmgr`.
+#
+# What this role guarantees:
+#   - fwupd installed
+#   - LVFS remote enabled (Debian 13 ships it Enabled=true; we
+#     idempotently re-assert it, so a future Debian default flip
+#     does not silently disable updates)
+#
+# What this role deliberately does NOT do:
+#   - Refresh metadata or apply updates (that's the job of the two
+#     on-demand playbooks 17-host/60-firmware-plan.yml and
+#     17-host/60-firmware-update.yml, driven by `just firmware-plan` /
+#     `just firmware-update <host>`). Matches the project policy that
+#     patching is deliberate, never unattended (see
+#     roles/apt-no-auto-upgrades).
+#   - Update the HP MP9 G2 system BIOS (Skylake-era HP business
+#     desktops don't expose UEFI capsule updates; that's a one-off
+#     vendor-USB procedure documented in runbooks/firmware-updates.md).
+dependencies: []
+
+galaxy_info:
+  role_name: firmware
+  description: Install fwupd and ensure the LVFS remote is enabled

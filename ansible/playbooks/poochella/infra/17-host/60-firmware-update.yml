@@ -1,0 +1,65 @@
+---
+# DESTRUCTIVE: apply available firmware updates on the targeted host(s).
+# Always run via `just firmware-update <host>`, which enforces a single
+# --limit target — applying firmware fleet-wide in one shot would risk
+# every baremetal rebooting (or bricking) in lockstep.
+#
+# This playbook adds a defence-in-depth check on top of the just-recipe
+# gate: it refuses to run if more than one host ends up in scope.
+#
+# Reboots are NOT performed automatically. Some updates (e.g. NVMe
+# firmware, system firmware via offline capsule) take effect only on
+# the next boot — fwupdmgr stages them and reports
+# `needs-reboot`. You decide when to reboot (drain the k3s node first
+# if it carries Longhorn replicas).
+#
+# Pre-condition: host-base has run (fwupd installed, LVFS remote on).
+#
+# Out-of-scope: HP MP9 G2 system BIOS — see 60-firmware-plan.yml header.
+
+- name: Firmware update — apply available firmware updates on a single host
+  hosts: "{{ target_hosts | default('physical') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Refuse a fleet-wide target (must `--limit` to ONE host)
+      ansible.builtin.assert:
+        that:
+          - (ansible_play_hosts | length) == 1
+        fail_msg: >-
+          firmware-update refuses to run against more than one host at a
+          time (got {{ ansible_play_hosts | length }} hosts:
+          {{ ansible_play_hosts | join(', ') }}). Use `just
+          firmware-update <host>` so only one box reboots/restages at a
+          time.
+
+    - name: Refresh LVFS metadata (network)
+      ansible.builtin.command: fwupdmgr refresh --force
+      changed_when: false
+
+    # exit 2 = nothing to do, not an error.
+    - name: Apply firmware updates (stages offline updates for next boot)
+      ansible.builtin.command: fwupdmgr update -y --no-reboot-check
+      register: _update
+      changed_when: "'Successfully installed firmware' in _update.stdout"
+      failed_when: _update.rc not in [0, 2]
+
+    - name: fwupdmgr output
+      ansible.builtin.debug:
+        msg: "{{ _update.stdout_lines }}"
+
+    - name: Updates that need a reboot to take effect
+      ansible.builtin.command: fwupdmgr get-updates --no-unreported-check
+      register: _post
+      changed_when: false
+      failed_when: false
+
+    - name: Post-update status
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            _post.stdout_lines
+            if (_post.stdout_lines | length) > 0
+            else ['No firmware updates pending. Reboot if any device
+                  above reported `needs-reboot`.']
+          }}

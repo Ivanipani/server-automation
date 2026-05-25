@@ -152,6 +152,16 @@ disk-plan:
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/15-storage-plan.yml
 
 
+# READ-ONLY: refresh LVFS metadata on every baremetal and report available component firmware updates (NVMe SSDs, NICs, TPMs, etc.). Does NOT cover the HP MP9 G2 system BIOS — see runbooks/firmware-updates.md.
+firmware-plan:
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/60-firmware-plan.yml
+
+
+# DESTRUCTIVE: apply available firmware updates on ONE baremetal host. Some updates take effect only after reboot — drain the host first if it carries k3s workload (especially Longhorn replicas).
+firmware-update host: check
+    cd ansible && ansible-playbook --vault-password-file ansible-pass --limit {{host}} playbooks/poochella/infra/17-host/60-firmware-update.yml
+
+
 # Run the full 17-host tier on every physical host (users, ssh-hardening, firewall, tailscale, node-exporter). Safe to re-run.
 do-host-init: check
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/site.yml

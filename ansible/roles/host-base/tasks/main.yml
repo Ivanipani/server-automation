@@ -39,6 +39,10 @@
     update_cache: true
     cache_valid_time: 3600
 
+- name: Install fwupd + ensure LVFS remote is enabled
+  ansible.builtin.import_role:
+    name: firmware
+
 - name: Bootstrap host users (ansible, pani, tourmanager)
   ansible.builtin.import_role:
     name: create-user

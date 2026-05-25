@@ -1,0 +1,143 @@
+---
+# READ-ONLY companion to 60-firmware-update.yml. Refreshes LVFS metadata
+# on every baremetal host and prints, per host:
+#
+#   1. fwupd UPDATES AVAILABLE   — LVFS has a newer firmware than what
+#                                  the device reports running.
+#   2. fwupd LVFS-CURRENT        — device is updatable via fwupd AND
+#                                  LVFS says it is current.
+#   3. fwupd OUTSIDE REACH       — device exists but fwupd cannot drive
+#                                  an update through it (missing
+#                                  `updatable` flag, or `UpdateError`
+#                                  set, e.g. "No vendor ID set"). These
+#                                  must be chased via vendor tooling,
+#                                  NOT LVFS — silence here != current.
+#   4. CPU microcode             — Intel / AMD microcode is firmware
+#                                  delivered as an apt package, not via
+#                                  fwupd. Shows installed vs. candidate
+#                                  version so an apt-cache miss does
+#                                  not silently leave Spectre-class
+#                                  fixes unapplied.
+#
+# Writes nothing to any device. Network calls: `fwupdmgr refresh
+# --force` (LVFS metadata) and `apt-get update` (for the microcode
+# candidate-version lookup — Debian's apt-daily auto-refresh is masked
+# by apt-no-auto-upgrades, so the cache can otherwise be very stale).
+#
+# NOT part of the ordered 17-host site flow (matches 15-storage-plan.yml).
+# Run via `just firmware-plan`.
+#
+# Pre-condition: host-base has run (fwupd installed, LVFS remote on).
+#
+# Out-of-scope: HP MP9 G2 system BIOS (Skylake-era HP, no UEFI capsule),
+# Samsung NVMe firmware (Samsung does not publish to LVFS), Synology
+# DSM, OPNsense — all per-vendor manual paths documented in
+# runbooks/firmware-updates.md.
+
+- name: Firmware plan — refresh LVFS + bucket every fwupd device + check CPU microcode
+  hosts: "{{ target_hosts | default('physical') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Refresh LVFS metadata (network)
+      ansible.builtin.command: fwupdmgr refresh --force
+      changed_when: false
+
+    # Inline Python keeps the bucketing logic in one place and avoids
+    # serialising fwupd's JSON through register -> jinja -> shell.
+    - name: Bucket fwupd devices (pending / LVFS-current / outside reach)
+      ansible.builtin.shell:
+        executable: /bin/bash
+        cmd: |
+          python3 - <<'PY'
+          import json, subprocess
+
+          def jq(cmd, ok_rcs=(0,)):
+              p = subprocess.run(cmd, capture_output=True, text=True)
+              if p.returncode not in ok_rcs:
+                  raise SystemExit(f'{cmd!r} exit {p.returncode}: {p.stderr.strip()}')
+              return json.loads(p.stdout) if p.stdout.strip() else {}
+
+          devs = jq(['fwupdmgr', 'get-devices', '--json']).get('Devices', [])
+          # get-updates exits 2 when nothing is pending — that is the happy path.
+          ups = jq(['fwupdmgr', 'get-updates', '--json'], ok_rcs=(0, 2)).get('Devices', [])
+          ups_by_id = {u['DeviceId']: u for u in ups}
+
+          pending, current, unreachable = [], [], []
+          for d in devs:
+              name = d.get('Name', '?')
+              ver = d.get('Version', '?')
+              flags = d.get('Flags', [])
+              err = d.get('UpdateError')
+              did = d.get('DeviceId', '')
+              if did in ups_by_id:
+                  rels = ups_by_id[did].get('Releases', [])
+                  newver = rels[0].get('Version', '?') if rels else '?'
+                  pending.append(f'  {name}: {ver} -> {newver}')
+              elif 'updatable' in flags and not err:
+                  current.append(f'  {name} (v{ver})')
+              else:
+                  if err:
+                      reason = err.replace('\n', ' ').strip()
+                  elif 'updatable' not in flags:
+                      reason = 'no updatable flag (fwupd sees it but cannot flash it)'
+                  else:
+                      reason = 'unknown'
+                  unreachable.append(f'  {name} (v{ver}) -- {reason}')
+
+          def section(title, items):
+              print(f'=== {title} ({len(items)}) ===')
+              for i in items:
+                  print(i)
+              if not items:
+                  print('  (none)')
+
+          section('FWUPD: UPDATES AVAILABLE', pending)
+          section('FWUPD: LVFS-CURRENT', current)
+          section('FWUPD: OUTSIDE REACH (vendor tooling, NOT LVFS)', unreachable)
+          PY
+      register: _bucketed
+      changed_when: false
+
+    - name: fwupd report
+      ansible.builtin.debug:
+        msg: "{{ _bucketed.stdout_lines }}"
+
+    # Microcode is firmware shipped as an apt package, so its candidate
+    # version is only as fresh as the local apt index. With
+    # apt-no-auto-upgrades the cache can be weeks old — refresh
+    # explicitly. Local-metadata refresh, no managed-state change.
+    - name: Refresh apt cache (microcode candidate lookup needs fresh apt lists)
+      ansible.builtin.command: apt-get update -qq
+      changed_when: false
+
+    - name: CPU microcode package state (intel-microcode / amd64-microcode)
+      ansible.builtin.shell:
+        executable: /bin/bash
+        cmd: |
+          vendor=$(awk '/^vendor_id/ {print $3; exit}' /proc/cpuinfo)
+          case "$vendor" in
+            GenuineIntel) pkg=intel-microcode ;;
+            AuthenticAMD) pkg=amd64-microcode ;;
+            *) printf '  unknown CPU vendor: %s\n' "$vendor"; exit 0 ;;
+          esac
+          installed=$(dpkg-query -W -f '${Version}\n' "$pkg" 2>/dev/null | head -1)
+          candidate=$(apt-cache policy "$pkg" 2>/dev/null | awk '/Candidate:/ {print $2}')
+          [ -z "$installed" ] && installed='(not installed)'
+          [ -z "$candidate" ] && candidate='(none in apt index)'
+          if [ "$installed" = "$candidate" ]; then
+            status='current'
+          elif [ "$installed" = '(not installed)' ]; then
+            status='MISSING — install via apt'
+          else
+            status='UPDATE AVAILABLE'
+          fi
+          printf '  CPU vendor: %s\n' "$vendor"
+          printf '  %-18s installed=%-22s candidate=%-22s [%s]\n' \
+            "$pkg" "$installed" "$candidate" "$status"
+      register: _microcode
+      changed_when: false
+
+    - name: CPU microcode report (firmware delivered via apt, NOT fwupd)
+      ansible.builtin.debug:
+        msg: "{{ _microcode.stdout_lines }}"

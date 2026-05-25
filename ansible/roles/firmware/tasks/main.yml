@@ -1,0 +1,21 @@
+---
+# See meta/main.yml.
+
+- name: Install fwupd
+  ansible.builtin.apt:
+    name: fwupd
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# Debian 13 ships /etc/fwupd/remotes.d/lvfs.conf with Enabled=true by
+# default. Re-asserting it here means a future default flip (or a hand
+# edit) cannot silently switch updates off. ini_file is idempotent.
+- name: Ensure LVFS remote is enabled
+  community.general.ini_file:
+    path: /etc/fwupd/remotes.d/lvfs.conf
+    section: fwupd Remote
+    option: Enabled
+    value: "true"
+    mode: "0644"
+    no_extra_spaces: true

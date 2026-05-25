@@ -17,3 +17,7 @@ Update the BIOS on the Asus ROG STRIX B550-F Gaming (Wi-Fi) motherboard:
 
 ### MP9 G2 (older)
 
+1. Erase + format USB on Windows PC
+2. Download latest drivers from HP [website](https://support.hp.com/au-en/drivers/closure/hp-mp9-g2-retail-system/8592336)
+3. Run the .exe. Copy the extracted files to the USB.
+4. Reboot into BIOS menu. Update from USB
