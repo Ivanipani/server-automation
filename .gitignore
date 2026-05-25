@@ -11,3 +11,4 @@ tofu/secrets.auto.tfvars
 img/debian/.cache/
 img/debian/output/
 *tfstate*
+.playwright-mcp*

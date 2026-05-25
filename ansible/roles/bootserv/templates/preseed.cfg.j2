@@ -41,14 +41,83 @@ d-i clock-setup/ntp boolean true
 ### Partitioning — whole-disk LVM on the inventory-declared install
 ### disk. Every other disk on the host is left untouched (free for the
 ### post-install hypervisor-disks role to carve, if applicable).
+###
+### ASSUMPTION: the install disk is BLANK at install time. We assume
+### the operator has wiped it out-of-band — either via the host's BIOS
+### secure-erase feature or `dd`/`blkdiscard` from a rescue env —
+### before triggering the PXE install. This preseed deliberately does
+### NOT include a `preseed/early_command` to zero the disk + write a
+### fresh GPT label. The earlier attempt to do so via d-i's stripped
+### initrd was unreliable (no `wipefs`/`sgdisk`, partman caching the
+### old layout before `partman/early_command` fires, etc.) and the
+### out-of-band wipe is faster, more thorough, and removes the partman
+### "refuses to overwrite" gate cleanly. If you need to install on a
+### dirty disk in the future, restore the early_command block from
+### git history.
+
 d-i partman-auto/disk string {{ hostvars[item].debian_netboot.install_disk }}
 d-i partman-auto/method string lvm
 d-i partman-lvm/device_remove_lvm boolean true
 d-i partman-md/device_remove_md boolean true
 d-i partman-lvm/confirm boolean true
 d-i partman-lvm/confirm_nooverwrite boolean true
-d-i partman-auto/choose_recipe select atomic
 d-i partman-auto-lvm/new_vg_name string system
+d-i partman-auto-lvm/guided_size string max
+# Suppress the legacy "no separate /boot with LVM" warning. The
+# concern dates from grub-pc not being able to read LVM, so /boot
+# had to be plain ext4 outside LVM. grub-efi-amd64 (what UEFI
+# installs use) reads ext4-inside-LVM natively, so /boot can live in
+# the root LV. The warning is partman being conservative; we ack it.
+d-i partman-auto-lvm/no_boot boolean true
+
+# Custom partman recipe: ESP (outside LVM) + swap LV + root LV.
+# Stock `atomic` produces only one partition for / and doesn't include
+# an EFI System Partition, and partman's UEFI auto-add-ESP logic
+# doesn't reliably fire under method=lvm — the result is a layout
+# with no mountable root ("no root file system" / "partition too
+# small" at install time). This explicit recipe avoids the ambiguity.
+#
+# Recipe format per partition: `min priority max fs_type` then options.
+#   - ESP:   538/538/1075 MiB FAT32, `method{ efi }`, NOT in LVM
+#   - swap:  1-4 GiB inside LVM, sized at 200% of RAM via priority
+#   - root:  ≥4 GiB inside LVM, priority high + max=-1 → takes the rest
+#
+# `$iflabel{ gpt }` ensures the ESP entry only fires on GPT disks
+# (which our preseed/early_command guarantees via parted mklabel gpt).
+# `$defaultignore{ }` keeps swap+root out of the default partition
+# list — they only materialize via the LVM mechanism.
+# `$lvmok{ }` tells partman to allocate this partition inside the LVM
+# PV rather than as a standalone primary.
+d-i partman-auto/expert_recipe string                                       \
+      uefi-lvm-system ::                                                     \
+          538 538 1075 free                                                  \
+              $iflabel{ gpt }                                                \
+              $reusemethod{ }                                                \
+              method{ efi }                                                  \
+              format{ }                                                      \
+          .                                                                  \
+          1024 4096 200% linux-swap                                          \
+              $defaultignore{ }                                              \
+              $lvmok{ }                                                      \
+              lv_name{ swap }                                                \
+              method{ swap }                                                 \
+              format{ }                                                      \
+          .                                                                  \
+          4096 10000 -1 ext4                                                 \
+              $defaultignore{ }                                              \
+              $lvmok{ }                                                      \
+              lv_name{ root }                                                \
+              method{ format }                                               \
+              format{ }                                                      \
+              use_filesystem{ }                                              \
+              filesystem{ ext4 }                                             \
+              mountpoint{ / }                                                \
+          .
+
+d-i partman-auto/choose_recipe select uefi-lvm-system
+
+d-i partman-partitioning/choose_label string gpt
+d-i partman-partitioning/default_label string gpt
 d-i partman/confirm_write_new_label boolean true
 d-i partman/choose_partition select finish
 d-i partman/confirm boolean true
