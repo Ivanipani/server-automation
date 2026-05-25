@@ -29,6 +29,14 @@ pani_user_pass: "{{ vault_pani_user_pass }}"
 tourmanager_user_pass: "{{ vault_tourmanager_user_pass }}"
 github_pat: "{{ vault_github_pat }}"
 tailscale_auth_key: "{{ vault_tailscale_auth_key }}"
+# Separate, tagged (tag:subnet-router) auth-key used ONLY by the
+# OPNsense subnet-router role. Keeping it separate from the physical
+# hosts' key lets the router's identity stay stable while the physical
+# hosts continue to use whatever model they're on (user-owned today).
+# Mint: Tailscale admin → Settings → Keys → reusable, no expiry,
+# tags: tag:subnet-router. Add with:
+#   just secret-encrypt vault_opnsense_tailscale_auth_key
+opnsense_tailscale_auth_key: "{{ vault_opnsense_tailscale_auth_key }}"
 set_user_passwords: true
 github_ssh_private_key: "{{ vault_github_ssh_private_key }}"
 github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCpJGXP2r/5bmi8MKlbtN4/mavu ivanperdomo@Ivans-MacBook-Pro.local"

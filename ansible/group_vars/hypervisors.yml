@@ -67,3 +67,7 @@ hypervisor_nfs_mounts:
     # is reproducible so the failure mode is "rerun the bake", not
     # "corrupt the artifact".
     options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
+
+firewall_inbound_allow:
+  - { port: 22, proto: tcp }
+  - { port: 8006, proto: tcp }

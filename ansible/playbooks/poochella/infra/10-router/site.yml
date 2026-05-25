@@ -8,3 +8,4 @@
 - import_playbook: 10-bootstrap.yml
 - import_playbook: 20-dnsmasq.yml
 - import_playbook: 30-unbound.yml
+- import_playbook: 40-tailscale.yml

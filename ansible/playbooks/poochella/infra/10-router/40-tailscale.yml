@@ -1,0 +1,72 @@
+---
+# Tier 10 — bring up OPNsense as the tailnet SUBNET ROUTER for the LAN.
+#
+# Once this is applied AND the matching one-time admin-console steps
+# below are done, every tailnet client (your MacBook from a café, etc.)
+# can reach the entire 10.1.1.0/24 LAN as if connected over LAN — no
+# Tailscale install on guests required, and Ansible/OpenTofu runs work
+# unchanged from off-LAN.
+#
+# Architecture: the os-tailscale plugin owns /etc/rc.conf.d/tailscaled
+# via its Jinja template (rendered from the plugin's config DB), and
+# rc.subr's rc.conf.d-overrides-rc.conf precedence means raw `sysrc`
+# edits are ineffective. We therefore drive the plugin's REST API:
+#   - settings/set         enabled=1, accept-routes, accept-dns, ssh
+#   - settings/addSubnet   advertised subnet(s)
+#   - authentication/set   preAuthKey + login server
+#   - service/reconfigure  re-render template + restart if changed
+# The template handles `tailscale up` flag assembly AND smart auth-key
+# application (only applied if not already authenticated).
+#
+# Pre-conditions:
+#   • 10-bootstrap.yml has run (ansible user on OPNsense).
+#   • `vault_opnsense_tailscale_auth_key` is in the vault. Mint it in the
+#     Tailscale admin console: Settings → Keys → Generate auth key:
+#       - Reusable, no expiry (subnet routers shouldn't re-auth)
+#       - Ephemeral: OFF
+#       - Tags: tag:subnet-router
+#     Add the secret with: `just secret-encrypt vault_opnsense_tailscale_auth_key`
+#   • Tailnet ACL has a `tag:subnet-router` definition (`tagOwners`) and
+#     ideally an `autoApprovers.routes` stanza pre-approving the LAN
+#     CIDR for `tag:subnet-router` so the configure play's final assert
+#     passes without a manual approval step.
+#
+# Manual one-time admin-console steps NOT in IaC (the configure play's
+# final assert will fail until both are done; the failure message
+# points back here):
+#   a) Approve advertised subnet route on opnsense01's Machines page —
+#      skip if the autoApprovers stanza above is in place.
+#   b) DNS → Nameservers → Add custom: 10.1.1.1, restrict to `lan`
+#      (and `doghouse.lan` if used). Leave "Override local DNS" OFF.
+#
+# Two plays: the first installs the plugin pkg over SSH (FreeBSD raw),
+# the second drives the plugin's API from the controller (connection:
+# local). Day-2 safe: re-runnable any time, idempotent across all phases.
+
+- name: Install os-tailscale plugin on OPNsense
+  hosts: router
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Install plugin
+      ansible.builtin.import_role:
+        name: opnsense-tailscale
+        tasks_from: install
+
+- name: Configure os-tailscale plugin via REST API
+  hosts: router
+  gather_facts: false
+  connection: local
+  module_defaults:
+    ansible.builtin.uri:
+      url_username: "{{ opnsense_api_key }}"
+      url_password: "{{ opnsense_api_secret }}"
+      force_basic_auth: true
+      validate_certs: false
+      return_content: true
+      status_code: [200]
+  tasks:
+    - name: Configure plugin + bring tailnet up
+      ansible.builtin.import_role:
+        name: opnsense-tailscale
+        tasks_from: configure

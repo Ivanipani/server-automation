@@ -1,6 +1,6 @@
 ---
 - name: Install system-level development tools
-  hosts: physical
+  hosts: physical:dev
   # hosts: physical:virtual-machines:!databases
   become: true
   roles:

@@ -1,0 +1,18 @@
+---
+# Install the os-tailscale plugin via raw SSH. Idempotent via `pkg info -q`.
+# Expects: SSH-connected play (`become: true`). FreeBSD lacks Python by default.
+
+- name: Skip when disabled
+  ansible.builtin.meta: end_host
+  when: not opnsense_tailscale_enabled
+
+- name: Check if os-tailscale plugin is installed
+  ansible.builtin.raw: pkg info -q {{ opnsense_tailscale_plugin_pkg }}
+  register: tsplugin_check
+  changed_when: false
+  failed_when: false
+
+- name: Install os-tailscale plugin
+  ansible.builtin.raw: pkg install -y {{ opnsense_tailscale_plugin_pkg }}
+  when: tsplugin_check.rc != 0
+  changed_when: true

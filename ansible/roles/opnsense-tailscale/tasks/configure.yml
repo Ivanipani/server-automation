@@ -1,0 +1,146 @@
+---
+# Drive the os-tailscale plugin's config DB via its REST API. The plugin
+# owns /etc/rc.conf.d/tailscaled (via its Jinja template that consumes
+# OPNsense.tailscale.{settings,authentication}.*), so flipping plugin
+# state here is what actually makes tailscaled start and pick up flags.
+#
+# Expects: connection-local play (talks to OPNsense from the controller
+# via https + basic auth). Auth credentials come from module_defaults
+# in the calling playbook. Plugin must already be installed (install.yml).
+#
+# Idempotency: settings/set + authentication/set are server-side
+# idempotent — repeated POSTs with identical bodies are no-ops. Subnet
+# advertisement is managed via the plugin's per-subnet CRUD endpoints
+# (searchSubnet + addSubnet); we add only what's missing and never
+# remove (delete would orphan tailnet route-approval state on the
+# Tailscale side).
+#
+# After config-DB changes, /service/reconfigure re-renders the template
+# and restarts tailscaled only if the rendered output differs.
+
+- name: Skip when disabled
+  ansible.builtin.meta: end_host
+  when: not opnsense_tailscale_enabled
+
+- name: Push plugin settings
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/tailscale/settings/set"
+    method: POST
+    body_format: json
+    body:
+      settings:
+        enabled: "1"
+        acceptDNS: "{{ '1' if opnsense_tailscale_accept_dns else '0' }}"
+        acceptSubnetRoutes: "{{ '1' if opnsense_tailscale_accept_subnet_routes else '0' }}"
+        enableSSH: "{{ '1' if opnsense_tailscale_ssh else '0' }}"
+        advertiseExitNode: "0"
+        disableSNAT: "0"
+
+- name: Push authentication settings (preAuthKey + login server)
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/tailscale/authentication/set"
+    method: POST
+    body_format: json
+    body:
+      authentication:
+        preAuthKey: "{{ opnsense_tailscale_auth_key }}"
+        loginServer: "{{ opnsense_tailscale_login_server }}"
+  no_log: true
+
+- name: List current advertised subnets
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/tailscale/settings/searchSubnet"
+    method: POST
+    body_format: json
+    body: {}
+  register: ts_subnets_current
+
+- name: Add missing advertised subnets
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/tailscale/settings/addSubnet"
+    method: POST
+    body_format: json
+    body:
+      subnet4:
+        subnet: "{{ item.subnet }}"
+        description: "{{ item.description }}"
+  loop: "{{ opnsense_tailscale_advertise_subnets }}"
+  loop_control:
+    label: "{{ item.subnet }}"
+  when: item.subnet not in (ts_subnets_current.json.rows | default([]) | map(attribute='subnet') | list)
+
+- name: Reconfigure tailscaled (re-render rc.conf.d + restart if changed)
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/tailscale/service/reconfigure"
+    method: POST
+    body_format: json
+    body: {}
+
+# The plugin's rc.d 'poststart' invokes `tailscale up $tailscaled_up_args`
+# AFTER tailscaled starts, but rc.conf.d/tailscaled was sourced BEFORE
+# the daemon started — and its `[ -f /var/db/tailscale/tailscaled.state ]`
+# conditional gates the --auth-key=… string on the state file existing.
+# On a fresh install the file doesn't exist at source-time, so --auth-key
+# is NEVER assembled and the daemon settles into NeedsLogin. Fix:
+# explicitly restart the service once it has booted; the second pass
+# sees the now-created state file (still lacking _current-profile) and
+# injects the auth-key, completing authentication.
+#
+# Subsequent runs: daemon is already Running, the polling task returns
+# immediately, `when: NeedsLogin` is false, no restart fires. Idempotent.
+
+- name: Wait for daemon to settle past NoState
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/tailscale/status/status"
+    method: GET
+  register: ts_status_first
+  until: ts_status_first.json.BackendState | default('NoState') in ['NeedsLogin', 'Running']
+  retries: 15
+  delay: 2
+
+- name: Capture settled state
+  ansible.builtin.set_fact:
+    ts_settled_state: "{{ ts_status_first.json.BackendState }}"
+
+- name: Restart tailscaled to inject auth-key (NeedsLogin → Running)
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/tailscale/service/restart"
+    method: POST
+    body_format: json
+    body: {}
+  when: ts_settled_state == 'NeedsLogin'
+
+- name: Poll until tailnet reaches Running
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/tailscale/status/status"
+    method: GET
+  register: ts_status_final
+  until: ts_status_final.json.BackendState | default('NoState') == 'Running'
+  retries: 20
+  delay: 2
+  ignore_errors: true
+
+- name: Parse final tailnet status
+  ansible.builtin.set_fact:
+    ts_status: "{{ ts_status_final.json | default({}) }}"
+
+- name: Assert tailnet is Running and advertising every declared subnet
+  ansible.builtin.assert:
+    that:
+      - (ts_status.BackendState | default('NoState')) == 'Running'
+      - opnsense_tailscale_advertise_subnets | map(attribute='subnet') | list
+        | difference(
+            (ts_status.Self.PrimaryRoutes | default([])) +
+            (ts_status.Self.AllowedIPs | default([]))
+          ) | length == 0
+    fail_msg: >-
+      tailscaled did not reach Running.
+      BackendState={{ ts_status.BackendState | default('NoState') }}.
+      Common causes:
+      (1) auth-key invalid/expired/wrong tag — re-mint at
+      https://login.tailscale.com/admin/settings/keys with tag:subnet-router
+      and re-vault as vault_opnsense_tailscale_auth_key.
+      (2) Subnet routes need ONE-TIME approval at Machines →
+      {{ inventory_hostname }} → Edit route settings — skippable with
+      an `autoApprovers.routes` stanza in the tailnet ACL.
+      (3) Tailnet ACL is missing a tagOwners entry for tag:subnet-router.

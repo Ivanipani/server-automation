@@ -1,0 +1,34 @@
+---
+# Toggle. Default-on so the role is opt-in via host/group_vars; the
+# playbook's `meta: end_host` guards short-circuit when off.
+opnsense_tailscale_enabled: true
+
+# Plugin pkg. The plugin owns /etc/rc.conf.d/tailscaled via its Jinja
+# template; we drive its config DB and let it render the rc.d state.
+opnsense_tailscale_plugin_pkg: os-tailscale
+
+# Subnet routes this node advertises to the tailnet, declared as
+# `{subnet, description}` pairs to match the plugin's subnet4 ArrayField
+# model. The plugin assembles --advertise-routes from these.
+opnsense_tailscale_advertise_subnets:
+  - subnet: 10.1.1.0/24
+    description: lan
+
+# Tailscale-pushed DNS — off. Unbound is the LAN DNS authority; letting
+# tailscaled rewrite /etc/resolv.conf on the router would create a
+# circular dep (Unbound queries → tailscale → Unbound) and break LAN
+# DNS the moment the tailnet hiccups.
+opnsense_tailscale_accept_dns: false
+
+# Peer-advertised subnet routes — off. The router is the authoritative
+# gateway; importing peer routes could rewrite its routing table in
+# surprising ways.
+opnsense_tailscale_accept_subnet_routes: false
+
+# Tailscale's built-in SSH server — off. ssh-hardening on physical
+# hosts is enforced via sshd_config; don't run a second SSH stack with
+# a different auth model on the router.
+opnsense_tailscale_ssh: false
+
+# Headscale-or-similar override. Stock control plane otherwise.
+opnsense_tailscale_login_server: "https://controlplane.tailscale.com"
