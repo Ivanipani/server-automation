@@ -128,15 +128,39 @@
          | groupby('vg')
          | map(attribute=1) | map('first') | list }}
 
-- name: Create the thin LV for each mount target
+# `--virtualsize` requires an absolute size (`100G`, `1932735283200B`…);
+# lvcreate rejects percentages there ("Can't parse size argument").
+# The role's default `lv_size: 100%FREE` is a sentinel meaning "match
+# the thin pool's data size" — read the pool size here so the next
+# step can resolve the sentinel. Any explicit absolute size in
+# `lv_size:` is passed through verbatim and this lookup is unused.
+- name: Read each thin pool's data size (for 100%FREE resolution)
   ansible.builtin.command: >-
-    lvcreate --type thin
-    --name {{ item.mount.lv_name | default(item.thinpool ~ '-data') }}
-    --virtualsize {{ item.mount.lv_size | default('100%FREE') }}
-    --thinpool {{ item.vg }}/{{ item.thinpool }}
+    lvs --noheadings --units b --nosuffix
+    -o lv_size {{ item.vg }}/{{ item.thinpool }}
   loop: "{{ _mounts }}"
   loop_control:
-    label: "{{ item.vg }}/{{ item.mount.lv_name | default(item.thinpool ~ '-data') }}"
+    label: "{{ item.vg }}/{{ item.thinpool }}"
+  register: _pool_sizes
+  changed_when: false
+
+- name: Create the thin LV for each mount target
+  ansible.builtin.command:
+    argv:
+      - lvcreate
+      - --type
+      - thin
+      - --name
+      - "{{ item.0.mount.lv_name | default(item.0.thinpool ~ '-data') }}"
+      - --virtualsize
+      - "{{ ((item.1.stdout | trim) ~ 'B')
+            if (item.0.mount.lv_size | default('100%FREE')) == '100%FREE'
+            else item.0.mount.lv_size }}"
+      - --thinpool
+      - "{{ item.0.vg }}/{{ item.0.thinpool }}"
+  loop: "{{ _mounts | zip(_pool_sizes.results) | list }}"
+  loop_control:
+    label: "{{ item.0.vg }}/{{ item.0.mount.lv_name | default(item.0.thinpool ~ '-data') }}"
   register: _lv_create
   changed_when: _lv_create.rc == 0
   failed_when:

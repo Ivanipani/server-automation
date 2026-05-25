@@ -2,4 +2,4 @@
 # Full poochella cluster setup — order of playbooks is significant
 
 - import_playbook: infra/site.yml
-- import_playbook: trunk/site.yml
+- import_playbook: dev/site.yml
