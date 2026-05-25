@@ -87,7 +87,16 @@
 #               path: /var/lib/longhorn
 #               fstype: ext4
 #               lv_name: longhorn-data   # optional; default `<thinpool>-data`
-#               # lv_size: 100%FREE       # optional; default 100%FREE
+#               # lv_size: 100%FREE      # optional; default 100%FREE — the
+#               #                        # special sentinel "100%FREE" is
+#               #                        # resolved at runtime to the thin
+#               #                        # pool's data size (1:1, no
+#               #                        # overprovisioning). Any other value
+#               #                        # is passed verbatim to
+#               #                        # lvcreate --virtualsize and must be
+#               #                        # an absolute size ("600G", "1T", …),
+#               #                        # NOT a percentage (lvcreate rejects
+#               #                        # percentages for --virtualsize).
 #       # ── Worker-side, multi-disk pool (NVMe + HDD → one larger pool) ─
 #       # Convention: the mount lives on EXACTLY ONE partition per pool;
 #       # the other partition just declares label/vg/thinpool/size.
