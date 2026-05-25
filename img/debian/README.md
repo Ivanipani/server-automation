@@ -59,7 +59,7 @@ Boot the target from the USB. The default boot entry (`Auto-install
 Debian 13 (<host>)`) selects itself after a 3-second timeout. The
 installer wipes the inventory-declared `debian_install.disk` only —
 **no other disk is touched**, leaving the data drives intact for the
-`hypervisor-disks` role to carve post-install.
+`host-disks` role to carve post-install.
 
 When the host comes back up, it'll DHCP onto its reserved IP, accept
 SSH from `ansible@<host>.lan` using `~/.ssh/ansible`, and is ready for

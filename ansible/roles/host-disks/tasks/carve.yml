@@ -9,30 +9,30 @@
 #      idempotent on its partlabel, in declared order so multi-partition
 #      disks (incl. the boot tail) lay out predictably.
 #
-# Requires: preflight.yml built hypervisor_disks_resolved (partitions)
-# and hypervisor_disks_devices (disks).
+# Requires: preflight.yml built host_disks_resolved (partitions)
+# and host_disks_devices (disks).
 
 - name: Assert preflight resolved disks and partitions
   ansible.builtin.assert:
     that:
-      - hypervisor_disks_resolved is defined
-      - hypervisor_disks_resolved | length > 0
-      - hypervisor_disks_devices is defined
-      - hypervisor_disks_devices | length > 0
+      - host_disks_resolved is defined
+      - host_disks_resolved | length > 0
+      - host_disks_devices is defined
+      - host_disks_devices | length > 0
     fail_msg: >-
       Resolution facts are empty — run preflight.yml first (it validates
       storage.disks and resolves each selector to exactly one device).
 
 - name: "Pass 1 — wipe gate, once per disk"
   ansible.builtin.include_tasks: _wipe_disk.yml
-  loop: "{{ hypervisor_disks_devices }}"
+  loop: "{{ host_disks_devices }}"
   loop_control:
     loop_var: wd
     label: "{{ wd.device }} (wipe={{ wd.wipe }}, boot={{ wd.is_boot }})"
 
 - name: "Pass 2 — carve each partition in declared order"
   ansible.builtin.include_tasks: _carve_one.yml
-  loop: "{{ hypervisor_disks_resolved }}"
+  loop: "{{ host_disks_resolved }}"
   loop_control:
     loop_var: partition
     label: "{{ partition.label }} → {{ partition.device }} ({{ partition.size }})"

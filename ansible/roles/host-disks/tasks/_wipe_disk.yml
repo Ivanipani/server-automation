@@ -1,5 +1,5 @@
 ---
-# Wipe gate for ONE disk (`wd`, an entry of hypervisor_disks_devices),
+# Wipe gate for ONE disk (`wd`, an entry of host_disks_devices),
 # run before any partition is carved on it.
 #
 # Decision table (non-boot disks only):
@@ -42,7 +42,7 @@
           Either clear the disk by hand, or — if it is genuinely
           disposable — set `wipe: force` on THIS disk in inventory.yaml
           (declared + scoped), then re-run. (Emergency fleet override:
-          `-e hypervisor_disks_force_wipe=true`.)
+          `-e host_disks_force_wipe=true`.)
       when:
         - not (_our_pl.results | map(attribute='stat.exists') | select | list | length > 0)
         - _sig.stdout | default('') | length > 0

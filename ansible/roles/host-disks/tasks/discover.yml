@@ -2,17 +2,26 @@
 # READ-ONLY disk plan. Inspects every whole disk on the node and prints
 # a report + a paste-ready `storage.disks` skeleton (stable selectors,
 # never /dev/disk/by-id). Never writes — safe to run anytime. Driven by
-# `just disk-plan` (30-storage-plan.yml). Use it after any disk add/swap
-# to see what changed and update inventory.yaml deliberately.
+# `just disk-plan` (17-host/15-storage-plan.yml). Use it after any disk
+# add/swap to see what changed and update inventory.yaml deliberately.
 
 - name: Build the disk plan report
   ansible.builtin.shell: |
     set -eu
-    pv=$(pvs --noheadings -o pv_name 2>/dev/null | head -1 | awk '{print $1}')
-    boot=$(lsblk -dno PKNAME "$pv" 2>/dev/null || true)
+    # Portable boot-disk detection — works on PVE and plain Debian.
+    src=$(findmnt -no SOURCE /)
+    pkname=$(lsblk -dno PKNAME "$src" 2>/dev/null || true)
+    if [ -z "$pkname" ]; then
+      vg=$(lvs --noheadings -o vg_name "$src" 2>/dev/null | awk '{print $1}')
+      [ -n "$vg" ] && pv=$(pvs --noheadings -o pv_name -S vg_name="$vg" | head -1 | awk '{print $1}')
+      [ -n "${pv:-}" ] && pkname=$(lsblk -dno PKNAME "$pv")
+    fi
+    boot="${pkname:-?}"
+
+    is_hyper="{{ 'yes' if inventory_hostname in groups['hypervisors'] else 'no' }}"
 
     echo "================================================================"
-    echo " {{ inventory_hostname }} — disk plan   (boot disk: ${boot:-?})"
+    echo " {{ inventory_hostname }} — disk plan   (boot disk: $boot)"
     echo "================================================================"
     printf '%-14s %7s %4s %4s  %-26s %-20s\n' DEVICE GiB ROTA RM MODEL SERIAL
     suggest=""
@@ -40,7 +49,8 @@
         rotflag=false; [ "$rota" = "1" ] && rotflag=true
         wipe=""; [ -n "$sigs" ] && wipe="
         wipe: force            # disk holds foreign signatures"
-        suggest="$suggest
+        if [ "$is_hyper" = "yes" ]; then
+          suggest="$suggest
       - select: { min_size_gib: $floor, rotational: $rotflag }$wipe
         partitions:
           - label: <unique-partlabel>
@@ -49,6 +59,16 @@
             pve_storage: longhorn-data
             content: images
             size: \"0\""
+        else
+          suggest="$suggest
+      - select: { min_size_gib: $floor, rotational: $rotflag }$wipe
+        partitions:
+          - label: <unique-partlabel>
+            vg: longhorndata
+            thinpool: longhornthin
+            size: \"0\"
+            # mount: { path: /var/lib/longhorn, fstype: ext4 }   # on ONE partition per pool"
+        fi
       fi
     done
 
@@ -56,15 +76,23 @@
     echo "--- paste-ready skeleton (review before committing) -------------"
     echo "    storage:"
     echo "      disks:"
-    echo "        - select: boot"
-    echo "          partitions:"
-    echo "            - label: vm-storage"
-    echo "              vg: vmdata"
-    echo "              thinpool: vmthin"
-    echo "              pve_storage: vms"
-    echo "              content: images,rootdir"
-    echo "              size: \"0\"        # or e.g. \"200G\" then a longhorn tail"
-    if [ -n "$suggest" ]; then echo "      # additional disks → longhorn-data:"; echo "$suggest"; fi
+    if [ "$is_hyper" = "yes" ]; then
+      echo "        - select: boot"
+      echo "          partitions:"
+      echo "            - label: vm-storage"
+      echo "              vg: vmdata"
+      echo "              thinpool: vmthin"
+      echo "              pve_storage: vms"
+      echo "              content: images,rootdir"
+      echo "              size: \"0\"        # or e.g. \"200G\" then a longhorn tail"
+      if [ -n "$suggest" ]; then echo "      # additional disks → longhorn-data:"; echo "$suggest"; fi
+    else
+      echo "      # Worker convention: boot disk is owned by the Debian installer;"
+      echo "      # extra data disks combine into one longhornthin pool mounted at"
+      echo "      # /var/lib/longhorn (ext4). Declare \`mount:\` on exactly ONE"
+      echo "      # partition per pool; the role builds VG -> thinpool -> thin LV -> mount."
+      if [ -n "$suggest" ]; then echo "$suggest"; fi
+    fi
     echo "-----------------------------------------------------------------"
   register: _disk_plan
   changed_when: false

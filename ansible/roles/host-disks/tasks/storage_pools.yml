@@ -1,15 +1,20 @@
 ---
-# Build a node-local LVM-thin pool per declared pve_storage. Idempotent.
-# Runs on every hypervisor; nodes are independent (no shared pmxcfs)
-# so each owns its identically-named VG/thinpool and registers its own
-# PVE storage (the pvesm play in 30-storage.yml).
+# Build a node-local LVM-thin pool per declared (vg,thinpool). Idempotent.
+# Runs on every physical host that declares storage.disks; nodes are
+# independent (no shared pmxcfs) so each owns its identically-named
+# VG/thinpool. What sits ON TOP of the pool is per-partition:
+#   - pve_storage partitions → registered as PVE storage by the PVE-only
+#     playbook in 20-hypervisor/ (out of scope here)
+#   - mount partitions       → a thin LV, ext4'd and mounted via fstab —
+#     handled by the second pass below
 #
 # Derives purely from inventory `storage.disks` (not preflight facts) so
 # this play is self-contained, operating on /dev/disk/by-partlabel/<label>.
 # Multiple partitions (on different physical disks) may share one
 # vg/thinpool: that VG then spans every such partition's PV and the thin
 # pool grows over all of them — this is how a NVMe + HDD present as one
-# larger `longhorn-data` pool.
+# larger pool (e.g. `longhornthin` on a worker, `longhorn-data` on a
+# hypervisor).
 #
 # Requires: carve.yml has created the by-partlabel devices.
 
@@ -81,3 +86,71 @@
     and 'matches existing size' not in ((_thinpool_grow.stdout | default('')) ~ (_thinpool_grow.stderr | default('')))
     and 'up to date' not in ((_thinpool_grow.stdout | default('')) ~ (_thinpool_grow.stderr | default('')))
     and 'No size change' not in ((_thinpool_grow.stdout | default('')) ~ (_thinpool_grow.stderr | default('')))
+
+# ── Pass 3 — mount partitions: thin LV → ext4 → fstab mount ──────────
+# Each unique (vg,thinpool) that has any `mount:` partition gets ONE
+# thin LV + ONE ext4 + ONE mount. Multiple partitions on the same pool
+# (NVMe + HDD → one longhornthin) collapse to one operation since the
+# preflight consistency check guarantees they declare the same target.
+
+- name: Pick one representative mount-partition per (vg,thinpool)
+  ansible.builtin.set_fact:
+    _mounts: >-
+      {{ (_parts | selectattr('mount', 'defined') | list)
+         | groupby('vg')
+         | map(attribute=1) | map('first') | list }}
+
+- name: Create the thin LV for each mount target
+  ansible.builtin.command: >-
+    lvcreate --type thin
+    --name {{ item.mount.lv_name | default(item.thinpool ~ '-data') }}
+    --virtualsize {{ item.mount.lv_size | default('100%FREE') }}
+    --thinpool {{ item.vg }}/{{ item.thinpool }}
+  loop: "{{ _mounts }}"
+  loop_control:
+    label: "{{ item.vg }}/{{ item.mount.lv_name | default(item.thinpool ~ '-data') }}"
+  register: _lv_create
+  changed_when: _lv_create.rc == 0
+  failed_when:
+    - _lv_create.rc != 0
+    - "'already exists' not in (_lv_create.stderr | default(''))"
+
+- name: ext4 each mount target's thin LV (skips if already formatted)
+  community.general.filesystem:
+    fstype: "{{ item.mount.fstype }}"
+    dev: "/dev/{{ item.vg }}/{{ item.mount.lv_name | default(item.thinpool ~ '-data') }}"
+  loop: "{{ _mounts }}"
+  loop_control:
+    label: "{{ item.vg }}/{{ item.mount.lv_name | default(item.thinpool ~ '-data') }}"
+
+# Use mkdir -p + `creates:` rather than file/state=directory: once the
+# LV is mounted, the file module's owner/mode enforcement can hit EROFS
+# on re-runs. Same pattern as 17-host/16-nfs-mounts.yml.
+- name: Ensure each mount point directory exists
+  ansible.builtin.command:
+    cmd: "mkdir -p {{ item.mount.path | quote }}"
+    creates: "{{ item.mount.path }}"
+  loop: "{{ _mounts }}"
+  loop_control:
+    label: "{{ item.mount.path }}"
+
+- name: Read each mount LV's filesystem UUID
+  ansible.builtin.command: >-
+    blkid -s UUID -o value
+    /dev/{{ item.vg }}/{{ item.mount.lv_name | default(item.thinpool ~ '-data') }}
+  loop: "{{ _mounts }}"
+  loop_control:
+    label: "{{ item.vg }}/{{ item.mount.lv_name | default(item.thinpool ~ '-data') }}"
+  register: _mount_uuids
+  changed_when: false
+
+- name: Mount each ext4 LV by UUID (idempotent fstab + mount)
+  ansible.posix.mount:
+    path: "{{ item.0.mount.path }}"
+    src: "UUID={{ item.1.stdout | trim }}"
+    fstype: "{{ item.0.mount.fstype }}"
+    opts: defaults
+    state: mounted
+  loop: "{{ _mounts | zip(_mount_uuids.results) | list }}"
+  loop_control:
+    label: "{{ item.0.mount.path }} ← {{ item.0.vg }}/{{ item.0.mount.lv_name | default(item.0.thinpool ~ '-data') }}"

@@ -4,14 +4,26 @@
 # 20-hypervisor (PVE-only). Targets the `physical` group everywhere.
 #
 # Critical path (hard deps within this tier):
-#   10-bootstrap → 20-ssh-hardening   (must create users before
-#                                      locking down password auth)
+#   10-bootstrap → 15-storage → 16-nfs-mounts → 20-ssh-hardening
+#     (users created before SSH lockdown; storage carve runs while we
+#      still have the tourmanager break-glass password as a fallback;
+#      NFS depends only on 10-bootstrap + network)
+#
+# 15-storage is a no-op on hosts without a `storage:` block (workers
+# that haven't been wired for local storage skip cleanly). 16-nfs-mounts
+# is a no-op on hosts with `physical_nfs_mounts: []` (the default — only
+# hypervisors override to add the `proxmox` RW share).
 #
 # 30-firewall / 40-tailscale / 50-node-exporter are order-independent
 # day-2 services; they depend only on 10-bootstrap and nothing
 # depends on them — placed last in the tier so the critical chain
 # reads contiguously.
+#
+# 15-storage-plan.yml is the read-only `just disk-plan` companion;
+# NOT imported here on purpose.
 - import_playbook: 10-bootstrap.yml
+- import_playbook: 15-storage.yml
+- import_playbook: 16-nfs-mounts.yml
 - import_playbook: 20-ssh-hardening.yml
 - import_playbook: 30-firewall.yml
 - import_playbook: 40-tailscale.yml

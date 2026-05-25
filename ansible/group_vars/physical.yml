@@ -3,9 +3,16 @@
 # Consumed by the 17-host tier (host-base, ssh-hardening, firewall-basic,
 # tailscale, node-exporter). PVE-only knobs live in hypervisors.yml.
 
-# Tailscale: off by default. Flip per-host (host_vars/<name>.yml) or
-# per-group (group_vars/workers.yml, group_vars/hypervisors.yml).
-tailscale_enabled: true
+# Tailscale on physical hosts is OFF: the OPNsense subnet router
+# (10-router/40-tailscale.yml advertises 10.1.1.0/24) gives off-LAN
+# clients reach into the whole LAN via the gateway, so per-host
+# Tailscale is redundant for LAN-equivalence and only adds attack
+# surface (the daemon punches its own accept rules into the host
+# firewall, bypassing firewall-basic's ufw policy). Flip back to
+# true here or per-host (host_vars/<name>.yml) if a node ever needs
+# direct P2P-encrypted tailnet membership independent of the
+# gateway path.
+tailscale_enabled: false
 
 # SSH hardening policy (consumed by the ssh-hardening role's template).
 # A single `Match User tourmanager` block carves out the break-glass
@@ -26,3 +33,20 @@ ssh_hardening:
 # add their own service ports on top.
 firewall_inbound_allow:
   - { proto: tcp, port: 22, comment: "ssh" }
+
+# ── Storage opt-in (consumed by host-disks role) ─────────────────────
+# DESTRUCTIVE on first run: setting this true authorizes sgdisk to write
+# GPTs on disks declared in inventory `storage.disks`. The role still
+# REFUSES if a disk holds foreign signatures unless that disk also
+# declares `wipe: force` (declared + scoped, the preferred path). Safe
+# to leave true fleet-wide because of that secondary gate; the boot
+# disk is never wiped. Hosts without a `storage:` block are skipped
+# entirely by the playbook-level `when:` guard in 17-host/15-storage.yml.
+confirm_carve_data_disk: true
+
+# ── NFS mounts from nas01 (consumed by 17-host/16-nfs-mounts.yml) ────
+# Default is empty — workers don't mount NAS shares today. Hypervisors
+# override in group_vars/hypervisors.yml to add the `proxmox` RW share
+# 40-bake-images.yml writes qcow2s into. Add a per-host override in
+# host_vars/<name>.yml to opt a single host into more.
+physical_nfs_mounts: []

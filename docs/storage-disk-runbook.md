@@ -1,8 +1,11 @@
 # Storage disk runbook — swap, grow, add (poochella)
 
-Operational companion to `playbooks/poochella/infra/20-hypervisor/30-storage.yml`
-and the `hypervisor-disks` role. Read the playbook header first; this
-doc is the *people* steps around the automation.
+Operational companion to `playbooks/poochella/infra/17-host/15-storage.yml`
+(local LVM substrate, all physical hosts) plus
+`playbooks/poochella/infra/20-hypervisor/30-pve-storage-register.yml`
+(PVE-only `pvesm add lvmthin` publication step) and the `host-disks`
+role. Read each playbook header first; this doc is the *people* steps
+around the automation.
 
 ## The one thing to internalise
 
@@ -146,5 +149,5 @@ via replicas; the NAS covers VM root disks and gives an offline copy):
 
 Status: **not yet implemented** (NAS not online). Tracked here so the
 schema reservation and the runbook step are explicit. Implement the
-`pvesm add nfs|pbs` path in the `hypervisor-disks` role when the NAS
+`pvesm add nfs|pbs` path in the `host-disks` role when the NAS
 lands; the runbook's step D references become live then.

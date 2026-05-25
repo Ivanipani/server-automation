@@ -39,7 +39,7 @@ d-i clock-setup/ntp boolean true
 
 ### Partitioning — whole-disk LVM on the inventory-declared install
 ### disk. Every other disk on the host is left untouched (free for the
-### post-install hypervisor-disks role to carve, if applicable).
+### post-install host-disks role to carve, if applicable).
 ###
 ### ASSUMPTION: the install disk is BLANK at install time. We assume
 ### the operator has wiped it out-of-band — either via the host's BIOS

@@ -1,0 +1,48 @@
+---
+# Register each declared `pve_storage` thin pool with PVE as an `lvmthin`
+# storage. PVE-only follow-up to 17-host/15-storage.yml — the VG +
+# thin pool are already built (by the host-disks role); this playbook
+# just publishes them under their frozen contract names (`vms`,
+# `longhorn-data`) in /etc/pve/storage.cfg so Tofu can attach VM disks
+# to them. Workers don't run PVE and never appear here.
+#
+# Idempotent on the `lvmthin: <name>` line in /etc/pve/storage.cfg —
+# re-runs are a no-op. Storage is scoped --nodes <self> because nodes
+# are independent and each owns its own storage.cfg.
+#
+# One registration per UNIQUE pve_storage (several partitions/disks may
+# back the same storage id — register it once). vg/thinpool/content are
+# guaranteed consistent across those partitions by the preflight assert
+# in 15-storage.yml.
+#
+# Pre-conditions:
+#   - 17-host/15-storage.yml has run successfully on this host (the VG +
+#     thin pool exist).
+#   - `storage.disks` declares at least one partition with `pve_storage`
+#     on each hypervisor (the frozen-contract assertion in preflight.yml
+#     already guarantees this for hypervisors).
+
+- name: Register PVE storage on each node (per-node storage.cfg)
+  hosts: hypervisors
+  become: true
+  tasks:
+    - name: Read the current storage.cfg
+      ansible.builtin.command:
+        cmd: "cat /etc/pve/storage.cfg"
+      register: storage_cfg
+      changed_when: false
+
+    - name: Register each declared pve_storage as PVE lvmthin storage
+      ansible.builtin.command: >-
+        pvesm add lvmthin {{ item.pve_storage }}
+        --vgname {{ item.vg }} --thinpool {{ item.thinpool }}
+        --content {{ item.content }}
+        --nodes {{ inventory_hostname }}
+      loop: >-
+        {{ storage.disks | map(attribute='partitions') | flatten
+           | selectattr('pve_storage', 'defined')
+           | unique(attribute='pve_storage') | list }}
+      loop_control:
+        label: "{{ item.pve_storage }} (vg={{ item.vg }})"
+      when: "'lvmthin: ' + item.pve_storage not in storage_cfg.stdout"
+      changed_when: true

@@ -2,28 +2,27 @@
 # Tier H — Proxmox hypervisor fabric (PVE-only).
 #
 # Generic baremetal setup (users, sudo/zsh, SSH hardening, firewall,
-# tailscale, node-exporter) lives in the 17-host tier and runs against
-# the wider `physical` group. This tier shrinks to the PVE-only chain
-# and targets `hypervisors`.
+# tailscale, node-exporter) and the LVM substrate (disk carve + LVM-thin
+# pools + NFS mounts) live in the 17-host tier and run against the wider
+# `physical` group. This tier shrinks to the PVE-only steps and targets
+# `hypervisors`.
 #
-# Critical path (hard deps): 10-bootstrap → 30-storage (DESTRUCTIVE
-# carve + LVM-thin + PVE register) → 35-nfs-mounts (needs the 15-nas
-# tier to have run on the NAS side first) → 40-bake-images (writes
-# qcow2s into the NFS-mounted proxmox share). 40-bake-images must
-# finish before the 30-guests tier (Tofu pulls the published qcow2
-# onto each node's `local` ISO storage and `disk.import_from`s the
-# new VM's boot disk from it).
+# Critical path (hard deps): 10-bootstrap → 20-cluster → 30-pve-storage-register
+# (publishes the LVM-thin pools built in 17-host as PVE `lvmthin` storages
+# under their frozen-contract names `vms` and `longhorn-data`) → 40-templates
+# (per-node `virt-customize` + `qm template` bake into the node-local `vms`
+# storage). 40-templates must finish before the 30-guests tier (Tofu clones
+# each VM from `template_vm_ids[its proxmox_node]`).
 #
-# 40-templates.yml is LEGACY (per-node `virt-customize` + `qm template`
-# bake; consumed by the now-removed `clone {}` block in
-# tofu/modules/vm/main.tf). Kept on disk for rollback only — not
-# imported here. See its header for the rollback recipe.
+# 40-bake-images.yml is the alternate NAS-publish path (Packer writes qcow2s
+# into /mnt/nas/proxmox, Tofu pulls them onto each node's `local` ISO storage
+# via `disk.import_from`). Not imported here — flip the import to switch
+# between the local-bake and NAS-publish flows. See each playbook's header.
 #
 # 20-cluster.yml is a no-op while every node sits in `pve_standalone`;
 # kept active so adding a `pve_cluster.<name>` child group is the only
 # change needed to form a cluster.
 - import_playbook: 10-bootstrap.yml
 - import_playbook: 20-cluster.yml
-- import_playbook: 30-storage.yml
-- import_playbook: 35-nfs-mounts.yml
-- import_playbook: 40-bake-images.yml
+- import_playbook: 30-pve-storage-register.yml
+- import_playbook: 40-templates.yml

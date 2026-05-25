@@ -1,22 +1,26 @@
 ---
-# Phase H3.5: Mount NFS shares from nas01 onto every hypervisor.
+# Mount nas01 NFS shares onto every PHYSICAL host (hypervisors + workers).
 #
-# Slots between 30-storage (local LVM-thin) and 40-bake-images
-# (which writes qcow2s into the NAS via the `proxmox` mount this
-# playbook establishes). For a full first-time infra run, the order
-# is: 15-nas/30-storage creates the shares on the NAS → this play
-# mounts them on the PVE hosts → 40-bake-images writes through.
+# What gets mounted is declared in `physical_nfs_mounts` — defaults to []
+# in group_vars/physical.yml; group_vars/hypervisors.yml overrides with
+# the `proxmox` RW share that 40-bake-images.yml writes qcow2s into.
+# Workers inherit the empty default — no NFS mounts unless they get a
+# group/host override.
 #
-# What gets mounted (declared in group_vars/hypervisors.yml's
-# `hypervisor_nfs_mounts`; one source of truth):
-#   - nas01:/volume1/pxe       → /mnt/nas/pxe       (RO)
-#   - nas01:/volume1/proxmox   → /mnt/nas/proxmox   (RW)
+# History: this play used to mount nas01:/volume1/pxe → /mnt/nas/pxe RO
+# on every hypervisor (PXE served via NFS off the NAS). bootserv01 LXC
+# now serves all PXE artifacts over HTTP, so the pxe NFS mount is
+# obsolete. The cleanup play below force-removes any stale pxe mount +
+# fstab line on every physical host (idempotent + safe on hosts that
+# never had it). Leave the cleanup in place for at least one full apply
+# across the fleet; remove in a follow-up once confirmed unmounted
+# everywhere.
 #
-# Mount options chosen for resilience:
+# Mount options chosen for resilience (per-mount, declared in vars):
 #   vers=4          NFSv4 (matches the NAS's enabled protocol set by
 #                   15-nas/20-baseline.yml's synology_dsm_nfs_enable_v4)
 #   _netdev         Mount only after networking is up
-#   nofail          A NAS outage at boot does NOT block PVE boot —
+#   nofail          A NAS outage at boot does NOT block host boot —
 #                   the host comes up, the mount fails, you debug
 #   bg              Background mount-retries after initial failure
 #   soft,timeo=30   Fail cleanly after ~3s of retries instead of
@@ -26,14 +30,32 @@
 #
 # Pre-conditions (asserted in 15-nas/30-storage.yml on its side):
 #   - nas01 is reachable on the LAN (10.1.1.0/24)
-#   - The shares listed above exist with the right NFS export rules
+#   - The shares listed in `physical_nfs_mounts` exist with the right
+#     NFS export rules
 #
 # Re-run safely: ansible.posix.mount is idempotent on /etc/fstab and
 # on the live mount; running this when everything is already correct
 # is a no-op.
 
-- name: Mount nas01 NFS shares onto every hypervisor
-  hosts: hypervisors
+- name: Force-unmount the obsolete /mnt/nas/pxe (transitional cleanup)
+  hosts: physical
+  gather_facts: false
+  become: true
+  tasks:
+    # Transitional: bootserv01 LXC now serves PXE over HTTP so the NAS
+    # `pxe` share is no longer mounted anywhere. ansible.posix.mount
+    # with `state: mounted` does NOT auto-remove stragglers from a prior
+    # config, so do it explicitly here. Idempotent + safe on hosts that
+    # never had it (state: absent is a no-op when neither the mount nor
+    # the fstab entry exists). Drop this play in a follow-up after one
+    # full apply across the fleet confirms it's gone everywhere.
+    - name: Unmount + drop fstab entry for /mnt/nas/pxe (obsolete)
+      ansible.posix.mount:
+        path: /mnt/nas/pxe
+        state: absent
+
+- name: Mount nas01 NFS shares onto every physical host
+  hosts: physical
   gather_facts: false
   become: true
   tasks:
@@ -43,19 +65,19 @@
         state: present
         update_cache: true
         cache_valid_time: 3600
+      when: physical_nfs_mounts | default([]) | length > 0
 
     # Create the mountpoint via mkdir -p + a `creates:` guard, NOT via
     # `ansible.builtin.file: state=directory`. Reason: once the NFS
-    # share is mounted (especially read-only shares like pxe), the file
-    # module's owner/mode enforcement hits EROFS on subsequent runs
-    # because it tries to chmod/chown the now-NFS-backed directory.
-    # mkdir -p with `creates:` simply skips when the path exists, so
-    # idempotence survives the mount.
+    # share is mounted, the file module's owner/mode enforcement hits
+    # EROFS on subsequent runs because it tries to chmod/chown the
+    # now-NFS-backed directory. mkdir -p with `creates:` simply skips
+    # when the path exists, so idempotence survives the mount.
     - name: Ensure NFS mount point directories exist
       ansible.builtin.command:
         cmd: "mkdir -p {{ item.path | quote }}"
         creates: "{{ item.path }}"
-      loop: "{{ hypervisor_nfs_mounts }}"
+      loop: "{{ physical_nfs_mounts | default([]) }}"
       loop_control:
         label: "{{ item.path }}"
 
@@ -66,6 +88,6 @@
         fstype: nfs
         opts: "{{ item.options }}"
         state: mounted
-      loop: "{{ hypervisor_nfs_mounts }}"
+      loop: "{{ physical_nfs_mounts | default([]) }}"
       loop_control:
         label: "{{ item.share }} → {{ item.path }}"

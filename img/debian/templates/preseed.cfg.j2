@@ -50,7 +50,7 @@ d-i time/zone string {{ timezone }}
 d-i clock-setup/ntp boolean true
 
 ### Partitioning — whole-disk LVM on the inventory-declared install disk.
-# The hypervisor-disks role still owns the post-install `vms` / `longhorn-data`
+# The host-disks role still owns the post-install `vms` / `longhorn-data`
 # carve on any additional disks; this preseed only owns the boot disk.
 d-i partman-auto/disk string {{ host.debian_install.disk }}
 d-i partman-auto/method string lvm

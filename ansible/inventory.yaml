@@ -15,7 +15,10 @@
 #     the node-local `longhorn-data` PVE storage (k3s workers, Longhorn).
 #     One worker per node, sized to consume that node's whole longhorn
 #     pool (kept just under the physical pool — it is thin-provisioned,
-#     so over-committing it would let Longhorn exhaust the pool).
+#     so over-committing it would let Longhorn exhaust the pool). The
+#     `proxmox_node` MUST point to a hypervisor that yields a
+#     `longhorn-data` storage (preflight asserts this); CP-only nodes
+#     like pve-home-01 don't and will refuse to host such a VM.
 #   - `lxc: { proxmox_node, cores, memory, disk_size, unprivileged,
 #     features, tags, ... }` → Tofu creates this LXC on Proxmox
 #     (parallels `vm:`). Cloned from `template_ct_ids[proxmox_node]`
@@ -33,33 +36,54 @@
 #     wipes for the Debian install (every other disk untouched).
 #   - VM MACs use the locally-administered prefix `02:` and a structured
 #     tail (02:00:00:<role>:<index>) so collisions are obvious at a glance.
-#   - `storage: {disks: [...]}` on a hypervisor host → the disk layout the
-#     hypervisor-disks role realises (20-hypervisor/30-storage.yml).
-#     DISK-CENTRIC + STABLE SELECTORS, declared not discovered. Each disk:
-#       select: boot                       # the auto-detected PVE boot disk
+#   - `storage: {disks: [...]}` on a physical host → the disk layout the
+#     host-disks role realises (17-host/15-storage.yml). Applies to BOTH
+#     hypervisors and workers. DISK-CENTRIC + STABLE SELECTORS, declared
+#     not discovered. Each disk:
+#       select: boot                       # the auto-detected host boot disk
 #       select: { model: "...", serial: "..." }       # one exact drive
 #       select: { min_size_gib: 900, rotational: false }  # attr match
 #       select: { size_gib: 1000, rotational: true }      #   "
 #       wipe: refuse|force                 # per-disk, default refuse;
 #                                          # `force` is DECLARED + scoped
 #                                          # (replaces the global -e flag)
-#       partitions: [ {label, vg, thinpool, pve_storage, content, size} ]
-#     `label` is the GPT partlabel (unique per node, the idempotency key);
-#     `size` is sgdisk +SIZE ("0" = fill). `pve_storage` is a FROZEN
-#     contract (Tofu hardcodes `vms`/`longhorn-data`). A non-`boot`
-#     selector MUST resolve to EXACTLY ONE non-boot, non-removable disk —
-#     0 or >1 matches is a HARD FAILURE (the role never guesses). Several
-#     partitions, on different disks, may share one vg/thinpool/
-#     pve_storage → that is how a NVMe + HDD become one larger
-#     `longhorn-data` pool. Selectors match hardware attributes, so kernel
-#     renames are irrelevant and swapping a disk for an identical/larger
-#     one needs NO edit when the selector is attribute-based. Preview
-#     resolution + a paste-ready block with `just disk-plan`.
+#       partitions: [ {label, vg, thinpool, size, ...} ]
+#     Each partition declares EXACTLY ONE of (XOR):
+#       pve_storage: <id>, content: <pvesm content>   # PVE-side (hypervisor)
+#       mount: { path, fstype, lv_name?, lv_size? }   # worker-side (ext4 mount)
+#     `label` is the GPT partlabel (unique per node, the idempotency
+#     key); `size` is sgdisk +SIZE ("0" = fill). `pve_storage` is a
+#     FROZEN contract (Tofu hardcodes `vms`/`longhorn-data`). A
+#     non-`boot` selector MUST resolve to EXACTLY ONE non-boot,
+#     non-removable disk — 0 or >1 matches is a HARD FAILURE (the role
+#     never guesses). Several partitions, on different disks, may share
+#     one vg/thinpool → that is how a NVMe + HDD become one larger pool
+#     (`longhorn-data` on a hypervisor, `longhornthin` mounted at
+#     /var/lib/longhorn on a worker). Selectors match hardware
+#     attributes, so kernel renames are irrelevant and swapping a disk
+#     for an identical/larger one needs NO edit when the selector is
+#     attribute-based. Preview resolution + a paste-ready block with
+#     `just disk-plan`.
 #
-#   CONVENTION (enforced in preflight): every hypervisor node yields BOTH
-#   a `vms` and a `longhorn-data` PVE storage. Baseline hardware = one
-#   ≥1 TB boot NVMe (carved into both); additional disks are optional and
-#   extend `longhorn-data`. See group_vars/hypervisors.yml.
+#   CONVENTION (enforced in preflight, hypervisors only):
+#     - every hypervisor yields a `vms` PVE storage (required: every
+#       VM/LXC boot disk + cloud-init drive lands there; Tofu
+#       hardcodes the name).
+#     - any hypervisor that hosts kube_workers (VMs declaring
+#       `vm.data_disk_size`) ALSO yields a `longhorn-data` PVE
+#       storage. CP-only hypervisors don't need it and pve-home-01 is
+#       sized accordingly (256 GB NVMe, vms only).
+#   Hardware sizing follows the role: a small NVMe is enough for
+#   CP-only nodes; longhorn-hosting nodes want a ≥1 TB NVMe (plus
+#   optional HDDs that extend `longhorn-data`).
+#   See group_vars/hypervisors.yml.
+#
+#   CONVENTION (worker side): plain Linux baremetal kube_workers
+#   combine their extra data disks (NVMe + HDD) into one
+#   `longhorndata`/`longhornthin` thin pool, mounted as ext4 at
+#   `/var/lib/longhorn` for Longhorn baremetal replica storage. The
+#   boot disk is owned by the Debian installer (`debian_install.disk`)
+#   and the worker does NOT declare `select: boot`.
 #
 # VMs always DHCP-boot. The static IP comes from the reservation tied to
 # the MAC declared here — not from cloud-init.
@@ -158,18 +182,21 @@ hypervisors:
           # Baremetal Debian unattended-install hint (read by img/debian/).
           # `disk` is the device the Debian installer wipes + lays down LVM
           # on for / (everything else — the `vms` + `longhorn-data` carve —
-          # is owned by the hypervisor-disks role post-install). Stable
+          # is owned by the host-disks role post-install). Stable
           # /dev/disk/by-id path so kernel renames don't matter; the value
           # is verified against the host's lsblk output in `just disk-plan`.
           # The PVE auto-install path (img/proxmox/pve-home-01.toml) still
           # works untouched; pick whichever ISO you flash per host.
           debian_install:
             disk: /dev/sda
-          # Mini-PC: a single ~1 TB boot NVMe carries all three roles.
-          # PVE installer took the first ~100 GiB (lvm.hdsize=100) as the
-          # `pve` VG (hypervisor). Its free tail is carved, in order,
-          # into vm-storage (200 GiB → `vms`) then longhorn (the rest →
-          # `longhorn-data`). No extra disks (the baseline convention).
+          # Mini-PC: a single 256 GB boot NVMe is the ONLY storage.
+          # PVE installer takes the first ~100 GiB (lvm.hdsize=100) as
+          # the `pve` VG (hypervisor); the free tail (~156 GiB) is
+          # carved into a single vm-storage pool that backs `vms`.
+          # NO `longhorn-data` on this node — pve-home-01 hosts the k3s
+          # control planes (and bootserv01) only; Longhorn workers live
+          # on baremetal worker-home-02. Preflight enforces the
+          # corollary (no VM pinned here may declare `data_disk_size`).
           storage:
             disks:
               - select: boot
@@ -179,12 +206,6 @@ hypervisors:
                     thinpool: vmthin
                     pve_storage: vms
                     content: images,rootdir,iso,vztmpl,snippets
-                    size: "200G"
-                  - label: longhorn
-                    vg: longhorndata
-                    thinpool: longhornthin
-                    pve_storage: longhorn-data
-                    content: images
                     size: "0"          # fill the boot tail
     pve_cluster:
       # Parent of all corosync clusters. Each child group is ONE cluster
@@ -223,9 +244,10 @@ workers:
       ip_address: 10.1.1.106
       mac_address: "3c:7c:3f:1f:96:af"
       # Debian unattended install: the installer wipes ONLY this disk.
-      # The other disks (1 TB NVMe + WDC HDD) are left untouched —
-      # they're reserved for future Longhorn baremetal data storage
-      # (see follow-up note in 40-kube/10-longhorn-host-prep.yml).
+      # The other disks (1 TB NVMe + WDC HDD) are combined into a single
+      # longhorndata/longhornthin LVM-thin pool, ext4-mounted at
+      # /var/lib/longhorn for Longhorn baremetal replicas — see the
+      # `storage:` block below and 40-kube/10-longhorn-host-prep.yml.
       debian_install:
         disk: /dev/nvme0n1
       # Baremetal Debian net-boot via iPXE from the Mellanox ConnectX-4
@@ -239,6 +261,42 @@ workers:
         boot_macs:
           - "e8:eb:d3:8c:86:bc"
           - "e8:eb:d3:8c:86:bd"
+      # Baremetal kube_worker Longhorn data layout: combine the
+      # second NVMe + the WDC HDD into ONE LVM-thin pool, then put a
+      # single thin LV (`longhorn-data`) on top, ext4'd and mounted at
+      # /var/lib/longhorn. host-disks builds the substrate; Longhorn
+      # (Flux repo) places replicas into that mountpoint. The boot
+      # NVMe (nvme0n1) is owned by the Debian installer above and is
+      # NOT declared here — only data disks. Selectors are attribute-
+      # based: kernel renames + identical-or-larger swap need no edit.
+      #
+      # Disk signatures: run `just disk-plan` against worker-home-02 to
+      # see actual signatures on each data disk. If either disk holds
+      # foreign content (e.g. a prior Windows/ext4 layout on the HDD),
+      # set `wipe: force` on THAT disk explicitly here — declared,
+      # scoped, self-documenting. Leave `wipe: refuse` (the default)
+      # otherwise so the role refuses to clobber unexpected data.
+      storage:
+        disks:
+          - select: { min_size_gib: 900, rotational: false }
+            partitions:
+              - label: longhorn-nvme
+                vg: longhorndata
+                thinpool: longhornthin
+                size: "0"
+          - select: { min_size_gib: 900, rotational: true }
+            partitions:
+              - label: longhorn-hdd
+                vg: longhorndata
+                thinpool: longhornthin
+                size: "0"
+                # The mount is declared on EXACTLY ONE partition per
+                # (vg,thinpool); the role consolidates multi-partition
+                # pools to one thin LV + one mount.
+                mount:
+                  path: /var/lib/longhorn
+                  fstype: ext4
+                  lv_name: longhorn-data
 
 switches:
   hosts:

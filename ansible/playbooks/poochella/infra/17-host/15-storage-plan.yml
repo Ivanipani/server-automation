@@ -1,19 +1,21 @@
 ---
-# READ-ONLY companion to 30-storage.yml. Prints every hypervisor's
+# READ-ONLY companion to 15-storage.yml. Prints every physical host's
 # disks (model / serial / size / rotational / removable / signatures /
 # existing partlabels) plus a paste-ready `storage.disks` skeleton with
-# STABLE selectors. Writes nothing — safe anytime.
+# STABLE selectors. Writes nothing — safe anytime. Skeleton output varies
+# by group: hypervisors get the PVE-side schema (pve_storage), workers
+# get the worker-side schema (mount).
 #
-# NOT part of the ordered site flow: 20-hypervisor/site.yml imports
-# playbooks explicitly and deliberately does NOT list this one. Run it
-# via `just disk-plan` after adding/swapping a disk, then update
-# inventory.yaml by hand and re-run `just do-storage`.
+# NOT part of the ordered site flow: 17-host/site.yml imports playbooks
+# explicitly and deliberately does NOT list this one. Run it via
+# `just disk-plan` after adding/swapping a disk, then update
+# inventory.yaml by hand and re-run the storage playbook.
 
 - name: Disk plan (read-only)
-  hosts: hypervisors
+  hosts: physical
   become: true
   gather_facts: false
   tasks:
     - ansible.builtin.import_role:
-        name: hypervisor-disks
+        name: host-disks
         tasks_from: discover.yml

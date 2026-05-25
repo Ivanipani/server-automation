@@ -2,14 +2,19 @@
 # Resolve ONE declared disk (`disk`, an entry of storage.disks) to the
 # single kernel device its partitions will be carved on, validating that
 # reality matches inventory. Appends:
-#   - one entry per partition  → hypervisor_disks_resolved
-#   - one entry for the disk   → hypervisor_disks_devices
+#   - one entry per partition  → host_disks_resolved
+#   - one entry for the disk   → host_disks_devices
 #
 # Read-only (lsblk only). Loop var: `disk`. Upstream fact: `boot_disk`.
 #
 # The core safety rule: a non-`boot` selector must match EXACTLY ONE
 # non-boot, non-removable disk. Zero or many matches → hard failure (we
 # never guess, never auto-claim, and the kernel name is never used).
+#
+# Each partition declares EXACTLY ONE of:
+#   - `pve_storage` + `content`      → PVE-side: thin pool registered with pvesm
+#   - `mount: { path, fstype, ... }` → worker-side: ext4 on a thin LV
+# Enforced below (XOR). label/vg/thinpool/size are required either way.
 
 - name: "[{{ disk.select | string }}] Validate the disk declaration"
   ansible.builtin.assert:
@@ -23,17 +28,32 @@
       - disk.partitions | map(attribute='label')        | select('undefined') | list | length == 0
       - disk.partitions | map(attribute='vg')           | select('undefined') | list | length == 0
       - disk.partitions | map(attribute='thinpool')     | select('undefined') | list | length == 0
-      - disk.partitions | map(attribute='pve_storage')  | select('undefined') | list | length == 0
-      - disk.partitions | map(attribute='content')      | select('undefined') | list | length == 0
       - disk.partitions | map(attribute='size')         | select('undefined') | list | length == 0
     fail_msg: >-
       Bad storage.disks entry on {{ inventory_hostname }}:
       {{ disk | to_json }}. Need `select`, a non-empty `partitions` list
-      (each with pool/vg/thinpool/pve_storage/content/size), optional
-      `wipe: refuse|force`, and `exclude_boot` may not be false (the OS
-      disk is never carved as a data disk).
+      (each with label/vg/thinpool/size, plus EITHER `pve_storage`+`content`
+      OR `mount.{path,fstype}`), optional `wipe: refuse|force`, and
+      `exclude_boot` may not be false (the OS disk is never carved as a
+      data disk).
 
-# ── select: boot — the auto-detected PVE boot disk ────────────────────
+- name: "[{{ disk.select | string }}] Each partition declares pve_storage XOR mount"
+  ansible.builtin.assert:
+    that:
+      - (item.pve_storage is defined and item.content is defined and item.mount is not defined)
+        or (item.mount is defined and item.pve_storage is not defined and item.content is not defined)
+      - item.mount is not defined or (item.mount.path is defined and item.mount.fstype is defined)
+    fail_msg: >-
+      Partition {{ item.label | default('?') }} on
+      {{ inventory_hostname }} must declare EITHER `pve_storage:` +
+      `content:` (PVE-registered thin pool) OR `mount:` (with `path` +
+      `fstype`, role-mounted ext4 on a thin LV) — exactly one, not both.
+      Got: {{ item | to_json }}.
+  loop: "{{ disk.partitions }}"
+  loop_control:
+    label: "{{ item.label | default('?') }}"
+
+# ── select: boot — the auto-detected host boot disk ───────────────────
 
 - name: "[boot] Resolve the boot disk"
   when: disk.select is string and disk.select == 'boot'
@@ -116,19 +136,33 @@
       {{ 'refuse' if _is_boot
          else ('force'
                if (disk.wipe | default('refuse')) == 'force'
-                  or (hypervisor_disks_force_wipe | default(false) | bool)
+                  or (host_disks_force_wipe | default(false) | bool)
                else 'refuse') }}
 
+# Per-partition signature. Two partitions naming the same vg+thinpool
+# must produce the same _sig — i.e. agree on what sits on top of that
+# pool. Mixed pve_storage+mount on one pool is a preflight failure
+# (caught by the cross-pool consistency check in preflight.yml).
 - name: "[{{ _dev }}] Append this disk's partitions (carve order preserved)"
   ansible.builtin.set_fact:
-    hypervisor_disks_resolved: >-
-      {{ hypervisor_disks_resolved + [
+    host_disks_resolved: >-
+      {{ host_disks_resolved + [
            item | combine({
              'device': _dev,
              'is_boot': _is_boot,
              'wipe': _wipe,
              'size': item.size | string,
-             '_sig': (item.vg ~ '|' ~ item.thinpool ~ '|' ~ item.content),
+             '_pool_key': (item.vg ~ '|' ~ item.thinpool),
+             '_sig': (
+                'pve|' ~ item.vg ~ '|' ~ item.thinpool
+                       ~ '|' ~ item.pve_storage ~ '|' ~ item.content
+                if item.pve_storage is defined
+                else 'mnt|' ~ item.vg ~ '|' ~ item.thinpool
+                       ~ '|' ~ item.mount.path
+                       ~ '|' ~ item.mount.fstype
+                       ~ '|' ~ (item.mount.lv_name | default(item.thinpool ~ '-data'))
+                       ~ '|' ~ (item.mount.lv_size | default('100%FREE'))
+             ),
            })
          ] }}
   loop: "{{ disk.partitions }}"
@@ -137,13 +171,15 @@
 
 - name: "[{{ _dev }}] Record the disk for the carve-time wipe pass"
   ansible.builtin.set_fact:
-    hypervisor_disks_devices: >-
-      {{ hypervisor_disks_devices + [{
+    host_disks_devices: >-
+      {{ host_disks_devices + [{
            'device': _dev,
            'is_boot': _is_boot,
            'wipe': _wipe,
            'select_label': (disk.select | string),
            'capacity_b': (_dev_size.stdout | trim | int),
            'partlabels': (disk.partitions | map(attribute='label') | list),
-           'pve_storages': (disk.partitions | map(attribute='pve_storage') | unique | list),
+           'pve_storages': (disk.partitions
+                            | selectattr('pve_storage', 'defined')
+                            | map(attribute='pve_storage') | unique | list),
          }] }}

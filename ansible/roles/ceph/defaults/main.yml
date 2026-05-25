@@ -1,6 +1,6 @@
 ---
 # Ceph cluster configuration for the poochella 3-node Proxmox cluster.
-# Disk partitioning is OWNED BY the `hypervisor-disks` role; this role
+# Disk partitioning is OWNED BY the `host-disks` role; this role
 # only consumes the `ceph-osd` GPT partition it produces.
 #
 # Owns the Ceph data plane end-to-end: OSDs, the `vms` RBD pool
@@ -12,8 +12,8 @@ ceph_release: squid
 ceph_public_network: 10.1.1.0/24
 
 # `ceph_osd_partition_label` is defined in group_vars/baremetal.yml so
-# it stays in sync with the `hypervisor_disks_partitions` list consumed
-# by the hypervisor-disks role.
+# it stays in sync with the `host_disks_partitions` list consumed
+# by the host-disks role.
 
 # ── Pool: VM block storage ─────────────────────────────────────────────
 ceph_pool_vms:

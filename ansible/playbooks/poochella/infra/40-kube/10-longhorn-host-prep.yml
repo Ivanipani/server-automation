@@ -65,14 +65,19 @@
         enabled: true
         state: started
 
-# Data-disk prep is VM-only today: it hard-codes /dev/vdb (the second
-# virtio disk attached when a VM declares `vm.data_disk_size`).
-# Baremetal kube_workers (e.g. worker-home-02) SKIP this play cleanly —
-# they have physical NVMe/HDD disks that need a different scheme
-# (LVM+ext4 mounted at /var/lib/longhorn, or multiple disks registered
-# to Longhorn directly). KNOWN FOLLOW-UP: a baremetal Longhorn-disk
-# play (parameterised by inventory) before worker-home-02 can actually
-# serve Longhorn replicas.
+# Data-disk prep — TWO paths converge on the same /var/lib/longhorn
+# mount:
+#   - VM-based kube_workers (`vm.data_disk_size` declared) get a second
+#     virtio disk (/dev/vdb) attached by Tofu. This play ext4-formats
+#     it and mounts it at /var/lib/longhorn.
+#   - Baremetal kube_workers (e.g. worker-home-02) declare `storage.disks`
+#     in inventory and the host-disks role (17-host/15-storage.yml)
+#     ALREADY built a longhorndata/longhornthin thin pool + ext4 LV
+#     mounted at /var/lib/longhorn. /dev/vdb is absent, so this play
+#     short-circuits cleanly on baremetal — the mount is already there.
+#
+# Hard-coding /dev/vdb is the VM-side trigger. The presence check is the
+# single guard; no further logic needed.
 - name: Prepare the Longhorn data disk (VM-based storage workers only)
   hosts: kube_workers
   become: true
@@ -85,13 +90,13 @@
         path: "{{ longhorn_data_device }}"
       register: longhorn_disk
 
-    - name: Note that baremetal workers skip this play
+    - name: Note that baremetal workers use host-disks for /var/lib/longhorn
       ansible.builtin.debug:
         msg: >-
           {{ longhorn_data_device }} not present on {{ inventory_hostname }}
-          — treating as baremetal and skipping the VM-only Longhorn
-          data-disk prep. Provide a baremetal data-disk scheme before
-          this host can serve Longhorn replicas.
+          — baremetal worker. /var/lib/longhorn is established by the
+          host-disks role (17-host/15-storage.yml) from inventory
+          `storage.disks`. Skipping VM-only data-disk prep.
       when: not longhorn_disk.stat.exists
 
     - name: Create an ext4 filesystem on the Longhorn data disk

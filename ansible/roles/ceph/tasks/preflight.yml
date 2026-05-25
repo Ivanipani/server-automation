@@ -1,6 +1,6 @@
 ---
 # Ceph-specific preflight. Disk-related preflight (boot-disk detection,
-# free-space, partition layout) lives in the `hypervisor-disks` role and
+# free-space, partition layout) lives in the `host-disks` role and
 # must run before this.
 
 - name: Read PVE cluster status
@@ -23,7 +23,7 @@
       Cluster is not quorate or does not have 3 votes on {{ inventory_hostname }}.
       Run 02b-cluster-hypervisor.yml first.
 
-- name: Assert the ceph-osd GPT partition exists (created by hypervisor-disks role)
+- name: Assert the ceph-osd GPT partition exists (created by host-disks role)
   ansible.builtin.stat:
     path: "/dev/disk/by-partlabel/{{ ceph_osd_partition_label }}"
   register: ceph_part

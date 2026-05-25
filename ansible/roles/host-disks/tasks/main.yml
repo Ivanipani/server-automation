@@ -1,10 +1,11 @@
 ---
-# hypervisor-disks role dispatcher — orchestration is in
-# 03-partition-disks.yml, which imports tasks_from per play. This file
-# exists for `roles: [hypervisor-disks]` entry-point compatibility.
+# host-disks role dispatcher — orchestration is in the storage playbook
+# (17-host/15-storage.yml), which imports tasks_from per play. This file
+# exists for `roles: [host-disks]` entry-point compatibility.
 
-- name: hypervisor-disks role default entry-point is unused — see 03-partition-disks.yml
+- name: host-disks role default entry-point is unused — see 17-host/15-storage.yml
   ansible.builtin.debug:
     msg: >-
-      Use `tasks_from:` to invoke specific stages (preflight, carve).
+      Use `tasks_from:` to invoke specific stages (preflight, carve,
+      storage_pools, mounts, discover).
   run_once: true

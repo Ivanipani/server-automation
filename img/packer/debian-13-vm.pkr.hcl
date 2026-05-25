@@ -5,7 +5,7 @@
 # repo's `golden-image-bake` Ansible role to install the `ansible`
 # user/key + sysprep. The resulting qcow2 is shasummed and written
 # directly to the NAS via the NFS mount the build host has at
-# /mnt/nas/proxmox (set up by 20-hypervisor/35-nfs-mounts.yml).
+# /mnt/nas/proxmox (set up by 17-host/16-nfs-mounts.yml).
 # The `*-latest.qcow2` symlink is atomically repointed at the new
 # dated artifact so concurrent readers (PVE nodes referencing
 # `nas-images:iso/<family>-latest.qcow2`) see only the old OR the

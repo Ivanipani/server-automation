@@ -2,8 +2,8 @@
 # Hard gates before any sgdisk write. No auto-recovery on failure.
 # Resolves each declared `select:` to EXACTLY ONE device (in
 # _resolve_disk.yml), building two facts consumed downstream:
-#   hypervisor_disks_resolved  — one entry per PARTITION, in carve order
-#   hypervisor_disks_devices   — one entry per unique DISK to act on
+#   host_disks_resolved  — one entry per PARTITION, in carve order
+#   host_disks_devices   — one entry per unique DISK to act on
 
 - name: Assert opt-in flag is set (refuses to run without explicit confirmation)
   ansible.builtin.assert:
@@ -11,7 +11,7 @@
       - confirm_carve_data_disk | default(false) | bool
     fail_msg: >-
       `confirm_carve_data_disk` is not true on {{ inventory_hostname }}.
-      Set it in group_vars/hypervisors.yml or
+      Set it in group_vars/physical.yml or
       host_vars/{{ inventory_hostname }}.yml, then re-run.
 
 - name: Assert this node declares a storage layout
@@ -25,17 +25,26 @@
       No `storage.disks` (with non-empty `partitions`) declared for
       {{ inventory_hostname }} in inventory.yaml. The disk layout is
       declared, not discovered — add a `storage:` block to this host (see
-      the inventory.yaml header / hypervisor-disks role defaults).
+      the inventory.yaml header / host-disks role defaults), or remove
+      this host from the storage playbook's `when:` guard if it should
+      not run.
+
+# ── PVE-only guest-classification gates ──────────────────────────────
+# `qm list` / `pct list` and the template-vs-real classification only
+# make sense on hypervisors — workers have no PVE guests. Workers skip
+# this entire block.
 
 - name: List existing VMs (qm list)
   ansible.builtin.command: qm list
   register: qm_list
   changed_when: false
+  when: inventory_hostname in groups['hypervisors']
 
 - name: List existing containers (pct list)
   ansible.builtin.command: pct list
   register: pct_list
   changed_when: false
+  when: inventory_hostname in groups['hypervisors']
 
 # Templates are REGENERABLE — 40-templates.yml (the next tier step)
 # destroys + re-bakes them from pinned cloud images — so they must not
@@ -54,18 +63,21 @@
       {{ pct_list.stdout_lines[1:]
          | map('regex_replace', '^\s*(\d+).*$', '\1')
          | select('match', '^\d+$') | list }}
+  when: inventory_hostname in groups['hypervisors']
 
 - name: Read each VM config (template detection)
   ansible.builtin.command: "qm config {{ item }}"
-  loop: "{{ _vmids }}"
+  loop: "{{ _vmids | default([]) }}"
   register: _vm_cfg
   changed_when: false
+  when: inventory_hostname in groups['hypervisors']
 
 - name: Read each container config (template detection)
   ansible.builtin.command: "pct config {{ item }}"
-  loop: "{{ _ctids }}"
+  loop: "{{ _ctids | default([]) }}"
   register: _ct_cfg
   changed_when: false
+  when: inventory_hostname in groups['hypervisors']
 
 - name: Partition listed guests into templates vs real guests
   ansible.builtin.set_fact:
@@ -73,6 +85,7 @@
     _real_vmids: "{{ _vm_cfg.results | rejectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
     _tmpl_ctids: "{{ _ct_cfg.results | selectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
     _real_ctids: "{{ _ct_cfg.results | rejectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
+  when: inventory_hostname in groups['hypervisors']
 
 - name: Refuse if any real (non-template) VM or container exists
   ansible.builtin.assert:
@@ -83,6 +96,7 @@
       Real (non-template) guests exist on {{ inventory_hostname }} —
       VMs {{ _real_vmids }}, containers {{ _real_ctids }}. The
       disk-carving step would risk their data. Refusing to proceed.
+  when: inventory_hostname in groups['hypervisors']
 
 - name: Refuse if templates exist and the destroy opt-in is unset
   ansible.builtin.assert:
@@ -96,11 +110,14 @@
       group_vars/hypervisors.yml (or `-e carve_destroy_templates=true`)
       to have preflight `qm/pct destroy --purge` them first;
       40-templates.yml re-bakes them in the next tier step.
+  when: inventory_hostname in groups['hypervisors']
 
 - name: "Destroy regenerable VM templates (carve_destroy_templates opt-in)"
   ansible.builtin.command: "qm destroy {{ item }} --purge"
-  loop: "{{ _tmpl_vmids }}"
-  when: carve_destroy_templates | default(false) | bool
+  loop: "{{ _tmpl_vmids | default([]) }}"
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - carve_destroy_templates | default(false) | bool
   register: _vm_tmpl_destroy
   changed_when: _vm_tmpl_destroy.rc == 0
   failed_when:
@@ -109,31 +126,37 @@
 
 - name: "Destroy regenerable CT templates (carve_destroy_templates opt-in)"
   ansible.builtin.command: "pct destroy {{ item }} --purge"
-  loop: "{{ _tmpl_ctids }}"
-  when: carve_destroy_templates | default(false) | bool
+  loop: "{{ _tmpl_ctids | default([]) }}"
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - carve_destroy_templates | default(false) | bool
   register: _ct_tmpl_destroy
   changed_when: _ct_tmpl_destroy.rc == 0
   failed_when:
     - _ct_tmpl_destroy.rc != 0
     - "'does not exist' not in _ct_tmpl_destroy.stderr"
 
-- name: Verify PVE LVM root is present (pve VG)
-  ansible.builtin.command: vgs --noheadings -o vg_name pve
-  register: pve_vg
-  changed_when: false
-  failed_when: pve_vg.rc != 0 or 'pve' not in pve_vg.stdout
+# ── Boot-disk detection (portable — PVE + plain Debian) ──────────────
+# Find the disk hosting the root filesystem. Works for PVE (root LV in
+# the `pve` VG over a single PV) and for plain Debian workers (root on
+# a partition directly, or some other LVM layout). For LV-backed roots,
+# trace through the VG's PVs and take the parent of any one of them.
 
-- name: Detect the boot disk (parent of the pve VG's PV)
+- name: Detect the boot disk (parent of the root filesystem)
   ansible.builtin.shell: |
     set -eu
-    # Scope to the `pve` VG (asserted present above) — never a bare
-    # `pvs | head -1`, which sorts by vg_name and would pick a data-disk
-    # PV (e.g. `longhordata` < `pve`) once a prior carve has populated
-    # other VGs, misidentifying the data disk AS the boot disk and
-    # silently excluding it from selector resolution.
-    pv=$(pvs --noheadings -o pv_name -S vg_name=pve | head -1 | awk '{print $1}')
-    [ -n "$pv" ] || { echo "no PV found in pve VG" >&2; exit 1; }
-    lsblk -dno PKNAME "$pv"
+    src=$(findmnt -no SOURCE /)
+    [ -n "$src" ] || { echo "no root mount" >&2; exit 1; }
+    pkname=$(lsblk -dno PKNAME "$src" 2>/dev/null || true)
+    if [ -z "$pkname" ]; then
+      # root is an LVM LV — find its VG, then any PV, then that PV parent
+      vg=$(lvs --noheadings -o vg_name "$src" 2>/dev/null | awk '{print $1}')
+      [ -n "$vg" ] || { echo "no VG for $src" >&2; exit 1; }
+      pv=$(pvs --noheadings -o pv_name -S vg_name="$vg" | head -1 | awk '{print $1}')
+      [ -n "$pv" ] || { echo "no PV in VG $vg" >&2; exit 1; }
+      pkname=$(lsblk -dno PKNAME "$pv")
+    fi
+    echo "$pkname"
   register: boot_disk_detect
   changed_when: false
 
@@ -146,13 +169,13 @@
     that:
       - boot_disk | length > 0
     fail_msg: >-
-      Could not detect the PVE boot disk on {{ inventory_hostname }}
-      (got '{{ boot_disk }}'). Check `pvs` and `lsblk`.
+      Could not detect the boot disk on {{ inventory_hostname }}
+      (got '{{ boot_disk }}'). Check `findmnt /` and `lsblk`.
 
 - name: Reset resolved accumulators
   ansible.builtin.set_fact:
-    hypervisor_disks_resolved: []      # one entry per PARTITION (carve order)
-    hypervisor_disks_devices: []       # one entry per unique DISK to act on
+    host_disks_resolved: []      # one entry per PARTITION (carve order)
+    host_disks_devices: []       # one entry per unique DISK to act on
 
 - name: Resolve and validate each declared disk
   ansible.builtin.include_tasks: _resolve_disk.yml
@@ -166,40 +189,77 @@
 - name: Assert partition labels are unique on this node
   ansible.builtin.assert:
     that:
-      - (hypervisor_disks_resolved | map(attribute='label') | list) ==
-        (hypervisor_disks_resolved | map(attribute='label') | unique | list)
+      - (host_disks_resolved | map(attribute='label') | list) ==
+        (host_disks_resolved | map(attribute='label') | unique | list)
     fail_msg: >-
       Duplicate `label` (GPT partlabel) in {{ inventory_hostname }}'s
       storage.disks. Each partlabel must be unique per node (it is the
       GPT label and the idempotency key).
 
-- name: "Assert every partition of one pve_storage shares vg/thinpool/content"
+# Cross-pool consistency: partitions naming the same (vg,thinpool) must
+# agree on the rest of their target (`_sig` set in _resolve_disk.yml).
+# Applies to both pve_storage- and mount-backed pools — they may share
+# a thinpool too (NVMe + HDD → one larger longhornthin).
+- name: "Assert every partition of one (vg,thinpool) agrees on target"
   ansible.builtin.assert:
     that:
       - >-
-        hypervisor_disks_resolved
-        | selectattr('pve_storage', 'equalto', item)
+        host_disks_resolved
+        | selectattr('_pool_key', 'equalto', item)
         | map(attribute='_sig') | unique | length == 1
     fail_msg: >-
-      On {{ inventory_hostname }} partitions naming pve_storage '{{ item }}'
-      disagree on vg/thinpool/content. Multiple disks may back ONE
-      pve_storage (that is how a NVMe + HDD become one larger pool) but
-      they must share vg, thinpool and content. (`_sig` =
-      "vg|thinpool|content", set in _resolve_disk.yml.)
-  loop: "{{ hypervisor_disks_resolved | map(attribute='pve_storage') | unique | list }}"
+      On {{ inventory_hostname }} partitions naming the same (vg,thinpool)
+      pair '{{ item }}' disagree on the rest of their target. Multiple
+      disks may back ONE pool (NVMe + HDD becoming one larger pool) but
+      they must share vg, thinpool, and either consistent pve_storage+content
+      (hypervisor-side) or consistent mount target (worker-side).
+  loop: "{{ host_disks_resolved | map(attribute='_pool_key') | unique | list }}"
 
-- name: Assert the frozen PVE storage contract is satisfied
+# ── Hypervisor-only frozen-contract assertions ───────────────────────
+# Tofu hardcodes the storage IDs (`vms` for every VM boot disk, the
+# cloud-init drive and every LXC; `longhorn-data` for `vm.data_disk_size`)
+# so the NAMES are frozen — but each hypervisor only needs the storages
+# the VMs pinned to it actually use:
+#   - `vms` is required on every hypervisor (universal: every VM/LXC
+#     uses it for the boot disk + cloud-init drive).
+#   - `longhorn-data` is required only on hypervisors that host VMs
+#     declaring `vm.data_disk_size` (i.e. kube_workers). A CP-only
+#     hypervisor (e.g. pve-home-01 today) does NOT need it.
+- name: Assert this hypervisor provides `vms` storage (universal)
   ansible.builtin.assert:
     that:
-      - "'vms' in (hypervisor_disks_resolved | map(attribute='pve_storage') | list)"
-      - "'longhorn-data' in (hypervisor_disks_resolved | map(attribute='pve_storage') | list)"
+      - "'vms' in (host_disks_resolved | selectattr('pve_storage', 'defined') | map(attribute='pve_storage') | list)"
     fail_msg: >-
-      {{ inventory_hostname }} would NOT produce both frozen PVE storages
-      `vms` and `longhorn-data` (Tofu/templates hardcode them). Convention:
-      every baremetal node yields both. Got
-      {{ hypervisor_disks_resolved | map(attribute='pve_storage') | unique | list }}.
+      {{ inventory_hostname }} would NOT produce the frozen PVE storage
+      `vms` (Tofu hardcodes it for every VM/LXC boot disk + cloud-init
+      drive). Got {{ host_disks_resolved | selectattr('pve_storage', 'defined')
+                     | map(attribute='pve_storage') | unique | list }}.
+  when: inventory_hostname in groups['hypervisors']
 
-# ── Advisory sizing guard (NON-fatal by design) ───────────────────────
+- name: Assert this hypervisor provides `longhorn-data` iff a pinned VM uses it
+  ansible.builtin.assert:
+    that:
+      - >-
+        _data_pinned | length == 0
+        or 'longhorn-data' in (host_disks_resolved | selectattr('pve_storage', 'defined')
+                                | map(attribute='pve_storage') | list)
+    fail_msg: >-
+      {{ inventory_hostname }} hosts VM(s) {{ _data_pinned }} that declare
+      `vm.data_disk_size`, which Tofu attaches to the `longhorn-data` PVE
+      storage on this node — but this node's storage.disks would NOT
+      produce `longhorn-data`. Either add a partition that yields it, or
+      re-pin those VMs to a hypervisor that has it.
+  vars:
+    _data_pinned: >-
+      {{ groups['all'] | map('extract', hostvars)
+         | selectattr('vm', 'defined')
+         | selectattr('vm.proxmox_node', 'defined')
+         | selectattr('vm.proxmox_node', 'equalto', inventory_hostname)
+         | selectattr('vm.data_disk_size', 'defined')
+         | map(attribute='inventory_hostname') | list }}
+  when: inventory_hostname in groups['hypervisors']
+
+# ── Advisory sizing guard (NON-fatal by design, hypervisors only) ────
 # data_disk_size is hand-set in inventory and read by Tofu statically;
 # replica-2 usable capacity is bounded by the SMALLER node and is a
 # Longhorn/Flux concern. A hard assert here would fight deliberate, tight
@@ -207,20 +267,21 @@
 # disk-plan` prints the authoritative capacity + recommended size.
 - name: Estimate longhorn-data raw capacity (GiB, boot reserve removed)
   ansible.builtin.set_fact:
-    hypervisor_disks_longhorn_capacity_gib: >-
+    host_disks_longhorn_capacity_gib: >-
       {{
-        ((hypervisor_disks_devices
+        ((host_disks_devices
           | selectattr('pve_storages', 'contains', 'longhorn-data')
           | map(attribute='capacity_b') | map('int') | sum)
          // 1073741824) | int
       }}
+  when: inventory_hostname in groups['hypervisors']
 
 - name: "Advisory: longhorn-data capacity vs pinned workers' data_disk_size"
   ansible.builtin.debug:
     msg: >-
       ADVISORY [{{ inventory_hostname }}]: longhorn-data ≈
-      {{ hypervisor_disks_longhorn_capacity_gib }} GiB raw, backed by
-      {{ hypervisor_disks_devices
+      {{ host_disks_longhorn_capacity_gib }} GiB raw, backed by
+      {{ host_disks_devices
          | selectattr('pve_storages', 'contains', 'longhorn-data')
          | map(attribute='device') | list }}.
       VM(s) pinned here with a data disk: {{ _pinned }}. Confirm each
@@ -235,4 +296,6 @@
          | selectattr('vm.proxmox_node', 'equalto', inventory_hostname)
          | selectattr('vm.data_disk_size', 'defined')
          | map(attribute='inventory_hostname') | list }}
-  when: _pinned | length > 0
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - _pinned | length > 0
