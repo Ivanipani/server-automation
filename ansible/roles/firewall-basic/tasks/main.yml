@@ -1,4 +1,11 @@
 ---
+# Default-deny inbound + caller-configurable outbound ufw policy, reconciled
+# against the desired set each run: rules removed from inventory are removed
+# from ufw rather than additively layered. Multi-play hosts (e.g.
+# worker-home-02, which is in both `physical` and `kube_workers`) pass
+# distinct `firewall_basic_scope` values so each play tracks only its own
+# rules — see defaults/main.yml + files/ufw_reconcile.py.
+
 - name: Install ufw
   ansible.builtin.apt:
     name: ufw
@@ -15,35 +22,38 @@
     default: "{{ firewall_outbound_policy }}"
     direction: outgoing
 
-- name: Allow SSH traffic
-  community.general.ufw:
-    rule: allow
-    port: 22
-    proto: tcp
-    comment: 'Allow SSH'
+# SSH-in is hardcoded so the role can never lock itself out; everything
+# else comes from the caller's lists. Each item is normalized to a
+# canonical {rule, direction, port, proto} dict the reconciler matches on.
+- name: Build desired rule set for this scope
+  ansible.builtin.set_fact:
+    _firewall_basic_desired: >-
+      {{
+        [{'rule': 'allow', 'direction': 'in', 'port': 22, 'proto': 'tcp'}]
+        + (inbound_allow  | map('combine', {'rule': 'allow', 'direction': 'in'})  | list)
+        + (outbound_allow | map('combine', {'rule': 'allow', 'direction': 'out'}) | list)
+        + (outbound_deny  | map('combine', {'rule': 'deny',  'direction': 'out'}) | list)
+      }}
 
-- name: Allow inbound ports
+# Delete any role-owned rule (tagged with our scope, OR matching the
+# pre-reconciliation legacy comments) that isn't in this run's desired
+# set. The legacy match is a one-time migration: once the role has run
+# everywhere no legacy comments remain. On multi-scope hosts whichever
+# scope runs first claims and partially purges legacy rules; subsequent
+# scopes re-add their own rules via the apply step below.
+- name: Reconcile role-managed ufw rules
+  ansible.builtin.script: >-
+    ufw_reconcile.py
+    {{ firewall_basic_scope | quote }}
+    {{ _firewall_basic_desired | to_json | quote }}
+  register: _firewall_basic_reconcile
+  changed_when: (_firewall_basic_reconcile.stdout | from_json).deleted | length > 0
+
+- name: Apply desired ufw rules
   community.general.ufw:
-    rule: allow
+    rule: "{{ item.rule }}"
+    direction: "{{ item.direction }}"
     port: "{{ item.port | string }}"
     proto: "{{ item.proto }}"
-    comment: "Allow inbound {{ item.port }}/{{ item.proto }}"
-  loop: "{{ inbound_allow }}"
-
-- name: Deny outbound ports
-  community.general.ufw:
-    rule: deny
-    direction: out
-    port: "{{ item.port | string }}"
-    proto: "{{ item.proto }}"
-    comment: "Deny outbound {{ item.port }}/{{ item.proto }}"
-  loop: "{{ outbound_deny }}"
-
-- name: Allow outbound ports
-  community.general.ufw:
-    rule: allow
-    direction: out
-    port: "{{ item.port | string }}"
-    proto: "{{ item.proto }}"
-    comment: "Allow outbound {{ item.port }}/{{ item.proto }}"
-  loop: "{{ outbound_allow }}"
+    comment: "firewall-basic[{{ firewall_basic_scope }}]: {{ item.rule }} {{ item.direction }} {{ item.port }}/{{ item.proto }}"
+  loop: "{{ _firewall_basic_desired }}"

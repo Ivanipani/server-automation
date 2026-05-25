@@ -3,3 +3,17 @@ firewall_outbound_policy: allow
 inbound_allow: []
 outbound_allow: []
 outbound_deny: []
+
+# Per-invocation ownership label used in ufw rule comments
+# (`firewall-basic[<scope>]: …`). The reconciler only deletes rules tagged
+# with the CURRENT scope, so multiple plays managing overlapping hosts
+# don't trample each other's rules — see files/ufw_reconcile.py.
+#
+# Use a unique scope per role-invocation site. worker-home-02 is in both
+# `physical` (managed by 17-host/30-firewall.yml) and `kube_workers`
+# (managed by 30-guests/40-firewall.yml); each play passes a distinct
+# scope so the two invocations stay in separate ownership lanes.
+#
+# The 'default' scope is fine when only one play applies this role to a
+# given host.
+firewall_basic_scope: default

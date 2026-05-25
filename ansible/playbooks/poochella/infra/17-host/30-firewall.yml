@@ -20,4 +20,5 @@
   roles:
     - role: firewall-basic
       vars:
+        firewall_basic_scope: 17-host
         inbound_allow: "{{ firewall_inbound_allow | default([]) }}"

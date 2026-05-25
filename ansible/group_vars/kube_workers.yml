@@ -39,3 +39,14 @@ firewall_inbound_allow:
 k3s_node_labels:
   - "{{ k3s_zone_label }}"
   - "node.longhorn.io/create-default-disk=true"
+
+# Outbound firewall policy override. Consumed by
+# playbooks/poochella/infra/30-guests/40-firewall.yml. kube_workers OPTS
+# OUT of the parent "no lateral SSH out from a guest" baseline: the
+# baremetal worker-home-02 hosts dev/CI workloads that need git over SSH
+# to GitHub as the `pani` user (see
+# playbooks/poochella/dev/10-users/30-pani-ssh-key.yml). The risk traded
+# off — a worker-side process gaining git-via-SSH egress — is acceptable
+# because the worker is baremetal-owned (not multi-tenant VM substrate)
+# and an attacker with shell on it already has many egress paths.
+firewall_outbound_deny: []

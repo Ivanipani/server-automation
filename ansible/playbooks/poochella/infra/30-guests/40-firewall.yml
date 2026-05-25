@@ -35,16 +35,21 @@
 # cluster can form behind this default-deny-incoming firewall (this
 # playbook runs earlier, in tier 30-guests).
 
+# Uniform fleet baseline for guests: no lateral SSH out. The default is
+# applied to every leaf group below; a leaf can opt out by setting
+# `firewall_outbound_deny` in its group_vars/<group>.yml. Currently only
+# `kube_workers` opts out (baremetal worker-home-02 needs git-over-SSH
+# to GitHub as `pani` — see group_vars/kube_workers.yml).
+
 # Virtual machines (dev, databases).
 - hosts: virtual-machines
   become: true
   roles:
     - role: firewall-basic
       vars:
+        firewall_basic_scope: 30-guests
         inbound_allow: "{{ firewall_inbound_allow | default([]) }}"
-        outbound_deny:
-          # Uniform fleet baseline: no lateral SSH out from a guest.
-          - { port: 22, proto: tcp }
+        outbound_deny: "{{ firewall_outbound_deny | default([{'port': 22, 'proto': 'tcp'}]) }}"
 
 # Kubernetes nodes (kube_control_plane VMs + kube_workers, which today
 # includes the baremetal worker-home-02). `kubernetes` is its own
@@ -56,9 +61,9 @@
   roles:
     - role: firewall-basic
       vars:
+        firewall_basic_scope: 30-guests
         inbound_allow: "{{ firewall_inbound_allow | default([]) }}"
-        outbound_deny:
-          - { port: 22, proto: tcp }
+        outbound_deny: "{{ firewall_outbound_deny | default([{'port': 22, 'proto': 'tcp'}]) }}"
 
 # Containers / LXCs (webservers, dns).
 - hosts: containers
@@ -66,6 +71,6 @@
   roles:
     - role: firewall-basic
       vars:
+        firewall_basic_scope: 30-guests
         inbound_allow: "{{ firewall_inbound_allow | default([]) }}"
-        outbound_deny:
-          - { port: 22, proto: tcp }
+        outbound_deny: "{{ firewall_outbound_deny | default([{'port': 22, 'proto': 'tcp'}]) }}"

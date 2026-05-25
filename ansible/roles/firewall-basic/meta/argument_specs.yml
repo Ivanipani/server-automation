@@ -1,10 +1,18 @@
 ---
 argument_specs:
   main:
-    short_description: Configure UFW firewall with inbound/outbound rules
+    short_description: Configure UFW firewall with reconciled inbound/outbound rules
     author:
       - Ivan Perdomo
     options:
+      firewall_basic_scope:
+        type: str
+        default: "default"
+        description:
+          - "Per-invocation ownership label used in ufw rule comments."
+          - "Reconciliation only deletes rules tagged with the current scope."
+          - "Plays managing overlapping hosts MUST pass distinct scopes."
+          - "See defaults/main.yml + files/ufw_reconcile.py for the full rationale."
       firewall_outbound_policy:
         type: str
         default: "allow"
