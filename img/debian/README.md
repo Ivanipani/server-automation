@@ -12,7 +12,7 @@ auto-install path in `img/proxmox/`.
 | Layer                          | Where it lives                       | Owns                                         |
 | ------------------------------ | ------------------------------------ | -------------------------------------------- |
 | Upstream Debian netinst ISO    | `.cache/` (pinned URL + SHA512)      | the kernel, initrd, bootloader, package set  |
-| Per-host preseed + boot overlay| `templates/*.j2` rendered to a workdir | hostname, install disk, root pw, ansible key |
+| Per-host preseed + boot overlay| `templates/*.j2` rendered to a workdir | hostname, install disk, tourmanager pw, ansible key |
 | ISO repack (xorriso, in-place) | `build.sh`                           | preserving UEFI+BIOS hybrid boot             |
 | Inventory (single source)      | `ansible/inventory.yaml`             | every value the preseed needs                |
 
@@ -30,13 +30,15 @@ already issues for the host's MAC. No PXE server, no HTTP preseed host.
    haven't already; `just check` to verify.
 3. **The bootstrap SSH key** at `~/.ssh/ansible.pub`. This is the same key
    the existing Packer/Ansible flows install on every other box.
-4. **A break-glass root password in the vault**. Add it once:
+4. **The `tourmanager` break-glass password in the vault**. Add it once:
    ```
-   just secret-encrypt vault_baremetal_root_password
+   just secret-encrypt vault_tourmanager_user_pass
    ```
-   The indirection (`baremetal_root_password` →
-   `vault_baremetal_root_password`) is already wired in
-   `ansible/group_vars/all/vars.yml`.
+   The indirection (`tourmanager_user_pass` → `vault_tourmanager_user_pass`)
+   is already wired in `ansible/group_vars/all/vars.yml`. Same secret the
+   `host-base` role uses to reconcile `tourmanager` on every physical host.
+   Root is locked at install time — there is no `baremetal_root_password`
+   any more; `tourmanager` is the single break-glass for every Debian box.
 
 ## Usage
 
@@ -68,7 +70,13 @@ the existing Ansible playbooks. `just ssh-refresh` will re-seed
 
 - `ansible` user in `sudo` + the canonical pubkey in
   `~/.ssh/authorized_keys` + `NOPASSWD: ALL` in `/etc/sudoers.d/ansible`
-- Root login with the vault password (console / break-glass)
+- `tourmanager` user in `sudo` with the vault password + `NOPASSWD: ALL`
+  in `/etc/sudoers.d/tourmanager` — fleet-wide break-glass (console always
+  works; SSH password-auth for `tourmanager` only, both before and after
+  the `ssh-hardening` role's `Match User` block lands)
+- `root` is **LOCKED** (no password, `PermitRootLogin no` already in
+  `/etc/ssh/sshd_config.d/00-no-root.conf` from first boot). `sudo` from
+  `ansible` / `tourmanager` is the only path to root.
 - Whole-disk LVM on the install disk under VG `system`
 - `openssh-server`, `python3`, `sudo`, `curl`, `ca-certificates`, `gnupg`
 - Unattended upgrades disabled (matches `roles/apt-no-auto-upgrades`)
@@ -98,8 +106,9 @@ alongside the ISO at
 
 ## Troubleshooting
 
-- **`baremetal_root_password is empty`** — you haven't added the vault
-  entry yet. Run `just secret-encrypt vault_baremetal_root_password`.
+- **`vault_tourmanager_user_pass missing from group_vars/all/vault.yml`** —
+  you haven't added the vault entry yet. Run
+  `just secret-encrypt vault_tourmanager_user_pass`.
 - **`Missing dependency: xorriso`** — install per Prerequisites above.
 - **ISO boots but drops to a manual prompt** — the boot menu has a
   `Rescue: drop to manual installer` entry; if the *Auto-install* entry

@@ -5,7 +5,7 @@
 
 # Tailscale: off by default. Flip per-host (host_vars/<name>.yml) or
 # per-group (group_vars/workers.yml, group_vars/hypervisors.yml).
-tailscale_enabled: false
+tailscale_enabled: true
 
 # SSH hardening policy (consumed by the ssh-hardening role's template).
 # A single `Match User tourmanager` block carves out the break-glass

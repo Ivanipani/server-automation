@@ -4,20 +4,22 @@
 
 postgres_pass: "{{ vault_postgres_pass }}"
 router_root_pass: "{{ vault_router_root_pass }}"
-# Root password for every baremetal Linux host (set by host-base on
-# first run, used by 17-host/10-bootstrap.yml + 20-hypervisor/10-bootstrap.yml
-# for the very-first SSH-as-root probe). Renamed 2026-05-23 from
-# `hypervisor_root_pass`; the underlying vault key stayed
-# `vault_hypervisor_root_pass` to avoid re-encrypting an unchanged
-# secret. Match this to whatever the preseed / PVE auto-installer baked
-# in (`baremetal_root_password` on workers, the PVE answerfile on
-# hypervisors), or override per-host.
+# Root password for fresh PVE hypervisors only — needed for the very
+# first SSH-as-root probe in 17-host/10-bootstrap.yml +
+# 20-hypervisor/10-bootstrap.yml, before the `ansible` user exists on a
+# brand-new PVE node. After host-base runs once, ssh-hardening sets
+# `PermitRootLogin no` and this password is never used again.
+#
+# Renamed 2026-05-23 from `hypervisor_root_pass`; the underlying vault
+# key stayed `vault_hypervisor_root_pass` to avoid re-encrypting an
+# unchanged secret. Match this to whatever the PVE auto-installer
+# answerfile baked in, or override per-host.
+#
+# Debian baremetal hosts (img/debian/) DO NOT need this — their preseed
+# locks the root account entirely (`passwd/root-login false`) and the
+# `ansible` user is created with the canonical key in the preseed's
+# late_command, so the first SSH probe resolves to `ansible` directly.
 host_root_pass: "{{ vault_hypervisor_root_pass }}"
-# Root password baked into the Debian-baremetal preseed (img/debian/).
-# Console fallback only — the `ansible` user + key handles automation, so
-# treat this like a break-glass credential. Add to vault.yml with
-# `just secret-encrypt vault_baremetal_root_password` before first build.
-baremetal_root_password: "{{ vault_baremetal_root_password }}"
 ansible_user_pass: "{{ vault_ansible_user_pass }}"
 pani_user_pass: "{{ vault_pani_user_pass }}"
 # Break-glass account on every physical host (host-base role +

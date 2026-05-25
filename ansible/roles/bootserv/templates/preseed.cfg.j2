@@ -21,16 +21,15 @@ d-i mirror/http/hostname string deb.debian.org
 d-i mirror/http/directory string /debian
 d-i mirror/http/proxy string
 
-### Accounts — root password is one break-glass path; the dedicated
-### break-glass account is `tourmanager` (created in late_command with a
-### password) and the automation account is `ansible` (created in
-### late_command with the fleet's canonical key). These two accounts are
-### the install-time GUARANTEE that every freshly-netbooted Debian host
-### has equal-shape ansible + break-glass access, independent of any
-### later host-base run.
-d-i passwd/root-login boolean true
-d-i passwd/root-password password {{ bootserv_root_password }}
-d-i passwd/root-password-again password {{ bootserv_root_password }}
+### Accounts — `ansible` (key, automation) + `tourmanager` (password,
+### break-glass) are created in late_command. They are the install-time
+### GUARANTEE that every freshly-netbooted Debian host has equal-shape
+### ansible + break-glass access, independent of any later host-base run.
+### Root is LOCKED — no password is set, the late_command drops a
+### `PermitRootLogin no` sshd config, and `sudo` from ansible/tourmanager
+### is the only path to root (matching the fleet-wide no-root-SSH policy
+### later enforced by the ssh-hardening role).
+d-i passwd/root-login boolean false
 d-i passwd/make-user boolean false
 
 ### Clock
@@ -176,6 +175,8 @@ d-i preseed/late_command string \
     in-target useradd -m -s /bin/bash -G sudo -p '{{ _tm_hash }}' tourmanager ; \
     in-target sh -c 'echo "tourmanager ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tourmanager' ; \
     in-target chmod 0440 /etc/sudoers.d/tourmanager ; \
+    in-target sh -c 'echo "PermitRootLogin no" > /etc/ssh/sshd_config.d/00-no-root.conf' ; \
+    in-target chmod 0644 /etc/ssh/sshd_config.d/00-no-root.conf ; \
     in-target sh -c 'echo "APT::Periodic::Update-Package-Lists \"0\";" > /etc/apt/apt.conf.d/99-no-auto-upgrades' ; \
     in-target sh -c 'echo "APT::Periodic::Unattended-Upgrade \"0\";" >> /etc/apt/apt.conf.d/99-no-auto-upgrades' ; \
     in-target systemctl mask apt-daily.timer apt-daily-upgrade.timer

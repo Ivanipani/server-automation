@@ -20,13 +20,28 @@ d-i mirror/http/hostname string deb.debian.org
 d-i mirror/http/directory string /debian
 d-i mirror/http/proxy string
 
-### Accounts
-# Root password is the break-glass credential (vault). Daily-driver login is
-# the `ansible` user created in late_command with the same authorized key
-# the rest of the automation already trusts.
-d-i passwd/root-login boolean true
-d-i passwd/root-password password {{ baremetal_root_password }}
-d-i passwd/root-password-again password {{ baremetal_root_password }}
+### Accounts — the two guaranteed-access accounts (created in late_command
+### below) are the install-time GUARANTEE that every freshly imaged Debian
+### host has equal-shape ansible + break-glass access, independent of any
+### later host-base run.
+#
+#   root         → LOCKED (no password set; the installer leaves root with
+#                  `!`/`*` in /etc/shadow). Direct root login is blocked at
+#                  every layer: console, SSH (`PermitRootLogin no` drop-in
+#                  written in late_command, mirroring the ssh-hardening
+#                  role's fleet policy), and password (account is locked).
+#                  `sudo` from ansible/tourmanager is the only way to gain
+#                  root, and a real human break-glass goes through
+#                  tourmanager on the console.
+#   ansible      → key-only automation account, NOPASSWD sudo. Same canonical
+#                  pubkey the rest of the automation trusts.
+#   tourmanager  → password-only break-glass account, NOPASSWD sudo. SSH
+#                  password auth is denied globally by ssh-hardening but a
+#                  `Match User tourmanager` block carves out password auth for
+#                  this account specifically. Until ssh-hardening runs, sshd's
+#                  default config also permits password auth for it. Console
+#                  login always works.
+d-i passwd/root-login boolean false
 d-i passwd/make-user boolean false
 
 ### Clock
@@ -71,11 +86,27 @@ d-i grub-installer/bootdev string {{ host.debian_install.disk }}
 ### Finish
 d-i finish-install/reboot_in_progress note
 
-### Late command — create the `ansible` user, install its key, mask
-### unattended-upgrades to match the rest of the fleet's "patching is
-### deliberate, not unattended" policy (roles/apt-no-auto-upgrades).
-### authorized_keys is shipped on the ISO at /cdrom/authorized_keys so
-### we avoid shell-escaping a pubkey inside this single-line directive.
+### Late command — create the two guaranteed-access accounts, deny root
+### SSH, and mask unattended-upgrades (fleet policy: "patching is
+### deliberate, not unattended"; see roles/apt-no-auto-upgrades).
+###
+###   ansible      → key-only automation account, NOPASSWD sudo.
+###                  authorized_keys is shipped on the ISO at
+###                  /cdrom/authorized_keys so we avoid shell-escaping
+###                  a pubkey inside this single-line directive.
+###   tourmanager  → password-only break-glass account, NOPASSWD sudo.
+###                  The crypt(3) SHA-512 hash is computed by Ansible
+###                  with a deterministic per-host salt so rebuilding
+###                  the ISO is idempotent. Plaintext never reaches
+###                  disk: `useradd -p` takes the hash directly, and
+###                  the hash itself is shell-safe.
+###
+### Both are also created/reconciled later by host-base on every
+### Ansible run; the preseed copies exist so a fresh netboot install
+### has them BEFORE any play touches the box.
+{% set _tm_salt = (target_host ~ '-tourmanager-salt-v1') | hash('sha256') %}
+{% set _tm_salt = _tm_salt[:16] %}
+{% set _tm_hash = tourmanager_user_pass | password_hash('sha512', _tm_salt) %}
 d-i preseed/late_command string \
     in-target useradd -m -s /bin/bash -G sudo ansible ; \
     in-target install -d -o ansible -g ansible -m 0700 /home/ansible/.ssh ; \
@@ -84,6 +115,11 @@ d-i preseed/late_command string \
     in-target chmod 0600 /home/ansible/.ssh/authorized_keys ; \
     in-target sh -c 'echo "ansible ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ansible' ; \
     in-target chmod 0440 /etc/sudoers.d/ansible ; \
+    in-target useradd -m -s /bin/bash -G sudo -p '{{ _tm_hash }}' tourmanager ; \
+    in-target sh -c 'echo "tourmanager ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tourmanager' ; \
+    in-target chmod 0440 /etc/sudoers.d/tourmanager ; \
+    in-target sh -c 'echo "PermitRootLogin no" > /etc/ssh/sshd_config.d/00-no-root.conf' ; \
+    in-target chmod 0644 /etc/ssh/sshd_config.d/00-no-root.conf ; \
     in-target sh -c 'echo "APT::Periodic::Update-Package-Lists \"0\";" > /etc/apt/apt.conf.d/99-no-auto-upgrades' ; \
     in-target sh -c 'echo "APT::Periodic::Unattended-Upgrade \"0\";" >> /etc/apt/apt.conf.d/99-no-auto-upgrades' ; \
     in-target systemctl mask apt-daily.timer apt-daily-upgrade.timer

@@ -28,13 +28,19 @@
   become: true
   remote_user: "{{ bootstrap_user }}"
   vars:
-    # First-time bootstrap connects as root with the vault password. The
-    # role then resets root to the same value via `ansible.builtin.user`,
-    # so subsequent runs (which use the ansible key) don't need it. Note:
-    # `host_root_pass` (group_vars/all/vars.yml) must match whatever the
-    # preseed / PVE auto-installer baked in (`baremetal_root_password`
-    # on workers, the PVE installer answerfile on hypervisors). Keep
-    # those in sync, or override `host_root_pass` per host.
+    # First-time bootstrap on fresh PVE hypervisors connects as root with
+    # the vault password (the PVE auto-installer answerfile bakes that
+    # root password; `host_root_pass` in group_vars/all/vars.yml must
+    # match). The role then resets root to the same value via
+    # `ansible.builtin.user`, and subsequent runs use the ansible key —
+    # ssh-hardening later sets `PermitRootLogin no`, so this fallback
+    # path only fires in the install→ssh-hardening window on a fresh PVE
+    # box.
+    #
+    # Debian baremetal workers DO NOT need the root fallback: their
+    # preseed (img/debian/) locks root entirely and creates the ansible
+    # user with the canonical key, so detect-bootstrap-user resolves to
+    # `ansible` on the very first probe.
     ansible_password: "{{ host_root_pass if use_root_password | default(false) else omit }}"
   roles:
     - role: host-base

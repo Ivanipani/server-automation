@@ -75,14 +75,18 @@
       ansible.builtin.set_fact:
         ansible_pubkey: "{{ lookup('file', ansible_pubkey_path) }}"
 
-    - name: Assert the vault root password exists in the vault
+    # Root is LOCKED at install time (preseed has `passwd/root-login false`),
+    # so the only break-glass on a freshly imaged Debian host is the
+    # `tourmanager` account created in the preseed's late_command from
+    # this vault value.
+    - name: Assert the vault tourmanager break-glass password exists in the vault
       ansible.builtin.assert:
         that:
-          - vault_baremetal_root_password is defined
-          - vault_baremetal_root_password | length > 0
+          - vault_tourmanager_user_pass is defined
+          - vault_tourmanager_user_pass | length > 0
         fail_msg: >-
-          vault_baremetal_root_password missing from group_vars/all/vault.yml.
-          Add it:  just secret-encrypt vault_baremetal_root_password
+          vault_tourmanager_user_pass missing from group_vars/all/vault.yml.
+          Add it:  just secret-encrypt vault_tourmanager_user_pass
 
   tasks:
     - name: Ensure workdir exists

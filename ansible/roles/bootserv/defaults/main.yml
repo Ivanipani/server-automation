@@ -35,11 +35,6 @@ bootserv_group: www-data
 # the caller to set it.
 bootserv_ansible_pubkey: ""
 
-# Vault break-glass root password for installed Debian hosts. Same
-# secret the img/debian/ USB flow uses (group_vars/all/vars.yml maps
-# `baremetal_root_password` → `vault_baremetal_root_password`).
-bootserv_root_password: "{{ baremetal_root_password | default('') }}"
-
 # Break-glass tourmanager password baked into the per-host preseed.
 # Matches the host-base / ssh-hardening contract: `tourmanager` is the
 # one account that survives ssh-hardening's password-auth lockdown via a

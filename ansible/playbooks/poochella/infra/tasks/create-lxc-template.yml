@@ -82,9 +82,12 @@
       changed_when: true
 
     - name: "Harden SSH in container {{ lxc_template.id }}"
+      # PermitRootLogin=no (not prohibit-password) matches the fleet-wide
+      # policy: no host accepts SSH as root, ever. Root is also locked in
+      # the previous task, so this is belt-and-suspenders.
       ansible.builtin.command: "{{ item }}"
       loop:
-        - "pct exec {{ lxc_template.id }} -- sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config"
+        - "pct exec {{ lxc_template.id }} -- sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config"
         - "pct exec {{ lxc_template.id }} -- sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config"
       changed_when: true
 
