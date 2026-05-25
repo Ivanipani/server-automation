@@ -165,6 +165,24 @@ physical:
     hypervisors:
     workers:
 
+foundation:
+  # Foundational subset that must be all-the-way-up (full 17-host +
+  # 20-hypervisor stack, plus the bootserv01 LXC) BEFORE any other
+  # baremetal host can be netboot-installed — fresh workers need
+  # bootserv01.lan to PXE-fetch their kernel/initrd/preseed, and
+  # bootserv01 is an LXC pinned to a hypervisor in this group.
+  #
+  # Targeted by the 16-foundation tier (playbooks re-import the 17-host /
+  # 20-hypervisor plays with `target_hosts: foundation`). Today: just
+  # pve-home-01. Adding a redundant bootserv-hosting hypervisor in the
+  # future = add it here, no other change.
+  #
+  # Members MUST also appear under `hypervisors` (the foundation tier
+  # runs 20-hypervisor work against them). Workers cannot be foundation
+  # hosts — they don't host LXCs.
+  hosts:
+    pve-home-01:
+
 hypervisors:
   # PVE hypervisors only. The 20-hypervisor tier targets this group
   # (Proxmox repo flip, cluster, LVM-thin storage carve, template bake).
@@ -481,6 +499,9 @@ containers:
             features:
               nesting: false
             tags: [infra, bootserv]
+          firewall_inbound_allow:
+            - { proto: tcp, port: 22, comment: "ssh" }
+            - { proto: tcp, port: 80, comment: "http" }
     webservers:   # caddy/nginx — policy: group_vars/webservers.yml (80/443)
     # dns:        # pihole — policy: group_vars/dns.yml (53, 67, 80)
     #   hosts:

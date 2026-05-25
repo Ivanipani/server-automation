@@ -1,0 +1,94 @@
+---
+# Foundation tier — bring up ONLY the infra LXCs on the foundation
+# hypervisor(s). Today: bootserv01 on pve-home-01.
+#
+# Why a separate, targeted Tofu invocation: the full `tofu apply` lives
+# in 30-guests/10-opentofu.yml and creates every VM + LXC declared in
+# the inventory. We don't want to incur that cost (or risk) just to land
+# bootserv01 — fresh baremetals need it BEFORE the wider 17-host tier
+# can run against them. So this play runs `tofu apply -target=<module>`
+# scoped at the per-node `infra_lxcs_<node>` Tofu modules (defined
+# statically in tofu/main.tf with fixed names), which creates ONLY the
+# infra LXCs pinned to those nodes and never touches any VM resource.
+#
+# Same state file as the full apply: targeting is per-invocation, not
+# state-level. The later 30-guests/10-opentofu.yml runs the un-targeted
+# apply against the same state and reconciles everything (including the
+# LXC, which is already as declared and ends up a no-op).
+#
+# Idempotent: re-running on a fully-built fleet is a no-op
+# (Tofu sees the LXC matches state, nothing to do).
+#
+# Adding a foundation hypervisor:
+#   1. Add it to `foundation:` in inventory.yaml
+#   2. Add the same 4-step hypervisor checklist (tofu/provider.tf header)
+#      — endpoint, var, provider block, module call (LXC + VM)
+#   3. Add `module.infra_lxcs_<new_node>` to the `targets:` list below
+#   4. Add `TF_VAR_proxmox_api_token_<new_node>` to the environment below
+
+- name: Verify each foundation hypervisor's Proxmox API token (vault + PVE)
+  hosts: "{{ target_hosts | default('foundation') }}"
+  become: true
+  gather_facts: false
+  vars:
+    token_user: "root@pam"
+    token_name: "tofu-lan"
+    _node_token: "{{ proxmox_api_tokens[inventory_hostname] | default('') }}"
+  tasks:
+    - name: Assert the vault holds a token for this node
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname in proxmox_api_tokens
+          - _node_token | length > 0
+        fail_msg: >-
+          No Proxmox API token for {{ inventory_hostname }}. Mint it on the
+          node (`pveum user token add {{ token_user }} {{ token_name }}
+          --privsep 0`), encrypt the secret into group_vars/all/vault.yml,
+          and wire it into the `proxmox_api_tokens` map in
+          group_vars/all/vars.yml. See 30-guests/10-opentofu.yml's header.
+
+    - name: List existing API tokens on this node
+      ansible.builtin.command:
+        cmd: pveum user token list {{ token_user }} --output-format json
+      register: token_list
+      changed_when: false
+
+    - name: Assert the PVE-side token still exists on this node
+      ansible.builtin.assert:
+        that:
+          - token_list.stdout | from_json | selectattr('tokenid', 'equalto', token_name) | list | length > 0
+        fail_msg: >-
+          The vault has a token for {{ inventory_hostname }} but PVE on
+          {{ inventory_hostname }} doesn't list '{{ token_name }}' under
+          {{ token_user }}. Recreate it on that node and update the vault.
+
+- name: Provision foundation infra LXCs (targeted Tofu apply)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Run tofu apply -target=<infra_lxcs modules>
+      community.general.terraform:
+        # playbook_dir = .../infra/16-foundation; repo root is 5 levels up.
+        project_path: "{{ playbook_dir }}/../../../../../tofu"
+        binary_path: /opt/homebrew/bin/tofu
+        state: present
+        force_init: true
+        # Targeted: ONLY the per-node infra_lxcs modules. Never touches
+        # any module.vms_<node>. Add `module.infra_lxcs_<new_node>` here
+        # when adding a foundation hypervisor.
+        targets:
+          - module.infra_lxcs_pve_home_01
+      environment:
+        # One TF_VAR per foundation hypervisor (mirrors the per-node
+        # provider blocks in tofu/provider.tf). Tofu only reads the
+        # tokens whose providers serve the targeted modules, but other
+        # declared `variable` blocks without defaults would still need a
+        # value — keep this list aligned with tofu/variables.tf.
+        TF_VAR_proxmox_api_token_pve_home_01: "{{ proxmox_api_tokens['pve-home-01'] }}"
+      register: tofu_output
+      no_log: false
+
+    - name: Show provisioned infra LXCs
+      ansible.builtin.debug:
+        msg: "Foundation infra LXCs reconciled."

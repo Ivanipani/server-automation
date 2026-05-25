@@ -8,7 +8,7 @@
 # Pre-condition: 10-bootstrap.yml has run (ansible user exists).
 
 - name: Install Prometheus node_exporter on every physical host
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   become: true
   roles:
     - role: node-exporter

@@ -23,7 +23,7 @@
 #     already guarantees this for hypervisors).
 
 - name: Register PVE storage on each node (per-node storage.cfg)
-  hosts: hypervisors
+  hosts: "{{ target_hosts | default('hypervisors') }}"
   become: true
   tasks:
     - name: Read the current storage.cfg

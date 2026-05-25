@@ -55,7 +55,7 @@
 # 30-provision tier (30-provision/10-opentofu.yml).
 
 - name: Bake VM/LXC templates on every Proxmox node (independent)
-  hosts: hypervisors
+  hosts: "{{ target_hosts | default('hypervisors') }}"
   gather_facts: false
   become: true
   vars:

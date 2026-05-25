@@ -8,16 +8,31 @@
 #   15-nas         → Synology NAS (gap-5 break — independent of host
 #                    bootstrap; admin'd via DSM, not the ansible
 #                    user/key path the 17-host tier sets up)
+#   16-foundation  → Foundational subset (the `foundation` group, today
+#                    just pve-home-01): full 17-host + 20-hypervisor
+#                    stack PLUS a TARGETED Tofu apply that creates ONLY
+#                    the infra LXCs (bootserv01) PLUS the bootserv role.
+#                    Must complete before 17-host below — fresh
+#                    baremetals need bootserv01.lan to netboot. The
+#                    tier re-imports 17-host / 20-hypervisor playbooks
+#                    with `target_hosts: foundation` rather than
+#                    duplicating them.
 #   17-host        → Baseline for every baremetal Linux host
 #                    (`physical` = hypervisors + workers): ansible /
 #                    pani / tourmanager users, SSH hardening, firewall,
-#                    tailscale, node-exporter. Gap-2 break because
-#                    15-nas already occupies the 15- slot.
+#                    tailscale, node-exporter. Re-applied here against
+#                    the wider `physical` group — pve-home-01 sees a
+#                    no-op second pass (16-foundation already did it).
 #   20-hypervisor  → Proxmox-only fabric (repo flip, cluster, LVM-thin
-#                    carve, template bake). Depends on 17-host having
+#                    register, template bake). Depends on 17-host having
 #                    created the ansible user, and on 15-nas being up
-#                    for the bake-images NFS publish.
+#                    for the bake-images NFS publish. Also re-applied
+#                    against the wider `hypervisors` group; no-op on
+#                    foundation hypervisors.
 #   30-guests      → OpenTofu barrier (router + hypervisor converge)
+#                    Runs the UN-TARGETED `tofu apply` — creates VMs
+#                    and reconciles the infra LXCs already created by
+#                    16-foundation.
 #   40-kube        → VM/container config + k3s
 #
 # Single-host piecemeal dev: fzf-pick any one tier playbook via
@@ -26,6 +41,7 @@
 # pre-conditions, so this ordering is the happy path, not the only one.
 - import_playbook: 10-router/site.yml
 - import_playbook: 15-nas/site.yml
+- import_playbook: 16-foundation/site.yml
 - import_playbook: 17-host/site.yml
 - import_playbook: 20-hypervisor/site.yml
 - import_playbook: 30-guests/site.yml

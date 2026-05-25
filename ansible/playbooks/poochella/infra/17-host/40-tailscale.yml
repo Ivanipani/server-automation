@@ -12,7 +12,7 @@
 # Pre-condition: 10-bootstrap.yml has run (ansible user exists).
 
 - name: Install Tailscale on every physical host
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   become: true
   roles:
     - role: tailscale

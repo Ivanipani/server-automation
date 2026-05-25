@@ -2,16 +2,19 @@
 # Tier P — the provisioning barrier.
 #
 # The single point where the router and hypervisor tracks converge:
-# OpenTofu creates the guests. NOTHING in tier G (40-guests) exists
+# OpenTofu creates the guests. NOTHING in tier G (40-kube) exists
 # before this runs. Kept as its own tier (one playbook today) precisely
 # so the barrier is visible in the structure, not implied by a number.
+#
+# 10-opentofu.yml here runs the UN-TARGETED `tofu apply` against the
+# full inventory: every `vm:` block becomes a VM, every `lxc:` block
+# becomes an LXC. The bootserv01 LXC was already brought up by the
+# 16-foundation tier's targeted apply (so other baremetals could
+# netboot); this un-targeted apply reconciles it as a no-op alongside
+# creating the VMs. bootserv01 configuration (the bootserv role) also
+# lives in 16-foundation — by the time this tier runs, bootserv01 is
+# fully configured.
 - import_playbook: 10-opentofu.yml
-# bootserv01 is configured BEFORE 20-bootstrap so any future
-# baremetal/VM that wants to fetch from it during its own bootstrap can
-# do so. The bootserv LXC's `ansible` user is baked into the LXC
-# template (`tasks/create-lxc-template.yml`), so SSH-as-ansible works
-# immediately after Tofu's clone — no chicken-and-egg with 20-bootstrap.
-- import_playbook: 15-bootserv.yml
 - import_playbook: 20-bootstrap.yml
 - import_playbook: 30-disable-auto-upgrades.yml
 - import_playbook: 40-firewall.yml

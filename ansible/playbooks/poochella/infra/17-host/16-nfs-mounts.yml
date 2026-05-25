@@ -38,7 +38,7 @@
 # is a no-op.
 
 - name: Force-unmount the obsolete /mnt/nas/pxe (transitional cleanup)
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   gather_facts: false
   become: true
   tasks:
@@ -55,7 +55,7 @@
         state: absent
 
 - name: Mount nas01 NFS shares onto every physical host
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   gather_facts: false
   become: true
   tasks:

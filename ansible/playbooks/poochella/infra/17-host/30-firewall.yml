@@ -15,7 +15,7 @@
 # Pre-condition: 10-bootstrap.yml has run (ansible user exists).
 
 - name: Configure host firewall on every physical host
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   become: true
   roles:
     - role: firewall-basic

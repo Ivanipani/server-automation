@@ -1,0 +1,68 @@
+---
+# Tier 16 — Foundational subset that must be FULLY UP before any OTHER
+# baremetal Linux host can come into being.
+#
+# Why this tier exists separately. Every non-foundation physical host
+# (workers, future hypervisors) is installed via iPXE/preseed netboot,
+# which depends on bootserv01.lan. bootserv01 is an LXC pinned to a
+# hypervisor in the `foundation` inventory group (today: pve-home-01).
+# So that hypervisor's full 17-host + 20-hypervisor stack, plus the
+# bootserv01 LXC, plus the bootserv role, must be reconciled BEFORE the
+# 17-host tier runs against the wider `physical` group — otherwise a
+# fresh worker would have no netboot target.
+#
+# How it's implemented. This tier doesn't duplicate any playbook: every
+# import_playbook below re-uses the existing 17-host / 20-hypervisor
+# playbook, passing `target_hosts: foundation` to scope it to the
+# foundation group. Those playbooks default `hosts:` back to
+# `physical` / `hypervisors` when target_hosts is unset, so the regular
+# tiers below this one are unchanged.
+#
+# Idempotency story (the user invariant). Re-running this tier on a
+# fully-built fleet is a no-op end-to-end:
+#   - 17-host roles short-circuit (user/storage/ssh/firewall/tailscale/
+#     node-exporter all idempotent).
+#   - 20-hypervisor steps short-circuit (repo flip / pve storage register
+#     / template bake — bake is non-destructive by default).
+#   - The TARGETED `tofu apply -target=module.infra_lxcs_<node>` only
+#     touches the LXC module — never any VM resource — and is a no-op
+#     when the LXC matches state.
+#   - bootserv role re-renders iPXE/preseed templates (idempotent).
+# When the regular 17-host / 20-hypervisor / 30-guests tiers run after
+# this, pve-home-01 sees another no-op pass and 30-guests' un-targeted
+# `tofu apply` reconciles the rest of the inventory (LXC stays as-is).
+#
+# What's deliberately NOT here:
+#   - 20-cluster.yml — targets `pve_cluster`, orthogonal to foundation.
+#     A standalone foundation hypervisor (pve-home-01 today) is not in
+#     pve_cluster, so cluster setup has nothing to do.
+
+# ── 17-host baseline on the foundation hypervisor(s) ────────────────────
+- import_playbook: ../17-host/10-bootstrap.yml
+  vars: { target_hosts: foundation }
+- import_playbook: ../17-host/15-storage.yml
+  vars: { target_hosts: foundation }
+- import_playbook: ../17-host/16-nfs-mounts.yml
+  vars: { target_hosts: foundation }
+- import_playbook: ../17-host/20-ssh-hardening.yml
+  vars: { target_hosts: foundation }
+- import_playbook: ../17-host/30-firewall.yml
+  vars: { target_hosts: foundation }
+- import_playbook: ../17-host/40-tailscale.yml
+  vars: { target_hosts: foundation }
+- import_playbook: ../17-host/50-node-exporter.yml
+  vars: { target_hosts: foundation }
+
+# ── 20-hypervisor PVE fabric on the foundation hypervisor(s) ────────────
+- import_playbook: ../20-hypervisor/10-bootstrap.yml
+  vars: { target_hosts: foundation }
+- import_playbook: ../20-hypervisor/30-pve-storage-register.yml
+  vars: { target_hosts: foundation }
+- import_playbook: ../20-hypervisor/40-templates.yml
+  vars: { target_hosts: foundation }
+
+# ── Targeted Tofu apply: just the infra LXCs (bootserv01 today) ─────────
+- import_playbook: 80-tofu-infra-lxcs.yml
+
+# ── Configure the bootserv01 LXC (iPXE + preseed + netboot HTTP root) ───
+- import_playbook: 90-bootserv.yml

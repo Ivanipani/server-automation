@@ -14,7 +14,7 @@
 # the role's preflight asserts that.
 
 - name: Harden sshd on every physical host
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   become: true
   roles:
     - role: ssh-hardening

@@ -1,8 +1,9 @@
 ---
-# Configure bootserv01 (the fleet's iPXE + Debian netboot home base) as
-# an LXC on pve-home-01. Runs FIRST among the guest-config plays so any
-# subsequent baremetal that net-boots into Debian can fetch its kernel /
-# initrd / preseed from a known-good bootserv.
+# Foundation tier — Configure bootserv01 (the fleet's iPXE + Debian
+# netboot home base) as an LXC on pve-home-01. Final play of the
+# 16-foundation tier so that by the time 17-host runs against the wider
+# `physical` group, every other baremetal can already PXE-fetch its
+# kernel / initrd / preseed from a known-good bootserv.
 #
 # Addressing model: bootserv01 carries NO MAC or IP in inventory. PVE
 # auto-generates a unique MAC at clone time, the LXC DHCPs into the
@@ -14,10 +15,12 @@
 # bootserv (Ansible SSH, PXE clients, iPXE script) uses the hostname.
 #
 # Pre-conditions:
-#   - 10-opentofu.yml completed (Tofu cloned bootserv01 from the
-#     pve-home-01 Debian 13 LXC template; template bakes the `ansible`
-#     user with the canonical key + sets hostname=bootserv01 via
-#     `initialization.hostname`).
+#   - 16-foundation/80-tofu-infra-lxcs.yml completed (the targeted Tofu
+#     apply cloned bootserv01 from the pve-home-01 Debian 13 LXC
+#     template; template bakes the `ansible` user with the canonical key
+#     + sets hostname=bootserv01 via `initialization.hostname`). The
+#     un-targeted apply in 30-guests/10-opentofu.yml will run later and
+#     reconcile the same LXC as a no-op.
 #   - 10-router/20-dnsmasq.yml has run at least once (dnsmasq's
 #     `regdhcp: true` is on so dynamic leases register in DNS).
 #   - `vault_tourmanager_user_pass` exists in vault. Root is LOCKED on

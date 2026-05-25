@@ -73,7 +73,7 @@
 #     hypervisor (the hypervisor-only preflight gate checks this).
 
 - name: Disk preflight (gates + boot detection + selector resolution)
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   become: true
   tasks:
     - name: Run host-disks preflight
@@ -83,7 +83,7 @@
       when: storage is defined and storage.disks is defined
 
 - name: Wipe-gate each disk, then carve its partitions in order
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   become: true
   tasks:
     - name: Run host-disks carve
@@ -93,7 +93,7 @@
       when: storage is defined and storage.disks is defined
 
 - name: Build / grow LVM-thin pools and mount any ext4-mount partitions
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   become: true
   tasks:
     - name: Run host-disks storage_pools

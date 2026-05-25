@@ -13,7 +13,7 @@
 # ansible user.
 
 - name: Detect SSH user for every physical host
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   gather_facts: false
   connection: local
   tasks:
@@ -24,7 +24,7 @@
         fallback_user: root
 
 - name: Apply baseline (host-base role) on every physical host
-  hosts: physical
+  hosts: "{{ target_hosts | default('physical') }}"
   become: true
   remote_user: "{{ bootstrap_user }}"
   vars:
