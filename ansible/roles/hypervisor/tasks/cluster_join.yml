@@ -1,4 +1,7 @@
 ---
+# Gated off in playbooks/poochella/infra/20-hypervisor/20-cluster.yml.
+# Kept for reference; do not import from a live playbook.
+#
 # Joins this node to its cluster — the cluster created by the first host
 # (sorted) of `groups[proxmox_cluster_name]`, this host's own cluster
 # group. Idempotent: skipped when /etc/pve/corosync.conf already exists.

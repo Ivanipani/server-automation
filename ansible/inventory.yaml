@@ -100,16 +100,15 @@
 # generic baseline work (ansible/pani/tourmanager users, SSH hardening,
 # firewall, tailscale, node-exporter — the 17-host tier) targets it once.
 # Two children narrow further:
-#   - `hypervisors`    → PVE hosts. PVE-specific work (repos, cluster,
-#                        LVM-thin storage carve, template bake — the
-#                        20-hypervisor tier) targets this. Children:
-#       - `pve_standalone` → independent nodes, NO corosync. Each is its
-#                            own API surface; Tofu uses a provider per node.
-#       - `pve_cluster`    → parent of zero or more corosync clusters.
-#                            Each CHILD group is ONE cluster: the group
-#                            name is the cluster name, and
-#                            group_vars/<name>.yml sets
-#                            `proxmox_cluster_name: <name>`. Empty today.
+#   - `hypervisors`    → PVE hosts. PVE-specific work (repos, LVM-thin
+#                        storage carve, template bake — the 20-hypervisor
+#                        tier) targets this. Children:
+#       - `pve_standalone` → every PVE host lives here. No corosync, no
+#                            shared storage. Each is its own API surface;
+#                            Tofu uses a provider per node.
+#       - `pve_cluster`    → GATED OFF. Kept (empty) as deprecated
+#                            scaffolding only; 20-hypervisor/20-cluster.yml
+#                            asserts this group is empty.
 #   - `workers`        → plain Linux baremetal (no PVE). k3s baremetal
 #                        workers, app hosts, etc. Today: worker-home-02
 #                        (renamed from pve-home-02 after the gaming-PC
@@ -125,14 +124,12 @@ all:
     ansible_python_interpreter: /usr/bin/python3
     # Proxmox API endpoints, one per HYPERVISOR. Read by Tofu via
     # tofu/locals.tf → provider.tf, which declares one aliased provider
-    # per node. With independent (non-clustered) nodes a single endpoint
-    # cannot place VMs on a peer, so each node is addressed directly. In a
-    # cluster every member exposes the full API; pointing each provider at
-    # its own node is uniform and works for both topologies. Workers (plain
-    # Linux baremetal) do NOT appear here — they don't run the PVE API.
-    # Adding a hypervisor = add it here + a provider block in
-    # tofu/provider.tf + a token var (see tofu/variables.tf) + a module
-    # call in tofu/main.tf.
+    # per node. Every hypervisor is standalone — there is no shared API,
+    # so each node must be addressed directly. Workers (plain Linux
+    # baremetal) do NOT appear here — they don't run the PVE API.
+    # Adding a hypervisor: extend `proxmox_api_tokens` in
+    # group_vars/all/vars.yml + follow the 3-step checklist in
+    # tofu/provider.tf (endpoint here, provider block, module call).
     proxmox_endpoints:
       pve-home-01: "https://pve-home-01.lan:8006"
     # Per-hypervisor Proxmox template IDs. Read by Ansible
@@ -174,10 +171,10 @@ foundation:
 
 hypervisors:
   # PVE hypervisors only. The 20-hypervisor tier targets this group
-  # (Proxmox repo flip, cluster, LVM-thin storage carve, template bake).
-  # Topology is decided by which child group a host sits in (see header).
-  # `hosts:` here would be topology-ambiguous, so all hosts live under a
-  # child group.
+  # (Proxmox repo flip, LVM-thin storage carve, template bake). Every
+  # PVE host lives under `pve_standalone`; the sibling `pve_cluster`
+  # group is gated off (see header) and exists only as deprecated
+  # scaffolding.
   children:
     pve_standalone:
       # Independent PVE nodes — no corosync, no HA, no live-migration.
@@ -205,21 +202,10 @@ hypervisors:
                     content: images,rootdir,iso,vztmpl,snippets
                     size: "0"          # fill the boot tail
     pve_cluster:
-      # Parent of all corosync clusters. Each child group is ONE cluster
-      # (group name = cluster name; set proxmox_cluster_name in
-      # group_vars/<name>.yml). Empty today — poochella is standalone.
-      # Example:
-      #   children:
-      #     poochella:
-      #       hosts:
-      #         pve-home-03:
-      #           ansible_host: pve-home-03.lan
-      #           ip_address: 10.1.1.107
-      #           mac_address: "e4:e7:49:47:dc:bf"
-      #         pve-home-04:
-      #           ansible_host: pve-home-04.lan
-      #           ip_address: 10.1.1.108
-      #           mac_address: "<unique-mac>"
+      # GATED OFF: PVE clustering is fully disabled in this repo by an
+      # assertion in playbooks/poochella/infra/20-hypervisor/20-cluster.yml.
+      # Group kept (empty) as deprecated scaffolding for reference.
+      # Every hypervisor is standalone — keep them under `pve_standalone`.
       children: {}
 
 workers:

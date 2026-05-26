@@ -63,9 +63,11 @@
 # `tofu apply` reconciles the rest of the inventory.
 #
 # What's deliberately NOT here:
-#   - 20-cluster.yml — targets `pve_cluster`, orthogonal to foundation.
-#     A standalone foundation hypervisor (pve-home-01 today) is not in
-#     pve_cluster, so cluster setup has nothing to do.
+#   - 20-cluster.yml — gated off (PVE clustering is no longer a
+#     supported topology in this repo; see the assertion at the top of
+#     20-hypervisor/20-cluster.yml). Also orthogonal to foundation —
+#     even if the gate were lifted, a standalone foundation hypervisor
+#     wouldn't sit under `pve_cluster`.
 
 # ── 17-host baseline on the foundation hypervisor(s) ────────────────────
 - import_playbook: ../17-host/10-bootstrap.yml

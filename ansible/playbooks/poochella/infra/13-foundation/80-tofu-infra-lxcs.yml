@@ -20,11 +20,12 @@
 # (Tofu sees the LXC matches state, nothing to do).
 #
 # Adding a foundation hypervisor:
-#   1. Add it to `foundation:` in inventory.yaml
-#   2. Add the same 4-step hypervisor checklist (tofu/provider.tf header)
-#      — endpoint, var, provider block, module call (LXC + VM)
+#   1. Add it to `foundation:` in inventory.yaml + the node's vault key
+#      to `proxmox_api_tokens` in group_vars/all/vars.yml
+#   2. Follow the 3-step hypervisor checklist (tofu/provider.tf header)
+#      — endpoint, provider block, module call (LXC + VM)
 #   3. Add `module.infra_lxcs_<new_node>` to the `targets:` list below
-#   4. Add `TF_VAR_proxmox_api_token_<new_node>` to the environment below
+#      (the env-var below is map-based — no per-node line to maintain)
 
 - name: Verify each foundation hypervisor's Proxmox API token (vault + PVE)
   hosts: "{{ target_hosts | default('foundation') }}"
@@ -80,12 +81,13 @@
         targets:
           - module.infra_lxcs_pve_home_01
       environment:
-        # One TF_VAR per foundation hypervisor (mirrors the per-node
-        # provider blocks in tofu/provider.tf). Tofu only reads the
-        # tokens whose providers serve the targeted modules, but other
-        # declared `variable` blocks without defaults would still need a
-        # value — keep this list aligned with tofu/variables.tf.
-        TF_VAR_proxmox_api_token_pve_home_01: "{{ proxmox_api_tokens['pve-home-01'] }}"
+        # Single JSON-encoded map → Tofu's `var.proxmox_api_tokens`
+        # (same shape as 30-guests/10-opentofu.yml). Each per-node
+        # provider block in tofu/provider.tf looks up its hypervisor's
+        # token by name; the targeted apply only exercises the
+        # foundation node's provider, but every declared provider must
+        # still resolve, so we pass the full map.
+        TF_VAR_proxmox_api_tokens: "{{ proxmox_api_tokens | to_json }}"
       register: tofu_output
       no_log: false
 

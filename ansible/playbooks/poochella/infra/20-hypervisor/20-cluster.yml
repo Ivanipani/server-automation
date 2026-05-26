@@ -1,8 +1,15 @@
 ---
+# GATED OFF — this playbook refuses to run if any host is placed under
+# `pve_cluster`. Every Proxmox hypervisor in this repo is a standalone
+# PVE host; corosync clustering is no longer a supported topology.
+#
+# To re-enable clustering: delete the "Refuse to cluster" play below
+# (the rest of this file is preserved as the original contract).
+#
+# ── Original contract (kept verbatim for reference) ────────────────────
 # Forms Proxmox VE corosync clusters — PER GROUP.
 #
-# Topology is decided by inventory groups (see inventory.yaml header):
-# only hosts under `pve_cluster` are touched here. `pve_cluster`'s
+# Only hosts under `pve_cluster` are touched here. `pve_cluster`'s
 # children are the clusters themselves — each child group is ONE cluster,
 # the group name IS the cluster name, and group_vars/<name>.yml sets
 # `proxmox_cluster_name: <name>`. Hosts under `pve_standalone` are never
@@ -19,16 +26,28 @@
 # first host within a --limit subset — so `--limit <non-first-node>`
 # always takes the JOIN path and only succeeds against an already-created
 # cluster. Never elect from the limited set (would create a split
-# cluster). No-op while standalone, but the rule holds the day a
-# pve_cluster child group gains members.
-#
-# NO-OP when `pve_cluster` has no members (poochella runs standalone) —
-# the playbook stays wired in infra/site.yml and simply matches no hosts.
+# cluster).
 #
 # Pre-condition: 10-bootstrap.yml has run (the `ansible` user with
 # sudo NOPASSWD exists on each host). Joiners must be fresh PVE
 # installs (no VMs/CTs, no custom storage.cfg) — `pvecm add` rewrites
 # /etc/pve on the joiner.
+
+- name: Refuse to cluster (standalone-only is enforced)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Assert pve_cluster is empty
+      ansible.builtin.assert:
+        that:
+          - (groups['pve_cluster'] | default([])) | length == 0
+        fail_msg: |
+          PVE clustering is gated off in this repo (standalone-only).
+          A host has been placed under `pve_cluster` (or one of its
+          children). Remove it, or — to re-enable clustering — delete
+          this "Refuse to cluster" play and read the rest of
+          20-cluster.yml's header for the original contract.
 
 - name: Establish inter-node root SSH trust (within each cluster)
   hosts: pve_cluster

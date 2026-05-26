@@ -2,12 +2,9 @@
 # PVE-only knobs. Generic-host vars (tailscale, ssh, firewall) live in
 # group_vars/physical.yml.
 
-# Proxmox topology is per-group (see inventory.yaml header). A corosync
-# cluster name is NOT a fleet-wide setting — standalone nodes have none.
-# To form a cluster, create a child group under `pve_cluster` and set
-# `proxmox_cluster_name: <group-name>` in group_vars/<group-name>.yml;
-# 20-hypervisor/20-cluster.yml scopes corosync to that group's members.
-# Poochella runs standalone, so nothing is set here.
+# PVE clustering is gated off (assertion in 20-hypervisor/20-cluster.yml).
+# Every hypervisor is standalone — there is nothing cluster-related to
+# set here.
 
 # ── Storage convention (consumed by 17-host/15-storage.yml) ─────────
 #

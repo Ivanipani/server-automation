@@ -1,16 +1,16 @@
-# Per-hypervisor Proxmox API tokens. Independent nodes each have their
-# own token (minted on that node: `pveum user token add root@pam
-# tofu-lan --privsep 0`). They are passed in from Ansible via per-node
-# TF_VAR_proxmox_api_token_<node> environment variables
-# (30-guests/10-opentofu.yml), sourced from the vault. Per-node string
-# vars (not a single map) keep env passing unambiguous and match the
-# unavoidable static per-node provider blocks in provider.tf.
+# Proxmox API tokens, one per standalone hypervisor — passed in by
+# Ansible (30-guests/10-opentofu.yml + 13-foundation/80-tofu-infra-lxcs.yml)
+# as a single JSON-encoded `TF_VAR_proxmox_api_tokens` env var, sourced
+# from the `proxmox_api_tokens` group var in group_vars/all/vars.yml.
 #
-# Adding a hypervisor: see the checklist in tofu/provider.tf.
+# Keying contract: map keys MUST match the keys in inventory.yaml's
+# all.vars.proxmox_endpoints — every aliased provider in
+# tofu/provider.tf looks up its token here by hypervisor name.
+#
+# Adding a hypervisor: see the 3-step checklist in tofu/provider.tf.
 
-variable "proxmox_api_token_pve_home_01" {
-  description = "Proxmox API token for pve-home-01 (user@realm!tokenid=secret)"
-  type        = string
+variable "proxmox_api_tokens" {
+  description = "Map of hypervisor name => Proxmox API token (user@realm!tokenid=secret). Keys MUST match all.vars.proxmox_endpoints in inventory.yaml."
+  type        = map(string)
   sensitive   = true
 }
-

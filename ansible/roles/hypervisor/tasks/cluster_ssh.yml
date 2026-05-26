@@ -1,4 +1,7 @@
 ---
+# Gated off in playbooks/poochella/infra/20-hypervisor/20-cluster.yml.
+# Kept for reference; do not import from a live playbook.
+#
 # Establishes inter-node root SSH trust prerequisite for `pvecm add`,
 # scoped to THIS host's cluster only (`groups[proxmox_cluster_name]`), so
 # multiple clusters / standalone nodes don't cross-authorize.

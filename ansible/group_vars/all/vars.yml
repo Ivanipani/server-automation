@@ -43,10 +43,12 @@ github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCp
 opnsense_api_key: "{{ vault_opnsense_api_key }}"
 opnsense_api_secret: "{{ vault_opnsense_api_secret }}"
 proxmox_api_token: "{{ vault_proxmox_api_token }}"
-# Per-hypervisor Proxmox API tokens (independent nodes don't share
+# Per-hypervisor Proxmox API tokens (standalone nodes don't share
 # /etc/pve, so each node has its own token minted on it). Keyed by the
-# inventory node name; consumed by 30-guests/10-opentofu.yml which
-# passes each as TF_VAR_proxmox_api_token_<node> to OpenTofu. Only PVE
+# inventory node name; consumed by 30-guests/10-opentofu.yml and
+# 13-foundation/80-tofu-infra-lxcs.yml, both of which pass this WHOLE
+# map to OpenTofu as a single JSON-encoded `TF_VAR_proxmox_api_tokens`
+# env var bound to `var.proxmox_api_tokens` (a `map(string)`). Only PVE
 # hosts appear here — workers (plain Debian) do not run the PVE API.
 # Add a hypervisor = mint a `tofu-lan` token on it and add the secret
 # with `just secret-encrypt vault_proxmox_api_token_<host>`.

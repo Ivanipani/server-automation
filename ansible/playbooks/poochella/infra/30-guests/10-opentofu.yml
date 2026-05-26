@@ -2,10 +2,12 @@
 # Provisions VMs (and, when revived, containers) defined in tofu/ using
 # OpenTofu.
 #
-# Topology: Proxmox nodes are independent (per-group; see inventory.yaml).
-# Each node has its OWN API token (separate /etc/pve), so OpenTofu uses a
-# provider per node (tofu/provider.tf) and this playbook passes a per-node
-# token to each via TF_VAR_proxmox_api_token_<node>.
+# Topology: every Proxmox hypervisor is a standalone PVE host. Each
+# node has its own API token (separate /etc/pve), so OpenTofu uses one
+# aliased provider per node (tofu/provider.tf). This playbook passes
+# every token in a single JSON-encoded `TF_VAR_proxmox_api_tokens` env
+# var bound to Tofu's `var.proxmox_api_tokens` (a `map(string)`); each
+# provider block looks up its hypervisor by name.
 #
 # Auth indirection: `proxmox_api_tokens` (group_vars/all/vars.yml) maps
 # node => `{{ vault_* }}`. No plaintext token ever hits disk — values are
@@ -15,8 +17,8 @@
 #   ssh root@<node> 'pveum user token add root@pam tofu-lan --privsep 0'
 #   just secret-encrypt vault_proxmox_api_token_<node_with_underscores>
 #   # paste the encrypted block into group_vars/all/vault.yml, then add
-#   # the node to the `proxmox_api_tokens` map in group_vars/all/vars.yml
-#   # (pve-home-01 reuses the legacy `vault_proxmox_api_token`).
+#   # the node to the `proxmox_api_tokens` map in group_vars/all/vars.yml.
+#   # See the 3-step Tofu-side checklist in tofu/provider.tf.
 #
 # To rotate a token:
 #   ssh root@<node> 'pveum user token modify root@pam tofu-lan'
@@ -73,10 +75,12 @@
         state: present
         force_init: true
       environment:
-        # One TF_VAR per hypervisor — matches the static per-node
-        # provider blocks in tofu/provider.tf. Adding a hypervisor: add
-        # a line here and see the checklist in tofu/provider.tf.
-        TF_VAR_proxmox_api_token_pve_home_01: "{{ proxmox_api_tokens['pve-home-01'] }}"
+        # Single JSON-encoded map → Tofu's `var.proxmox_api_tokens`.
+        # Each provider block in tofu/provider.tf looks up its
+        # hypervisor's token by name. Adding a hypervisor: extend
+        # `proxmox_api_tokens` in group_vars/all/vars.yml (and follow
+        # the 3-step checklist in tofu/provider.tf).
+        TF_VAR_proxmox_api_tokens: "{{ proxmox_api_tokens | to_json }}"
         # NOTE: an earlier iteration also exported TF_VAR_ansible_pubkey
         # so tofu/modules/lxc could inject it via
         # `initialization.user_account.keys`. PVE's container-clone API
