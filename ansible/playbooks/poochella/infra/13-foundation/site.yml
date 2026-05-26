@@ -40,17 +40,12 @@
 # ── 17-host baseline on the foundation hypervisor(s) ────────────────────
 - import_playbook: ../17-host/10-bootstrap.yml
   vars: { target_hosts: foundation }
-# - import_playbook: ../17-host/15-storage.yml
-#   vars: { target_hosts: foundation }
-# - import_playbook: ../17-host/16-nfs-mounts.yml
-#   vars: { target_hosts: foundation }
-- import_playbook: ../17-host/20-ssh-hardening.yml
-  vars: { target_hosts: foundation }
+- import_playbook: ../17-host/15-storage.yml
+  vars:
+    target_hosts: foundation
+    confirm_carve_data_disk: true
+
 - import_playbook: ../17-host/30-firewall.yml
-  vars: { target_hosts: foundation }
-- import_playbook: ../17-host/40-tailscale.yml
-  vars: { target_hosts: foundation }
-- import_playbook: ../17-host/50-node-exporter.yml
   vars: { target_hosts: foundation }
 
 # ── 20-hypervisor PVE fabric on the foundation hypervisor(s) ────────────
@@ -59,7 +54,12 @@
 - import_playbook: ../20-hypervisor/30-pve-storage-register.yml
   vars: { target_hosts: foundation }
 - import_playbook: ../20-hypervisor/40-templates.yml
-  vars: { target_hosts: foundation }
+  vars:
+    target_hosts: foundation
+    build_lxc_templates: true
+    build_vm_templates: false
+    purge_existing_templates: true
+
 
 # ── Targeted Tofu apply: just the infra LXCs (bootserv01 today) ─────────
 - import_playbook: 80-tofu-infra-lxcs.yml

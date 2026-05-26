@@ -164,29 +164,11 @@ router:
       static_ip: true
 
 physical:
-  # Umbrella for EVERY baremetal Linux host (hypervisors + plain workers).
-  # The 17-host tier targets this group: ansible/pani/tourmanager users,
-  # SSH hardening, firewall, tailscale, node-exporter. Defined as a parent
-  # of `hypervisors` and `workers` (which carry the actual host entries).
   children:
     hypervisors:
     workers:
 
 foundation:
-  # Foundational subset that must be all-the-way-up (full 17-host +
-  # 20-hypervisor stack, plus the bootserv01 LXC) BEFORE any other
-  # baremetal host can be netboot-installed — fresh workers need
-  # bootserv01.lan to PXE-fetch their kernel/initrd/preseed, and
-  # bootserv01 is an LXC pinned to a hypervisor in this group.
-  #
-  # Targeted by the 16-foundation tier (playbooks re-import the 17-host /
-  # 20-hypervisor plays with `target_hosts: foundation`). Today: just
-  # pve-home-01. Adding a redundant bootserv-hosting hypervisor in the
-  # future = add it here, no other change.
-  #
-  # Members MUST also appear under `hypervisors` (the foundation tier
-  # runs 20-hypervisor work against them). Workers cannot be foundation
-  # hosts — they don't host LXCs.
   hosts:
     pve-home-01:
 
@@ -204,16 +186,6 @@ hypervisors:
           ansible_host: pve-home-01.lan
           ip_address: 10.1.1.105
           mac_address: "18:60:24:dc:b7:32"
-          # Baremetal Debian unattended-install hint (read by img/debian/).
-          # `disk` is the device the Debian installer wipes + lays down LVM
-          # on for / (everything else — the `vms` + `longhorn-data` carve —
-          # is owned by the host-disks role post-install). Stable
-          # /dev/disk/by-id path so kernel renames don't matter; the value
-          # is verified against the host's lsblk output in `just disk-plan`.
-          # The PVE auto-install path (img/proxmox/pve-home-01.toml) still
-          # works untouched; pick whichever ISO you flash per host.
-          debian_install:
-            disk: /dev/sda
           # Mini-PC: a single 256 GB boot NVMe is the ONLY storage.
           # PVE installer takes the first ~100 GiB (lvm.hdsize=100) as
           # the `pve` VG (hypervisor); the free tail (~156 GiB) is
@@ -259,12 +231,6 @@ workers:
   # see them (no `vm:` / `lxc:` block).
   hosts:
     worker-home-02:
-      # Renamed 2026-05-23 from `pve-home-02` — this host was originally
-      # a PVE node and got de-Proxmoxed for use as a baremetal Linux
-      # worker. The MAC is unchanged, so the OPNsense DHCP reservation
-      # follows the rename via the dnsmasq playbook. The `host-base`
-      # role enforces hostname == inventory_hostname so a re-run of
-      # 17-host/10-bootstrap.yml carries the rename onto the live box.
       ansible_host: worker-home-02.lan
       ip_address: 10.1.1.106
       mac_address: "3c:7c:3f:1f:96:af"
@@ -331,34 +297,6 @@ switches:
       mac_address: "04:f4:1c:82:e0:ff"
 
 storage:
-  # NAS / shared file-storage targets. Administered out-of-band on the
-  # device's own UI (Synology DSM), but treated as a normal LAN host
-  # from the network's point of view: a dnsmasq static DHCP reservation
-  # pins MAC -> ip_address and auto-registers `nas01.lan` in DNS via
-  # `dnsmasq_register_static_dns: true` — same path every other named
-  # LAN host uses (kube-ctl-01.lan, pve-home-01.lan, …), no separate
-  # Unbound override needed. The NAS may keep its DSM static-IP config
-  # or switch to DHCP; either way the MAC -> IP binding matches and the
-  # name resolves.
-  #
-  # Read by:
-  #   - 20-hypervisor/40-bake-images.yml  (Packer publishes the dated qcow2
-  #                                        + atomic `latest` symlink here
-  #                                        via rsync-over-SSH)
-  #   - tofu/locals.tf                    (`nas.https_url_base` is the
-  #                                        source of every
-  #                                        proxmox_virtual_environment_download_file
-  #                                        URL Tofu pulls onto each PVE
-  #                                        node's `local` ISO storage)
-  #
-  # Per-host `nas:` namespace fields (concrete values are PLACEHOLDERS —
-  # bump them to match the deployed device before first `just bake-images`):
-  #   - images_dir        absolute path on the NAS filesystem holding the
-  #                       golden-image artifacts.
-  #   - rsync_user        service account on the NAS with SSH + write to
-  #                       images_dir + the ability to `ln -sf` + `mv -Tf`
-  #                       symlinks (Synology: a user with shell access).
-  #   - https_url_base    HTTPS URL root the NAS exposes for images_dir.
   hosts:
     nas01:
       ansible_host: nas01.lan
@@ -398,10 +336,6 @@ virtual-machines:
       #       tags: [dev, ivan]
 
 kubernetes:
-  # Top-level group (not a child of `virtual-machines` — see the note
-  # there). Today: `kube_control_plane` is empty until VM CPs come up,
-  # and `kube_workers` contains the baremetal worker-home-02. Both VMs
-  # and baremetal can coexist as members.
   children:
     kube_control_plane:
       hosts:
@@ -441,34 +375,7 @@ kubernetes:
     #         tags: [kube, control-plane]
     kube_workers:
       hosts:
-        # worker-home-02 is BAREMETAL (also a member of the `workers`
-        # group at top level — the 17-host tier applies: users,
-        # ssh-hardening, firewall, tailscale, node-exporter). Listed
-        # here so the 40-kube tier's `agent` play runs on it,
-        # group_vars/kube_workers.yml's firewall_inbound_allow opens
-        # k3s ports, and the Longhorn create-default-disk node label
-        # lands on it.
-        #
-        # Caveat: 40-kube/10-longhorn-host-prep.yml's data-disk play
-        # hard-codes `/dev/vdb` (VM virtio second disk) and has a
-        # `when:` guard that skips it on baremetal. Baremetal Longhorn
-        # storage prep is a known follow-up (the host has 1 TB NVMe +
-        # 1 TB HDD that need their own format/mount scheme — likely an
-        # LVM+ext4 mount at /var/lib/longhorn, OR multiple disks
-        # registered separately to Longhorn).
         worker-home-02:
-      # Aspirational VM-based kube_workers (commented until provisioned):
-      #   kube-worker-01:
-      #     ansible_host: kube-worker-01.lan
-      #     ip_address: 10.1.1.113
-      #     mac_address: "02:00:00:00:03:01"
-      #     vm:
-      #       proxmox_node: pve-home-01
-      #       cores: 4
-      #       memory: 16000
-      #       disk_size: 50
-      #       data_disk_size: 600
-      #       tags: [kube, worker]
 
 containers:
   # LXC guests. Like VMs, each leaf group owns its inbound firewall
@@ -484,16 +391,6 @@ containers:
       # module on the same node (the ground-up bootstrap invariant).
       # Lives on pve-home-01 so it survives the worker-home-02 re-image
       # that triggers most iPXE boots.
-      #
-      # Addressing: NO `ip_address` and NO `mac_address` on purpose.
-      # PVE auto-generates a unique MAC at clone time; the LXC DHCPs
-      # into OPNsense's dynamic pool; dnsmasq's dynamic-DNS
-      # (`regdhcp: true` in 20-dnsmasq.yml) registers `bootserv01.lan`
-      # → assigned IP. The hostname `bootserv01` is set by the Tofu
-      # LXC module's `initialization.hostname` so the DHCP request
-      # advertises the right name. Every reference to the bootserv
-      # (Ansible SSH, PXE clients, iPXE scripts) goes through the
-      # hostname, never an IP literal.
       hosts:
         bootserv01:
           ansible_host: bootserv01.lan
@@ -504,22 +401,8 @@ containers:
             disk_size: 30
             unprivileged: true
             features:
-              # nesting=on matches the live PVE state and is harmless for
-              # bootserv01 (it doesn't use it). Was previously `false`
-              # until tofu apply 403'd: non-root@pam tokens can't change
-              # feature flags, and the bpg provider re-sends the entire
-              # features struct on any update — so flipping nesting tripped
-              # PVE's "features other than nesting" guard via unchanged-
-              # adjacent fields. Aligning to reality clears the diff.
               nesting: true
             tags: [infra, bootserv]
           firewall_inbound_allow:
             - { proto: tcp, port: 22, comment: "ssh" }
             - { proto: tcp, port: 80, comment: "http" }
-    webservers:   # caddy/nginx — policy: group_vars/webservers.yml (80/443)
-    # dns:        # pihole — policy: group_vars/dns.yml (53, 67, 80)
-    #   hosts:
-    #     pihole02:
-    #       ansible_host: pihole02.lan
-    #       ip_address: 10.1.1.53
-    #       mac_address: "02:00:00:00:04:01"

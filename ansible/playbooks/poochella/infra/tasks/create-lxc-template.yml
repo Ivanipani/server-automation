@@ -92,35 +92,40 @@
       changed_when: true
 
     # First-boot SSH host-key regenerator. The next step deletes
-    # /etc/ssh/ssh_host_* so every clone gets unique keys; ssh.service
-    # then fails to start ("no host keys available") and the clone is
-    # unreachable unless something regenerates them first.
+    # /etc/ssh/ssh_host_* so every clone gets unique keys; with no
+    # host keys present, ssh.service fails to start ("no host keys
+    # available") and the clone is unreachable unless something
+    # regenerates them before sshd binds.
     #
-    # Debian Trixie's openssh-server DOES ship a `sshd-keygen.service`
-    # unit (`ExecStart=ssh-keygen -A`, `Before=ssh.service`, wired into
-    # ssh.service's Wants) that would do exactly this — except it
-    # carries `ConditionFirstBoot=yes`, which is unreliable for cloned
-    # LXCs: systemd-machine-id-setup populates /etc/machine-id early in
-    # boot and the firstboot marker often isn't honored even though we
-    # truncate machine-id in the next step. Worse, on Debian 13
-    # `dpkg-reconfigure openssh-server` no longer regenerates keys
-    # inline — its postinst delegates back to sshd-keygen.service, so
-    # invoking it from an ExecStartPre hits the same broken condition
-    # gate and silently no-ops.
+    # Debian Trixie's openssh-server ships `sshd-keygen.service`
+    # (Type=oneshot, ExecStart=ssh-keygen -A, Before=ssh.service,
+    # WantedBy=ssh.service) which is precisely the right hook —
+    # except it carries `ConditionFirstBoot=yes`. That condition is
+    # unreliable for cloned LXCs (the firstboot marker is set from
+    # systemd-machine-id-setup state during early boot, and in a
+    # cloned unprivileged LXC the marker often ends up NOT set even
+    # though we truncate /etc/machine-id in the next step), so the
+    # unit silently skips on every boot of the clone.
     #
-    # So this drop-in calls `ssh-keygen -A` directly — same operation
-    # sshd-keygen.service would do, no condition gate — as an
-    # ExecStartPre for ssh.service, guarded by `! -f
-    # /etc/ssh/ssh_host_rsa_key` so subsequent boots skip the work.
-    # Installed BEFORE the reset so the drop-in itself survives
+    # A drop-in on `ssh.service` itself is the wrong layer: upstream
+    # declares `ExecStartPre=/usr/sbin/sshd -t` FIRST with
+    # ignore_errors=no, and `sshd -t` exits non-zero when host keys
+    # are missing — aborting the start before any appended drop-in
+    # ExecStartPre can run.
+    #
+    # So instead: drop-in on sshd-keygen.service that CLEARS
+    # ConditionFirstBoot (empty assignment resets the directive).
+    # ssh-keygen -A is itself idempotent — only creates missing keys —
+    # so running it every boot is harmless. Installed BEFORE the
+    # ssh-host-key reset so the drop-in itself survives
     # templatize-and-clone.
-    - name: "Install ssh.service drop-in to regenerate host keys on first boot in {{ lxc_template.id }}"
+    - name: "Install sshd-keygen.service drop-in to clear ConditionFirstBoot in {{ lxc_template.id }}"
       ansible.builtin.shell: |
         set -e
-        pct exec {{ lxc_template.id }} -- mkdir -p /etc/systemd/system/ssh.service.d
-        pct exec {{ lxc_template.id }} -- bash -c "cat > /etc/systemd/system/ssh.service.d/regenerate-host-keys.conf <<'EOF'
-        [Service]
-        ExecStartPre=-/bin/sh -c 'if [ ! -f /etc/ssh/ssh_host_rsa_key ]; then ssh-keygen -A; fi'
+        pct exec {{ lxc_template.id }} -- mkdir -p /etc/systemd/system/sshd-keygen.service.d
+        pct exec {{ lxc_template.id }} -- bash -c "cat > /etc/systemd/system/sshd-keygen.service.d/no-firstboot.conf <<'EOF'
+        [Unit]
+        ConditionFirstBoot=
         EOF"
         pct exec {{ lxc_template.id }} -- systemctl daemon-reload
       changed_when: true
