@@ -1,0 +1,152 @@
+---
+# PRODUCER — bake a single Debian VM cloud image on the foundation
+# hypervisor and PUBLISH the customized qcow2 to bootserv01 at
+# http://bootserv01.lan/cloud-images/<image_file>. Every Proxmox node
+# (including foundation itself) later consumes that artifact via
+# tasks/consume-vm-template.yml.
+#
+# Required vars:
+#   vm_template    – dict with image_url, image_file (id/name unused here;
+#                    the qm template happens in the consume phase)
+#   vm_packages    – comma-separated package list for virt-customize --install
+#   ansible_pubkey – contents of ~/.ssh/ansible.pub on the controller
+#   bootserv_ctid  – CTID of bootserv01 on foundation (set as play-level
+#                    fact in 95-bake-publish-images.yml)
+#   bootserv_http_root, bootserv_owner, bootserv_group
+#                  – mirror the bootserv role's defaults (see
+#                    roles/bootserv/defaults/main.yml)
+#   force_rebuild  – set true to rebake + republish even if the artifact
+#                    is already on bootserv01
+
+- name: "Check if {{ vm_template.image_file }} is already published on bootserv01"
+  ansible.builtin.command:
+    cmd: "pct exec {{ bootserv_ctid }} -- test -f {{ bootserv_http_root }}/cloud-images/{{ vm_template.image_file }}"
+  register: vm_image_published
+  failed_when: false
+  changed_when: false
+
+- name: "Bake + publish VM image {{ vm_template.image_file }}"
+  when: vm_image_published.rc != 0 or (force_rebuild | default(false) | bool)
+  block:
+    # virt-customize expands a ~350MB qcow2 to ~1.5GB during --install.
+    # Use /var/tmp (disk-backed) not /tmp (often tmpfs on PVE).
+    - name: "Download upstream cloud image {{ vm_template.image_file }}"
+      ansible.builtin.get_url:
+        url: "{{ vm_template.image_url }}"
+        dest: "/var/tmp/{{ vm_template.image_file }}"
+        mode: "0644"
+        timeout: 120
+      register: vm_image_dl
+      until: vm_image_dl is succeeded
+      retries: 5
+      delay: 15
+
+    - name: "Stage ansible SSH public key on foundation"
+      ansible.builtin.copy:
+        content: "{{ ansible_pubkey }}"
+        dest: /var/tmp/ansible.pub
+        mode: "0644"
+
+    # virt-customize flags execute in order: useradd must precede --ssh-inject.
+    # Single invocation so the libguestfs appliance only boots once.
+    - name: "Customize cloud image {{ vm_template.image_file }}"
+      ansible.builtin.command:
+        argv:
+          - virt-customize
+          - -a
+          - "/var/tmp/{{ vm_template.image_file }}"
+          - --install
+          - "{{ vm_packages }}"
+          - --run-command
+          - id -u ansible >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo ansible
+          - --ssh-inject
+          - ansible:file:/var/tmp/ansible.pub
+          - --write
+          - "/etc/sudoers.d/90-ansible:ansible ALL=(ALL) NOPASSWD: ALL\n"
+          - --chmod
+          - "0440:/etc/sudoers.d/90-ansible"
+          # Bake the automatic-apt-upgrade kill-switch into the image so
+          # clones never auto-upgrade — even before the 30-guests tier
+          # gets to them. APT::Periodic::Unattended-Upgrade "0" is
+          # authoritative; 30-guests/30-disable-auto-upgrades.yml
+          # additionally masks the apt-daily timers on running VMs.
+          - --write
+          - |
+            /etc/apt/apt.conf.d/20auto-upgrades:// Baked by 13-foundation/95-bake-publish-images.yml — automatic apt upgrading off.
+            APT::Periodic::Update-Package-Lists "0";
+            APT::Periodic::Unattended-Upgrade "0";
+            APT::Periodic::Download-Upgradeable-Packages "0";
+            APT::Periodic::AutocleanInterval "0";
+          # cc_set_hostname runs after networking is already up, so the
+          # first DHCPREQUEST goes out without option 12 and OPNsense
+          # dnsmasq has nothing to register. Renewing the lease in runcmd
+          # (cloud-final stage) re-sends the request once /etc/hostname
+          # is in place.
+          - --write
+          - |
+            /etc/cloud/cloud.cfg.d/99-renew-dhcp-after-hostname.cfg:runcmd:
+              - [sh, -c, "if systemctl is-active --quiet systemd-networkd; then networkctl renew --all || true; elif pgrep -x dhclient >/dev/null; then dhclient -r || true; dhclient || true; fi"]
+          - --run-command
+          - >-
+            sed -ri
+            -e 's/^#?PasswordAuthentication.*/PasswordAuthentication no/'
+            -e 's/^#?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/'
+            /etc/ssh/sshd_config
+      changed_when: true
+
+    # Sysprep AFTER customize so the customize log lines get cleaned too.
+    # machine-id reset is the load-bearing fix for the duplicate-DHCP-lease
+    # bug. The explicit --delete /var/lib/cloud/instances drops cloud-init's
+    # instance cache so first boot runs against the new instance-id.
+    - name: "Sysprep cloud image {{ vm_template.image_file }}"
+      ansible.builtin.command:
+        argv:
+          - virt-sysprep
+          - -a
+          - "/var/tmp/{{ vm_template.image_file }}"
+          - --operations
+          - machine-id,ssh-hostkeys,bash-history,logfiles,udev-persistent-net,net-hostname
+          - --delete
+          - /var/lib/cloud/instances
+      changed_when: true
+
+    # ── Publish to bootserv01 via pct push (no SSH between foundation
+    # and bootserv01 required — they're on the same PVE host kernel).
+    - name: "Compute sha256 of baked qcow2 on foundation"
+      ansible.builtin.stat:
+        path: "/var/tmp/{{ vm_template.image_file }}"
+        checksum_algorithm: sha256
+      register: vm_image_stat
+
+    - name: "Write sha256 sidecar locally on foundation"
+      ansible.builtin.copy:
+        content: "{{ vm_image_stat.stat.checksum }}  {{ vm_template.image_file }}\n"
+        dest: "/var/tmp/{{ vm_template.image_file }}.sha256"
+        mode: "0644"
+
+    - name: "Push qcow2 into bootserv01 docroot"
+      ansible.builtin.command:
+        cmd: >-
+          pct push {{ bootserv_ctid }}
+          /var/tmp/{{ vm_template.image_file }}
+          {{ bootserv_http_root }}/cloud-images/{{ vm_template.image_file }}
+          --user {{ bootserv_owner }} --group {{ bootserv_group }} --perms 0644
+      changed_when: true
+
+    - name: "Push sha256 sidecar into bootserv01 docroot"
+      ansible.builtin.command:
+        cmd: >-
+          pct push {{ bootserv_ctid }}
+          /var/tmp/{{ vm_template.image_file }}.sha256
+          {{ bootserv_http_root }}/cloud-images/{{ vm_template.image_file }}.sha256
+          --user {{ bootserv_owner }} --group {{ bootserv_group }} --perms 0644
+      changed_when: true
+
+    - name: "Clean up bake scratch on foundation"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/var/tmp/{{ vm_template.image_file }}"
+        - "/var/tmp/{{ vm_template.image_file }}.sha256"
+        - "/var/tmp/ansible.pub"

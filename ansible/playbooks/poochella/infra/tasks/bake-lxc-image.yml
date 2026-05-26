@@ -1,0 +1,112 @@
+---
+# PRODUCER — snapshot the local LXC template CT on foundation (built by
+# 13-foundation/50-bootstrap-lxc-template.yml) and PUBLISH the vzdump
+# tarball to bootserv01 at http://bootserv01.lan/lxc-templates/<artifact>.
+# Every Proxmox node (including foundation) later consumes via
+# tasks/consume-lxc-template.yml.
+#
+# Why snapshot-an-existing-CT instead of re-baking from upstream: the
+# bootstrap pass already produced a fully customized template CT (the
+# one Tofu cloned bootserv01 from). Re-baking it here would create a
+# second source of truth on foundation. Snapshotting the existing CT
+# gives peers a byte-identical copy of foundation's local template.
+#
+# Required vars:
+#   lxc_template            – dict with id (CTID of the existing template
+#                             CT on foundation), hostname, image
+#   bootserv_ctid           – bootserv01 CTID on foundation (set as
+#                             play-level fact in 95-bake-publish-images.yml)
+#   bootserv_http_root, bootserv_owner, bootserv_group
+#                           – mirror the bootserv role's defaults
+#   force_rebuild           – set true to re-snapshot + republish even
+#                             if the artifact is already on bootserv01
+
+- name: "Compute LXC artifact filename for {{ lxc_template.hostname }}"
+  ansible.builtin.set_fact:
+    lxc_artifact: "{{ lxc_template.hostname }}-{{ lxc_template.image | regex_replace('\\.tar\\.zst$', '') }}.tar.zst"
+
+- name: "Check if {{ lxc_artifact }} is already published on bootserv01"
+  ansible.builtin.command:
+    cmd: "pct exec {{ bootserv_ctid }} -- test -f {{ bootserv_http_root }}/lxc-templates/{{ lxc_artifact }}"
+  register: lxc_artifact_published
+  failed_when: false
+  changed_when: false
+
+- name: "Snapshot + publish LXC template {{ lxc_template.id }} ({{ lxc_artifact }})"
+  when: lxc_artifact_published.rc != 0 or (force_rebuild | default(false) | bool)
+  block:
+    - name: "Assert local template CT {{ lxc_template.id }} exists on foundation"
+      ansible.builtin.command: "pct status {{ lxc_template.id }}"
+      register: lxc_local_status
+      failed_when: lxc_local_status.rc != 0
+      changed_when: false
+
+    - name: "Ensure scratch dir for vzdump output"
+      ansible.builtin.file:
+        path: /var/tmp/lxc-publish
+        state: directory
+        mode: "0755"
+
+    # vzdump writes vzdump-lxc-<ctid>-<YYYY_MM_DD-HH_MM_SS>.tar.zst into
+    # --dumpdir. --mode stop is the safe operation for a template CT
+    # (already stopped post-`pct template`; PVE handles the no-op cleanly).
+    - name: "vzdump local template CT {{ lxc_template.id }}"
+      ansible.builtin.command:
+        cmd: >-
+          vzdump {{ lxc_template.id }}
+          --dumpdir /var/tmp/lxc-publish
+          --compress zstd
+          --mode stop
+      changed_when: true
+
+    - name: "Locate produced vzdump tarball"
+      ansible.builtin.find:
+        paths: /var/tmp/lxc-publish
+        patterns: "vzdump-lxc-{{ lxc_template.id }}-*.tar.zst"
+      register: lxc_vzdump_files
+
+    - name: "Assert exactly one vzdump file was produced"
+      ansible.builtin.assert:
+        that:
+          - lxc_vzdump_files.matched == 1
+        fail_msg: "Expected exactly one vzdump-lxc-{{ lxc_template.id }}-*.tar.zst in /var/tmp/lxc-publish, found {{ lxc_vzdump_files.matched }}"
+
+    - name: "Rename vzdump to deterministic artifact name"
+      ansible.builtin.command:
+        cmd: "mv {{ lxc_vzdump_files.files[0].path }} /var/tmp/lxc-publish/{{ lxc_artifact }}"
+      changed_when: true
+
+    - name: "Compute sha256 of LXC artifact on foundation"
+      ansible.builtin.stat:
+        path: "/var/tmp/lxc-publish/{{ lxc_artifact }}"
+        checksum_algorithm: sha256
+      register: lxc_artifact_stat
+
+    - name: "Write sha256 sidecar locally on foundation"
+      ansible.builtin.copy:
+        content: "{{ lxc_artifact_stat.stat.checksum }}  {{ lxc_artifact }}\n"
+        dest: "/var/tmp/lxc-publish/{{ lxc_artifact }}.sha256"
+        mode: "0644"
+
+    - name: "Push LXC artifact into bootserv01 docroot"
+      ansible.builtin.command:
+        cmd: >-
+          pct push {{ bootserv_ctid }}
+          /var/tmp/lxc-publish/{{ lxc_artifact }}
+          {{ bootserv_http_root }}/lxc-templates/{{ lxc_artifact }}
+          --user {{ bootserv_owner }} --group {{ bootserv_group }} --perms 0644
+      changed_when: true
+
+    - name: "Push sha256 sidecar into bootserv01 docroot"
+      ansible.builtin.command:
+        cmd: >-
+          pct push {{ bootserv_ctid }}
+          /var/tmp/lxc-publish/{{ lxc_artifact }}.sha256
+          {{ bootserv_http_root }}/lxc-templates/{{ lxc_artifact }}.sha256
+          --user {{ bootserv_owner }} --group {{ bootserv_group }} --perms 0644
+      changed_when: true
+
+    - name: "Clean up publish scratch on foundation"
+      ansible.builtin.file:
+        path: /var/tmp/lxc-publish
+        state: absent

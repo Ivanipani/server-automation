@@ -1,0 +1,122 @@
+---
+# Foundation tier — PRODUCER. Bake the Debian VM cloud image and snapshot
+# the local LXC template, then publish both to bootserv01 via `pct push`
+# (no SSH between foundation and bootserv01 — bootserv01 is an LXC on the
+# foundation hypervisor's own kernel namespace).
+#
+# Artifacts published:
+#   http://bootserv01.lan/cloud-images/<vm_template.image_file>           qcow2
+#   http://bootserv01.lan/cloud-images/<vm_template.image_file>.sha256    sidecar
+#   http://bootserv01.lan/lxc-templates/<lxc_artifact>                    vzdump tar.zst
+#   http://bootserv01.lan/lxc-templates/<lxc_artifact>.sha256             sidecar
+#
+# Consumed by 20-hypervisor/40-templates.yml on every Proxmox node
+# (including foundation — self-fetch over vmbr0; foundation's local LXC
+# template from 50-bootstrap-lxc-template.yml satisfies the pct status
+# skip so foundation never re-pulls its own LXC artifact).
+#
+# Ordering: runs AFTER 90-bootserv.yml so bootserv01 is up + Caddy is
+# serving + bootserv_static_dirs (/srv/http/cloud-images,
+# /srv/http/lxc-templates) exist.
+#
+# Pre-conditions:
+#   - bootserv01 LXC reconciled (via 80-tofu-infra-lxcs.yml + 90-bootserv.yml)
+#   - foundation's local LXC template exists from 50-bootstrap-lxc-template.yml
+#     (the vzdump publish step snapshots it; if it's missing, the LXC
+#      bake half fails with a clear assert)
+#   - libguestfs-tools installed on foundation (pre_task ensures it)
+#
+# Flags:
+#   build_vm_templates       – run the VM bake+publish block (default true)
+#   build_lxc_templates      – run the LXC snapshot+publish block (default true)
+#   force_rebuild            – rebake+republish even if the artifact is
+#                              already on bootserv01 (default false — a
+#                              re-run is then a true no-op)
+#
+# Re-pin story: bump image_url + image_file (VM) or image (LXC) in
+# ../vars/templates.yml. Producer sees no match on bootserv01, rebakes
+# + republishes under the new filename. Consumers on every hypervisor
+# see no local VMID/CTID match for the new artifact and re-templatize.
+
+- name: Bake + publish centrally-managed VM/LXC images
+  hosts: "{{ target_hosts | default('foundation') }}"
+  gather_facts: false
+  become: true
+  vars_files:
+    - ../vars/templates.yml
+  vars:
+    ansible_pubkey: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
+    vm_packages: qemu-guest-agent,curl,wget,sudo,rsync,htop
+    build_vm_templates: true
+    build_lxc_templates: true
+    force_rebuild: false
+    # Mirror roles/bootserv/defaults/main.yml — keeping these explicit
+    # here so the producer doesn't reach into the role's internals.
+    bootserv_http_root: /srv/http
+    bootserv_owner: caddy
+    bootserv_group: caddy
+
+  pre_tasks:
+    # The bake LXC half needs to know foundation's local template CTIDs
+    # (they're the ones we vzdump). Use the same anchor-map derivation
+    # as 50-bootstrap-lxc-template.yml so the VM bake half can also
+    # reference per-node IDs consistently.
+    - name: Derive this node's VM template list (anchor + index)
+      ansible.builtin.set_fact:
+        vm_templates: "{{ vm_templates | default([]) + [tmpl | combine({'id': (template_vm_ids[inventory_hostname] | int) + idx})] }}"
+      loop: "{{ vm_templates_base }}"
+      loop_control:
+        loop_var: tmpl
+        index_var: idx
+        label: "{{ tmpl.name }} → {{ (template_vm_ids[inventory_hostname] | int) + idx }}"
+
+    - name: Derive this node's LXC template list (anchor + index)
+      ansible.builtin.set_fact:
+        lxc_templates: "{{ lxc_templates | default([]) + [tmpl | combine({'id': (template_ct_ids[inventory_hostname] | int) + idx})] }}"
+      loop: "{{ lxc_templates_base }}"
+      loop_control:
+        loop_var: tmpl
+        index_var: idx
+        label: "{{ tmpl.hostname }} → {{ (template_ct_ids[inventory_hostname] | int) + idx }}"
+
+    - name: Discover bootserv01 CTID on this foundation node
+      ansible.builtin.shell:
+        cmd: "set -o pipefail; pct list | awk '$3 == \"bootserv01\" {print $1; exit}'"
+        executable: /bin/bash
+      register: bootserv_ctid_result
+      changed_when: false
+
+    - name: Assert bootserv01 was found via pct list
+      ansible.builtin.assert:
+        that:
+          - bootserv_ctid_result.stdout | length > 0
+        fail_msg: >-
+          bootserv01 CTID not found on {{ inventory_hostname }} via
+          `pct list`. Has 80-tofu-infra-lxcs.yml + 90-bootserv.yml run?
+
+    - name: Set bootserv01 CTID as play-level fact
+      ansible.builtin.set_fact:
+        bootserv_ctid: "{{ bootserv_ctid_result.stdout | trim }}"
+
+    - name: Ensure libguestfs-tools is installed
+      ansible.builtin.apt:
+        name: libguestfs-tools
+        state: present
+      when: build_vm_templates | bool
+
+  tasks:
+    - name: Bake + publish VM images
+      when: build_vm_templates | bool
+      ansible.builtin.include_tasks: ../tasks/bake-vm-image.yml
+      loop: "{{ vm_templates }}"
+      loop_control:
+        loop_var: vm_template
+        label: "{{ vm_template.image_file }}"
+
+    - name: Snapshot + publish LXC templates
+      when: build_lxc_templates | bool
+      ansible.builtin.include_tasks: ../tasks/bake-lxc-image.yml
+      loop: "{{ lxc_templates }}"
+      loop_control:
+        loop_var: lxc_template
+        label: "{{ lxc_template.hostname }}"

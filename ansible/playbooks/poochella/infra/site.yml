@@ -8,31 +8,36 @@
 #   15-nas         → Synology NAS (gap-5 break — independent of host
 #                    bootstrap; admin'd via DSM, not the ansible
 #                    user/key path the 17-host tier sets up)
-#   16-foundation  → Foundational subset (the `foundation` group, today
+#   13-foundation  → Foundational subset (the `foundation` group, today
 #                    just pve-home-01): full 17-host + 20-hypervisor
-#                    stack PLUS a TARGETED Tofu apply that creates ONLY
-#                    the infra LXCs (bootserv01) PLUS the bootserv role.
-#                    Must complete before 17-host below — fresh
-#                    baremetals need bootserv01.lan to netboot. The
-#                    tier re-imports 17-host / 20-hypervisor playbooks
-#                    with `target_hosts: foundation` rather than
-#                    duplicating them.
+#                    stack PLUS a bootstrap-only LXC template bake PLUS
+#                    a TARGETED Tofu apply that creates ONLY the infra
+#                    LXCs (bootserv01) PLUS the bootserv role PLUS the
+#                    full PRODUCER step that bakes the Debian VM qcow2
+#                    and snapshots the LXC template, publishing both to
+#                    bootserv01 HTTP. Must complete before 17-host below
+#                    — fresh baremetals need bootserv01.lan to netboot
+#                    AND fresh hypervisors need the published artifacts
+#                    to consume. The tier re-imports 17-host /
+#                    20-hypervisor playbooks with `target_hosts:
+#                    foundation` rather than duplicating them.
 #   17-host        → Baseline for every baremetal Linux host
 #                    (`physical` = hypervisors + workers): ansible /
 #                    pani / tourmanager users, SSH hardening, firewall,
 #                    tailscale, node-exporter. Re-applied here against
 #                    the wider `physical` group — pve-home-01 sees a
-#                    no-op second pass (16-foundation already did it).
+#                    no-op second pass (13-foundation already did it).
 #   20-hypervisor  → Proxmox-only fabric (repo flip, cluster, LVM-thin
-#                    register, template bake). Depends on 17-host having
-#                    created the ansible user, and on 15-nas being up
-#                    for the bake-images NFS publish. Also re-applied
-#                    against the wider `hypervisors` group; no-op on
-#                    foundation hypervisors.
+#                    register, template consume from bootserv01).
+#                    Depends on 17-host having created the ansible
+#                    user and on 13-foundation having published the
+#                    centrally-baked VM/LXC artifacts to bootserv01.
+#                    Also re-applied against the wider `hypervisors`
+#                    group; no-op on foundation hypervisors.
 #   30-guests      → OpenTofu barrier (router + hypervisor converge)
 #                    Runs the UN-TARGETED `tofu apply` — creates VMs
 #                    and reconciles the infra LXCs already created by
-#                    16-foundation.
+#                    13-foundation.
 #   40-kube        → VM/container config + k3s
 #
 # Single-host piecemeal dev: fzf-pick any one tier playbook via

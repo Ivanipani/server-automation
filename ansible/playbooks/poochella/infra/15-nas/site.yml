@@ -2,9 +2,14 @@
 # Tier N — Synology NAS (nas01) configuration.
 #
 # Sits between 10-router (which gives nas01 its DNS+DHCP reservation)
-# and 20-hypervisor (whose 40-bake-images step writes qcow2s to a
-# share on nas01). Order matters: this tier must come after the
-# router tier, and before bake-images runs.
+# and the rest of the fleet. Order matters: this tier must come after
+# the router tier so the NAS has its DNS/DHCP reservation, and before
+# any tier that mounts a NAS share (17-host/16-nfs-mounts.yml).
+#
+# (Historical: this tier used to sit specifically before 20-hypervisor
+# /40-bake-images.yml, which published qcow2s to a NAS share. That
+# bake path was retired in favor of publishing to bootserv01 HTTP via
+# 13-foundation/95-bake-publish-images.yml.)
 #
 # Why a tier number that breaks the gap-10 convention (15-, not 20-):
 # the NAS sits semantically between router and hypervisor in the

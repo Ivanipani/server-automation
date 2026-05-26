@@ -69,7 +69,7 @@
   tasks:
     - name: Run tofu apply -target=<infra_lxcs modules>
       community.general.terraform:
-        # playbook_dir = .../infra/16-foundation; repo root is 5 levels up.
+        # playbook_dir = .../infra/13-foundation; repo root is 5 levels up.
         project_path: "{{ playbook_dir }}/../../../../../tofu"
         binary_path: /opt/homebrew/bin/tofu
         state: present

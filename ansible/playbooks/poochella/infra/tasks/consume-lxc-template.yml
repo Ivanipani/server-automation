@@ -1,0 +1,60 @@
+---
+# CONSUMER — fetch the centrally-baked LXC vzdump tarball from bootserv01
+# and pct-restore it as a template on this hypervisor. Foundation goes
+# through the same code path as peers (loopback fetch over vmbr0). On
+# foundation specifically, the local template built by
+# 13-foundation/50-bootstrap-lxc-template.yml will satisfy the `pct
+# status` skip — foundation never re-fetches itself.
+#
+# Required vars:
+#   lxc_template – dict with id, hostname, image (per-node CTID comes
+#                  from template_ct_ids[inventory_hostname] anchor +
+#                  index; derived by the orchestrating playbook)
+
+- name: "Check if LXC template {{ lxc_template.id }} exists"
+  ansible.builtin.command: "pct status {{ lxc_template.id }}"
+  register: lxc_status
+  failed_when: false
+  changed_when: false
+
+- name: "Consume LXC template {{ lxc_template.id }} ({{ lxc_template.hostname }}) from bootserv01"
+  when: lxc_status.rc != 0
+  block:
+    - name: "Compute LXC artifact filename"
+      ansible.builtin.set_fact:
+        lxc_artifact: "{{ lxc_template.hostname }}-{{ lxc_template.image | regex_replace('\\.tar\\.zst$', '') }}.tar.zst"
+
+    - name: "Fetch sha256 sidecar for {{ lxc_artifact }}"
+      ansible.builtin.uri:
+        url: "http://bootserv01.lan/lxc-templates/{{ lxc_artifact }}.sha256"
+        return_content: true
+      register: lxc_artifact_sha_resp
+
+    - name: "Set expected sha256 fact"
+      ansible.builtin.set_fact:
+        lxc_artifact_expected_sha: "{{ lxc_artifact_sha_resp.content.split()[0] }}"
+
+    - name: "Download centrally-baked LXC tarball from bootserv01"
+      ansible.builtin.get_url:
+        url: "http://bootserv01.lan/lxc-templates/{{ lxc_artifact }}"
+        dest: "/var/lib/vz/dump/{{ lxc_artifact }}"
+        checksum: "sha256:{{ lxc_artifact_expected_sha }}"
+        mode: "0644"
+        timeout: 120
+      register: lxc_artifact_dl
+      until: lxc_artifact_dl is succeeded
+      retries: 5
+      delay: 15
+
+    - name: "Restore LXC template {{ lxc_template.id }} from artifact"
+      ansible.builtin.command: >
+        pct restore {{ lxc_template.id }}
+        /var/lib/vz/dump/{{ lxc_artifact }}
+        --storage vms
+        --unprivileged 1
+        --hostname {{ lxc_template.hostname }}
+      changed_when: true
+
+    - name: "Convert restored LXC {{ lxc_template.id }} to template"
+      ansible.builtin.command: "pct template {{ lxc_template.id }}"
+      changed_when: true

@@ -1,9 +1,12 @@
 ---
 # Foundation tier — Configure bootserv01 (the fleet's iPXE + Debian
-# netboot home base) as an LXC on pve-home-01. Final play of the
-# 16-foundation tier so that by the time 17-host runs against the wider
-# `physical` group, every other baremetal can already PXE-fetch its
-# kernel / initrd / preseed from a known-good bootserv.
+# netboot home base) as an LXC on pve-home-01. Penultimate play of the
+# 13-foundation tier (95-bake-publish-images.yml follows, publishing
+# centrally-baked VM/LXC artifacts into bootserv01's docroot) so that
+# by the time 17-host runs against the wider `physical` group, every
+# other baremetal can already PXE-fetch its kernel / initrd / preseed
+# from a known-good bootserv AND every hypervisor can fetch the
+# centrally-baked VM qcow2 + LXC vzdump tarball.
 #
 # Addressing model: bootserv01 carries NO MAC or IP in inventory. PVE
 # auto-generates a unique MAC at clone time, the LXC DHCPs into the
@@ -15,7 +18,7 @@
 # bootserv (Ansible SSH, PXE clients, iPXE script) uses the hostname.
 #
 # Pre-conditions:
-#   - 16-foundation/80-tofu-infra-lxcs.yml completed (the targeted Tofu
+#   - 13-foundation/80-tofu-infra-lxcs.yml completed (the targeted Tofu
 #     apply cloned bootserv01 from the pve-home-01 Debian 13 LXC
 #     template; template bakes the `ansible` user with the canonical key
 #     + sets hostname=bootserv01 via `initialization.hostname`). The
@@ -42,8 +45,4 @@
     bootserv_ansible_pubkey: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/ansible.pub') }}"
   roles:
     - role: apt-no-auto-upgrades
-    # caddy must come before bootserv: bootserv drops a site file into
-    # /etc/caddy/sites-enabled and notifies the `reload caddy` handler
-    # exposed by the caddy role.
-    - role: caddy
     - role: bootserv

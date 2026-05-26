@@ -5,13 +5,15 @@ galaxy_info:
     Boot server for the homelab: TFTP-only dnsmasq + Caddy serving
     iPXE binaries, Debian 13 netboot kernel/initrd, per-host iPXE
     dispatch scripts, and per-host preseeds. Driven by every inventory
-    host with a `debian_netboot:` block. Expects the `caddy` role to
-    be applied ahead of it (this role only drops a site file into
-    /etc/caddy/sites-enabled/).
+    host with a `debian_netboot:` block. The `caddy` role is a
+    dependency — it installs the binary + Caddyfile that `import`s
+    /etc/caddy/sites-enabled/*.caddy, and this role drops the bootserv
+    site file in there.
   license: MIT
   min_ansible_version: "2.16"
   platforms:
     - name: Debian
       versions:
         - "13"
-dependencies: []
+dependencies:
+  - role: caddy

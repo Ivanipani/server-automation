@@ -175,12 +175,12 @@ baremetal-iso host: check
 
 # Bring up (or reconcile) the foundation hypervisor (pve-home-01) + bootserv01 LXC + bootserv role. Run before any fresh-baremetal install — workers need bootserv01.lan to netboot.
 do-foundation: check
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/16-foundation/site.yml
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/site.yml
 
 
 # Re-apply just the bootserv role on bootserv01 — fast iteration for iPXE/preseed template tweaks during the trial. Use after the LXC is up.
 do-bootserv-config: check
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/16-foundation/90-bootserv.yml
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/90-bootserv.yml
 
 
 # Push PXE-aware dnsmasq config + Mellanox static reservations to OPNsense. Re-run anytime debian_netboot.boot_macs or bootserv01 changes.

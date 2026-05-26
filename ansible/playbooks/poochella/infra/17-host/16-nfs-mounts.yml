@@ -3,9 +3,11 @@
 #
 # What gets mounted is declared in `physical_nfs_mounts` — defaults to []
 # in group_vars/physical.yml; group_vars/hypervisors.yml overrides with
-# the `proxmox` RW share that 40-bake-images.yml writes qcow2s into.
-# Workers inherit the empty default — no NFS mounts unless they get a
-# group/host override.
+# the `proxmox` RW share (originally the publish target for the
+# deleted 20-hypervisor/40-bake-images.yml; the active image-bake path
+# now publishes to bootserv01 HTTP via 13-foundation/95-bake-publish-
+# images.yml — see group_vars/hypervisors.yml). Workers inherit the
+# empty default — no NFS mounts unless they get a group/host override.
 #
 # History: this play used to mount nas01:/volume1/pxe → /mnt/nas/pxe RO
 # on every hypervisor (PXE served via NFS off the NAS). bootserv01 LXC

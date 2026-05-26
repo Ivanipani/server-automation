@@ -3,6 +3,16 @@
 bootserv_tftp_root: /srv/tftp
 bootserv_http_root: /srv/http
 
+# Additional subdirectories of bootserv_http_root that bootserv01 hosts.
+# Caddy's catch-all `file_server browse` block (templates/bootserv.caddy.j2)
+# serves any file under the docroot, so creating the directory is enough
+# to publish a new URL prefix. Used by 13-foundation/95-bake-publish-images.yml
+# to drop the centrally-baked Debian VM qcow2 + LXC vzdump tarball that
+# every hypervisor consumes via 20-hypervisor/40-templates.yml.
+bootserv_static_dirs:
+  - cloud-images   # virt-customize'd Debian VM qcow2s (+ .sha256 sidecars)
+  - lxc-templates  # vzdump'd Debian LXC template tarballs (+ .sha256 sidecars)
+
 # LAN CIDR allowed to fetch sensitive paths (/preseed/, /keys/). Other
 # paths (/debian-13/, /boot.ipxe, /hosts/) are open to the listening
 # interface — those carry no secrets and have to be reachable by

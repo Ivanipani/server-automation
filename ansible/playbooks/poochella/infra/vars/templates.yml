@@ -1,0 +1,29 @@
+---
+# Shared source of truth for the Debian VM/LXC template definitions.
+#
+# Loaded by BOTH:
+#   - 13-foundation/95-bake-publish-images.yml (PRODUCER on foundation:
+#     virt-customize + sysprep + publish to bootserv01 HTTP)
+#   - 20-hypervisor/40-templates.yml           (CONSUMER on every
+#     hypervisor: fetch from bootserv01 + qm/pct templatize locally)
+#
+# Keeping the lists here means producer and consumer cannot drift on the
+# image_file cache-bust key. Re-pin = bump image_url + image_file
+# together; producer republishes; consumers re-fetch the new filename.
+
+# PINNED upstream cloud images (dated snapshots, NOT /latest/ // /current/).
+# image_file carries the version so re-pinning forces a fresh download
+# and a fresh artifact on bootserv01.
+vm_templates_base:
+  - name: debian-13-template
+    image_url: https://cloud.debian.org/images/cloud/trixie/20260518-2482/debian-13-genericcloud-amd64-20260518-2482.qcow2
+    image_file: debian-13-genericcloud-amd64-20260518-2482.qcow2
+  # - name: ubuntu-24-template
+  #   image_url: https://cloud-images.ubuntu.com/noble/20260323/noble-server-cloudimg-amd64.img
+  #   image_file: noble-server-cloudimg-amd64-20260323.img
+
+lxc_templates_base:
+  - hostname: debian-13-lxc-template
+    image: debian-13-standard_13.1-2_amd64.tar.zst
+  # - hostname: ubuntu-24-lxc-template
+  #   image: ubuntu-24.04-standard_24.04-2_amd64.tar.zst

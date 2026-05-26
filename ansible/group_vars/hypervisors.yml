@@ -42,19 +42,26 @@
 # explicitly at its 15-storage import.
 
 # ── NFS mounts from nas01 (hypervisor-side override) ────────────────
-# Overrides the empty `physical_nfs_mounts` default in physical.yml to
-# add the `proxmox` RW share that 40-bake-images.yml writes qcow2s into.
-# The old `pxe` RO mount was dropped — bootserv01 LXC now serves PXE
-# artifacts over HTTP, so no host needs the NAS `pxe` share. The
-# transitional cleanup that unmounts `/mnt/nas/pxe` lives in
-# 17-host/16-nfs-mounts.yml.
+# Overrides the empty `physical_nfs_mounts` default in physical.yml.
+#
+# Both former mounts now have no in-repo consumer:
+#   - `proxmox` RW share was the publish target for the deleted
+#     20-hypervisor/40-bake-images.yml (Packer → NAS image-bake path).
+#     The current bake flow publishes to bootserv01 HTTP instead
+#     (13-foundation/95-bake-publish-images.yml).
+#   - `pxe` RO share was dropped earlier — bootserv01 LXC now serves PXE
+#     artifacts over HTTP, so no host needs the NAS `pxe` share. The
+#     transitional cleanup that unmounts `/mnt/nas/pxe` lives in
+#     17-host/16-nfs-mounts.yml.
+# The `proxmox` mount is retained here for now in case the user wants to
+# keep it for manual workflows or backups; remove if there's no use for
+# it.
 physical_nfs_mounts:
   - share: proxmox
     path: /mnt/nas/proxmox
-    # read-write — bake-images writes qcow2s here as the active publish
-    # target (40-bake-images.yml). `soft,timeo=30` keeps a NAS hiccup
-    # from hanging the build; data is reproducible so the failure mode
-    # is "rerun the bake", not "corrupt the artifact".
+    # read-write; retained but currently no in-repo consumer (see header).
+    # `soft,timeo=30` keeps a NAS hiccup from hanging anything that
+    # might still write here.
     options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
 
 firewall_inbound_allow:

@@ -1,21 +1,25 @@
 ---
 # Phase 0: Ensure every Proxmox node has its own VM/LXC templates before
-# Tofu provisioning. Idempotent — safe to re-run.
+# Tofu provisioning. Consume-only — the customize work runs ONCE on the
+# foundation hypervisor (13-foundation/95-bake-publish-images.yml) and
+# publishes to bootserv01; this playbook just fetches the centrally-
+# baked artifact and templatizes locally on every node in `hypervisors`.
 #
-# BAKE-PER-NODE: VM storage is node-local LVM-thin and Proxmox nodes are
-# independent (per-group topology; see inventory.yaml). The old
-# bake-once-then-`qm migrate`-to-peers optimization required a cluster
-# (migrate won't cross independent nodes), so it is gone — every node in
-# `hypervisors` downloads, customizes, syspreps and templatizes its OWN
-# images locally. tasks/distribute-templates-to-node.yml is kept on disk
-# as dormant reference (no longer wired here).
+# CONSUME-FROM-BOOTSERV: VM storage is node-local LVM-thin and Proxmox
+# nodes are independent (per-group topology; see inventory.yaml). The
+# old BAKE-PER-NODE design downloaded + virt-customized + syspreped the
+# qcow2 on EVERY node, producing per-node drift in package versions and
+# customize timing. The new design produces the canonical artifact once
+# on foundation, publishes via bootserv01 HTTP, and consumes here. Every
+# node gets a byte-identical template.
 #
-# Cost: each node repeats the download + virt-customize. To keep the
-# result deterministic across nodes and across time, the cloud image
-# URLs are PINNED to dated upstream snapshots (not the moving `/latest/`
-# // `/current/` paths). Re-pin = bump the URL + image_file together (the
-# versioned image_file busts the per-node ISO cache so the new image is
-# actually re-fetched).
+# On the foundation node specifically: the local LXC template was built
+# directly by 13-foundation/50-bootstrap-lxc-template.yml (the bootstrap
+# chicken-and-egg), so the consume-lxc step's `pct status` skip is hit
+# and foundation never re-pulls its own LXC artifact. The VM template
+# on foundation IS consumed from bootserv01 (foundation does a self-
+# fetch loopback over vmbr0 — cheap, keeps producer/consumer paths
+# symmetric).
 #
 # Per-node IDs come from the explicit `template_vm_ids` /
 # `template_ct_ids` maps in inventory.yaml (single source of truth, also
@@ -25,76 +29,51 @@
 # unique per node now (independent nodes), but distinct anchors stay
 # harmless and keep the maps stable if a cluster is ever formed.
 #
-# Templates bake in the `ansible` user (passwordless sudo + SSH key from
-# ~/.ssh/ansible.pub on the controller) and reset machine-id / SSH host
-# keys so every clone gets a unique DHCP client-id and host identity.
-#
-# Pre-condition: 30-storage.yml has run (the `vms` LVM-thin storage
-# exists on every node — the imported disk lands on it).
+# Pre-conditions:
+#   - 30-storage.yml has run (the `vms` LVM-thin storage exists on
+#     every node — pct restore / qm importdisk land here).
+#   - bootserv01 is reachable at http://bootserv01.lan/ (so every node
+#     can fetch the centrally-baked artifacts). 13-foundation has
+#     produced + published both artifacts.
 #
 # Flags:
-#   build_lxc_templates      – run the LXC template build phase.
-#   build_vm_templates       – run the VM template build phase.
+#   build_lxc_templates      – run the LXC consume phase.
+#   build_vm_templates       – run the VM consume phase.
 #   purge_existing_templates – destroy this node's existing VM/LXC
-#                              templates before recreating them. DEFAULT
+#                              templates before re-consuming. DEFAULT
 #                              false: a re-run (incl. site.yml) is then
 #                              idempotent and non-destructive — the
 #                              per-template status checks short-circuit
 #                              and existing templates are left untouched.
 #                              Opt in (`-e purge_existing_templates=true`)
 #                              ONLY for a deliberate clean rebuild, e.g.
-#                              after re-pinning an image. A failed
-#                              download mid-purge leaves the node with no
+#                              after re-pinning an image. A failed fetch
+#                              mid-purge leaves the node with no
 #                              template, so this is never the site.yml
 #                              default.
-#   purge_cached_images      – wipe this node's cached cloud images on
-#                              local ISO storage so the next run
-#                              re-downloads fresh upstream and re-bakes.
+#
+# Re-pin = bump image_url + image_file (VM) or image (LXC) in
+# ../vars/templates.yml + re-run 13-foundation/95-bake-publish-images.yml
+# to republish + re-run this consume playbook against `hypervisors`.
 #
 # After re-baking, re-provision any existing clones via the
 # 30-provision tier (30-provision/10-opentofu.yml).
 
-- name: Bake VM/LXC templates on every Proxmox node (independent)
+- name: Consume centrally-baked VM/LXC templates on every Proxmox node
   hosts: "{{ target_hosts | default('hypervisors') }}"
   gather_facts: false
   become: true
+  vars_files:
+    - ../vars/templates.yml
   vars:
-    lxc_templates_base:
-      - hostname: debian-13-lxc-template
-        image: debian-13-standard_13.1-2_amd64.tar.zst
-      # - hostname: ubuntu-24-lxc-template
-      #   image: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
-    # PINNED upstream cloud images (dated snapshots, NOT /latest/ //
-    # /current/). image_file carries the version so re-pinning forces a
-    # fresh download instead of reusing the stale cached ISO.
-    vm_templates_base:
-      - name: debian-13-template
-        image_url: https://cloud.debian.org/images/cloud/trixie/20260518-2482/debian-13-genericcloud-amd64-20260518-2482.qcow2
-        image_file: debian-13-genericcloud-amd64-20260518-2482.qcow2
-      # - name: ubuntu-24-template
-      #   image_url: https://cloud-images.ubuntu.com/noble/20260323/noble-server-cloudimg-amd64.img
-      #   image_file: noble-server-cloudimg-amd64-20260323.img
     build_lxc_templates: true
     build_vm_templates: true
     # Non-destructive by default: re-runs (and site.yml) leave existing
     # templates intact. Opt in for a deliberate clean rebuild only:
     #   -e purge_existing_templates=true
-    purge_existing_templates: true
-    # Wipe the cached customized cloud images so the next run re-bakes.
-    purge_cached_images: false
-    ansible_pubkey: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
-    lxc_packages: openssh-server curl wget sudo rsync htop
-    vm_packages: qemu-guest-agent,curl,wget,sudo,rsync,htop
+    purge_existing_templates: false
 
   pre_tasks:
-    - name: Ensure ansible SSH keypair exists on controller
-      ansible.builtin.command:
-        cmd: ssh-keygen -t ed25519 -f ~/.ssh/ansible -N ""
-        creates: ~/.ssh/ansible
-      delegate_to: localhost
-      become: false
-      run_once: true
-
     - name: Derive this node's VM template list (anchor + index)
       ansible.builtin.set_fact:
         vm_templates: "{{ vm_templates | default([]) + [tmpl | combine({'id': (template_vm_ids[inventory_hostname] | int) + idx})] }}"
@@ -112,17 +91,6 @@
         loop_var: tmpl
         index_var: idx
         label: "{{ tmpl.hostname }} → {{ (template_ct_ids[inventory_hostname] | int) + idx }}"
-
-    - name: Purge cached VM cloud images (ISO storage)
-      ansible.builtin.file:
-        path: "/var/lib/vz/template/iso/{{ item.image_file }}.iso"
-        state: absent
-      loop: "{{ vm_templates }}"
-      loop_control:
-        label: "{{ item.image_file }}"
-      when:
-        - build_vm_templates | bool
-        - purge_cached_images | bool
 
   tasks:
     # ── Purge this node's existing templates (clean rebuild) ───────────
@@ -157,42 +125,20 @@
 
     # ── LXC templates ──────────────────────────────────────────────────
 
-    - name: Build LXC templates
+    - name: Consume LXC templates from bootserv01
       when: build_lxc_templates | bool
-      block:
-        - name: Update PVE appliance catalog
-          ansible.builtin.command: pveam update
-          changed_when: true
-
-        - name: Check available LXC images
-          ansible.builtin.command: pveam list local
-          register: pveam_list
-          changed_when: false
-
-        - name: Download LXC base images
-          ansible.builtin.command: "pveam download local {{ item.image }}"
-          loop: "{{ lxc_templates }}"
-          when: item.image not in pveam_list.stdout
-          changed_when: true
-
-        - name: Create LXC templates
-          ansible.builtin.include_tasks: ../tasks/create-lxc-template.yml
-          loop: "{{ lxc_templates }}"
-          loop_control:
-            loop_var: lxc_template
+      ansible.builtin.include_tasks: ../tasks/consume-lxc-template.yml
+      loop: "{{ lxc_templates }}"
+      loop_control:
+        loop_var: lxc_template
+        label: "{{ lxc_template.hostname }} ({{ lxc_template.id }})"
 
     # ── VM templates ───────────────────────────────────────────────────
 
-    - name: Build VM templates
+    - name: Consume VM templates from bootserv01
       when: build_vm_templates | bool
-      block:
-        - name: Ensure libguestfs-tools is installed
-          ansible.builtin.apt:
-            name: libguestfs-tools
-            state: present
-
-        - name: Create VM templates
-          ansible.builtin.include_tasks: ../tasks/create-vm-template.yml
-          loop: "{{ vm_templates }}"
-          loop_control:
-            loop_var: vm_template
+      ansible.builtin.include_tasks: ../tasks/consume-vm-template.yml
+      loop: "{{ vm_templates }}"
+      loop_control:
+        loop_var: vm_template
+        label: "{{ vm_template.name }} ({{ vm_template.id }})"

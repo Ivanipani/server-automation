@@ -55,11 +55,17 @@ proxmox_api_tokens:
 k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
 
 # NAS publish/consume coordinates, re-exported from the single source of
-# truth in inventory.yaml (`storage.hosts.nas01.nas`). Consumers:
-#   - 20-hypervisor/40-bake-images.yml uses nas_rsync_target / nas_ssh_target
-#     / nas_images_dir to push the qcow2 from the PVE build host.
-#   - tofu/locals.tf reads the same hostvars entry directly (yamldecode)
-#     to compose the HTTPS URL for proxmox_virtual_environment_download_file.
+# truth in inventory.yaml (`storage.hosts.nas01.nas`).
+#
+# Originally consumed by 20-hypervisor/40-bake-images.yml (the NAS-publish
+# image-bake path: Packer → rsync to NAS → Tofu pulls via NFS). That
+# playbook was deleted when the bake flow moved to bootserv01 HTTP
+# (13-foundation/95-bake-publish-images.yml is the current producer).
+# These vars are retained for: tofu/locals.tf still reads the same
+# hostvars entry directly (yamldecode) to compose URLs for any
+# proxmox_virtual_environment_download_file resource. If no remaining
+# consumer is found, the vars + the NAS `proxmox` share can be removed
+# in a follow-up.
 # Adding a second NAS = add a host to the `storage` group and parameterize
 # these by an `image_publish_target` selector.
 nas_images_url_base: "{{ hostvars['nas01'].nas.https_url_base }}"

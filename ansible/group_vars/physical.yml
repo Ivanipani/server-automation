@@ -37,6 +37,8 @@ firewall_inbound_allow:
 # ── NFS mounts from nas01 (consumed by 17-host/16-nfs-mounts.yml) ────
 # Default is empty — workers don't mount NAS shares today. Hypervisors
 # override in group_vars/hypervisors.yml to add the `proxmox` RW share
-# 40-bake-images.yml writes qcow2s into. Add a per-host override in
-# host_vars/<name>.yml to opt a single host into more.
+# (originally the NAS-publish path for 40-bake-images.yml; that publish
+# path moved to bootserv01 HTTP — see group_vars/hypervisors.yml for
+# context). Add a per-host override in host_vars/<name>.yml to opt a
+# single host into more.
 physical_nfs_mounts: []

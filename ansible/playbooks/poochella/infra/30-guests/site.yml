@@ -9,10 +9,10 @@
 # 10-opentofu.yml here runs the UN-TARGETED `tofu apply` against the
 # full inventory: every `vm:` block becomes a VM, every `lxc:` block
 # becomes an LXC. The bootserv01 LXC was already brought up by the
-# 16-foundation tier's targeted apply (so other baremetals could
+# 13-foundation tier's targeted apply (so other baremetals could
 # netboot); this un-targeted apply reconciles it as a no-op alongside
 # creating the VMs. bootserv01 configuration (the bootserv role) also
-# lives in 16-foundation — by the time this tier runs, bootserv01 is
+# lives in 13-foundation — by the time this tier runs, bootserv01 is
 # fully configured.
 - import_playbook: 10-opentofu.yml
 - import_playbook: 20-bootstrap.yml

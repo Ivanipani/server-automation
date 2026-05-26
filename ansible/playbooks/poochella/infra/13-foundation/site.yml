@@ -1,5 +1,5 @@
 ---
-# Tier 16 — Foundational subset that must be FULLY UP before any OTHER
+# Tier 13 — Foundational subset that must be FULLY UP before any OTHER
 # baremetal Linux host can come into being.
 #
 # Why this tier exists separately. Every non-foundation physical host
@@ -11,26 +11,56 @@
 # 17-host tier runs against the wider `physical` group — otherwise a
 # fresh worker would have no netboot target.
 #
-# How it's implemented. This tier doesn't duplicate any playbook: every
-# import_playbook below re-uses the existing 17-host / 20-hypervisor
-# playbook, passing `target_hosts: foundation` to scope it to the
-# foundation group. Those playbooks default `hosts:` back to
-# `physical` / `hypervisors` when target_hosts is unset, so the regular
-# tiers below this one are unchanged.
+# How it's implemented. This tier reuses 17-host / 20-hypervisor
+# playbooks via import_playbook with `target_hosts: foundation` so they
+# scope to the foundation group; those playbooks default `hosts:` back
+# to `physical` / `hypervisors` when target_hosts is unset, so the
+# regular tiers below are unchanged.
+#
+# Image build flow (the bootstrap chicken-and-egg + the publish path):
+#   50-bootstrap-lxc-template.yml  — LOCAL-only LXC bake on foundation.
+#                                    Produces the customized Debian LXC
+#                                    template that Tofu clones bootserv01
+#                                    from. Runs BEFORE 80-tofu-infra-lxcs
+#                                    because Tofu needs the template to
+#                                    exist. No bootserv01 = no publish
+#                                    yet, so this pass is local-only.
+#   80-tofu-infra-lxcs.yml         — targeted `tofu apply` that creates
+#                                    bootserv01 from the local template.
+#   90-bootserv.yml                — configures bootserv01 (Caddy +
+#                                    dnsmasq + iPXE/preseed + docroot
+#                                    dirs incl. /srv/http/cloud-images/
+#                                    + /srv/http/lxc-templates/).
+#   95-bake-publish-images.yml     — full PRODUCER. Bakes the Debian VM
+#                                    qcow2 (virt-customize + sysprep)
+#                                    and snapshots the LXC template
+#                                    built at step 50; publishes both
+#                                    to bootserv01 via `pct push`. After
+#                                    this, every Proxmox node (including
+#                                    foundation) can fetch the canonical
+#                                    artifacts via 20-hypervisor/40-
+#                                    templates.yml.
+#
+# On a future second hypervisor, this tier is unchanged — only foundation
+# bakes. Peers run the consume path in 20-hypervisor/40-templates.yml.
 #
 # Idempotency story (the user invariant). Re-running this tier on a
 # fully-built fleet is a no-op end-to-end:
 #   - 17-host roles short-circuit (user/storage/ssh/firewall/tailscale/
 #     node-exporter all idempotent).
-#   - 20-hypervisor steps short-circuit (repo flip / pve storage register
-#     / template bake — bake is non-destructive by default).
+#   - 50-bootstrap-lxc-template.yml: per-template `pct status` check
+#     short-circuits when the local template CTID already exists.
+#   - 20-hypervisor steps short-circuit (repo flip / pve storage register).
 #   - The TARGETED `tofu apply -target=module.infra_lxcs_<node>` only
 #     touches the LXC module — never any VM resource — and is a no-op
 #     when the LXC matches state.
 #   - bootserv role re-renders iPXE/preseed templates (idempotent).
+#   - 95-bake-publish-images.yml: per-artifact `pct exec test -f` check
+#     short-circuits when the artifact already exists on bootserv01.
+#     `-e force_rebuild=true` opts in to a rebake.
 # When the regular 17-host / 20-hypervisor / 30-guests tiers run after
 # this, pve-home-01 sees another no-op pass and 30-guests' un-targeted
-# `tofu apply` reconciles the rest of the inventory (LXC stays as-is).
+# `tofu apply` reconciles the rest of the inventory.
 #
 # What's deliberately NOT here:
 #   - 20-cluster.yml — targets `pve_cluster`, orthogonal to foundation.
@@ -53,16 +83,16 @@
   vars: { target_hosts: foundation }
 - import_playbook: ../20-hypervisor/30-pve-storage-register.yml
   vars: { target_hosts: foundation }
-- import_playbook: ../20-hypervisor/40-templates.yml
-  vars:
-    target_hosts: foundation
-    build_lxc_templates: true
-    build_vm_templates: false
-    purge_existing_templates: true
 
+# ── Bootstrap-only LXC template bake (needed by 80-tofu-infra-lxcs) ─────
+- import_playbook: 50-bootstrap-lxc-template.yml
 
 # ── Targeted Tofu apply: just the infra LXCs (bootserv01 today) ─────────
 - import_playbook: 80-tofu-infra-lxcs.yml
 
 # ── Configure the bootserv01 LXC (iPXE + preseed + netboot HTTP root) ───
 - import_playbook: 90-bootserv.yml
+
+# ── Full PRODUCER: bake VM qcow2 + snapshot LXC template, publish to ─────
+# ── bootserv01. Every hypervisor consumes via 20-hypervisor/40-templates ─
+- import_playbook: 95-bake-publish-images.yml

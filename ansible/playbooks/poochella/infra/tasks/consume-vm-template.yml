@@ -1,0 +1,80 @@
+---
+# CONSUMER — fetch the centrally-baked VM qcow2 from bootserv01 and
+# templatize it locally on this hypervisor. Foundation goes through the
+# same code path as any peer (loopback fetch from bootserv01 over vmbr0).
+#
+# Required vars:
+#   vm_template – dict with id, name, image_file (the per-node VMID
+#                 comes from template_vm_ids[inventory_hostname] anchor
+#                 + index; derived by the orchestrating playbook)
+
+- name: "Check if VM template {{ vm_template.id }} exists"
+  ansible.builtin.command: "qm status {{ vm_template.id }}"
+  register: vm_status
+  failed_when: false
+  changed_when: false
+
+- name: "Consume VM template {{ vm_template.id }} ({{ vm_template.name }}) from bootserv01"
+  when: vm_status.rc != 0
+  block:
+    - name: "Fetch sha256 sidecar for {{ vm_template.image_file }}"
+      ansible.builtin.uri:
+        url: "http://bootserv01.lan/cloud-images/{{ vm_template.image_file }}.sha256"
+        return_content: true
+      register: vm_image_sha_resp
+
+    - name: "Set expected sha256 fact"
+      ansible.builtin.set_fact:
+        vm_image_expected_sha: "{{ vm_image_sha_resp.content.split()[0] }}"
+
+    # /var/tmp (disk-backed) — qm importdisk reads the file once and
+    # consumes ~350MB; /tmp is often tmpfs on PVE.
+    - name: "Download centrally-baked qcow2 from bootserv01"
+      ansible.builtin.get_url:
+        url: "http://bootserv01.lan/cloud-images/{{ vm_template.image_file }}"
+        dest: "/var/tmp/{{ vm_template.image_file }}"
+        checksum: "sha256:{{ vm_image_expected_sha }}"
+        mode: "0644"
+        timeout: 120
+      register: vm_image_dl
+      until: vm_image_dl is succeeded
+      retries: 5
+      delay: 15
+
+    # No virt-customize / virt-sysprep here — the foundation bake
+    # (13-foundation/95-bake-publish-images.yml) already did both. This
+    # node only has to import the disk and templatize.
+    - name: "Create VM {{ vm_template.id }}"
+      ansible.builtin.command: >
+        qm create {{ vm_template.id }}
+        --name {{ vm_template.name }}
+        --memory 2048
+        --cores 2
+        --cpu qemu64 --kvm 0
+        --net0 virtio,bridge=vmbr0
+        --scsihw virtio-scsi-single
+      changed_when: true
+
+    - name: "Import disk for VM {{ vm_template.id }}"
+      ansible.builtin.command: >
+        qm importdisk {{ vm_template.id }}
+        /var/tmp/{{ vm_template.image_file }} vms
+      changed_when: true
+
+    - name: "Configure VM {{ vm_template.id }}"
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - "qm set {{ vm_template.id }} --virtio0 vms:vm-{{ vm_template.id }}-disk-0,cache=writeback,iothread=1"
+        - "qm set {{ vm_template.id }} --boot order=virtio0"
+        - "qm set {{ vm_template.id }} --agent enabled=1"
+        - "qm set {{ vm_template.id }} --ide2 vms:cloudinit"
+      changed_when: true
+
+    - name: "Convert VM {{ vm_template.id }} to template"
+      ansible.builtin.command: "qm template {{ vm_template.id }}"
+      changed_when: true
+
+    - name: "Clean up consume scratch"
+      ansible.builtin.file:
+        path: "/var/tmp/{{ vm_template.image_file }}"
+        state: absent

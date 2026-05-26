@@ -7,8 +7,8 @@
 #   TFTP (port 69, dnsmasq):
 #     /srv/tftp/ipxe.efi          chainloaded by UEFI PXE clients
 #     /srv/tftp/undionly.kpxe     chainloaded by legacy BIOS PXE clients
-#   HTTP (port 80, caddy — installed by the `caddy` role applied ahead
-#                          of this one in the calling playbook):
+#   HTTP (port 80, caddy — installed by the `caddy` role declared as a
+#                          dependency in meta/main.yml):
 #     /                            (autoindex on, for ops sanity-checks)
 #     /boot.ipxe                   the script iPXE clients fetch after chainload
 #     /hosts/<host>.ipxe           per-host dispatch (kernel/initrd/preseed URL)
@@ -63,13 +63,16 @@
     owner: "{{ bootserv_owner }}"
     group: "{{ bootserv_group }}"
     mode: "0755"
-  loop:
-    - "{{ bootserv_tftp_root }}"
-    - "{{ bootserv_http_root }}"
-    - "{{ bootserv_http_root }}/debian-13"
-    - "{{ bootserv_http_root }}/hosts"
-    - "{{ bootserv_http_root }}/preseed"
-    - "{{ bootserv_http_root }}/keys"
+  loop: "{{ _bootserv_dirs }}"
+  vars:
+    _bootserv_dirs: >-
+      {{ [bootserv_tftp_root,
+          bootserv_http_root,
+          bootserv_http_root ~ '/debian-13',
+          bootserv_http_root ~ '/hosts',
+          bootserv_http_root ~ '/preseed',
+          bootserv_http_root ~ '/keys']
+         + (bootserv_static_dirs | map('regex_replace', '^', bootserv_http_root ~ '/') | list) }}
 
 # --- TFTP: iPXE chainload binaries -----------------------------------
 # Copy from the Debian-packaged location to /srv/tftp. Source-of-truth
@@ -225,9 +228,10 @@
 
 # --- caddy site config -----------------------------------------------
 # Caddy itself (binary, /etc/caddy/Caddyfile, systemd unit) is set up
-# by the `caddy` role applied ahead of this one in the calling
-# playbook. We only drop a site file into /etc/caddy/sites-enabled/
-# and notify the caddy reload handler exposed by that role.
+# by the `caddy` role declared as a dependency in meta/main.yml, which
+# runs ahead of this role's tasks. We only drop a site file into
+# /etc/caddy/sites-enabled/ and notify the caddy reload handler
+# exposed by that role.
 - name: Deploy bootserv Caddy site config
   ansible.builtin.template:
     src: bootserv.caddy.j2

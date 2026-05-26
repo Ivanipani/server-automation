@@ -1,0 +1,77 @@
+---
+# Foundation tier — Bootstrap-only LOCAL LXC template bake on the
+# foundation hypervisor. Exists SOLELY to break the bootstrap chicken-
+# and-egg: bootserv01 is itself an LXC, cloned by Tofu from a customized
+# Debian LXC template that must exist on the foundation node BEFORE
+# 80-tofu-infra-lxcs.yml runs.
+#
+# This playbook produces a fully-customized, syspreped, pct-template'd
+# local LXC at template_ct_ids[foundation_node] + idx — the same CTID
+# that the production publish/consume flow later treats as the canonical
+# local template. After 95-bake-publish-images.yml runs, peers fetch a
+# byte-identical snapshot of this template from bootserv01. Foundation
+# never re-fetches itself — the consume pass on foundation sees the CTID
+# already exists and short-circuits.
+#
+# Ordering:
+#   13-foundation/site.yml runs this BEFORE 80-tofu-infra-lxcs.yml.
+#
+# Pre-conditions:
+#   - 17-host bootstrap + storage + 20-hypervisor bootstrap +
+#     pve-storage-register have run on the foundation node (the `vms`
+#     LVM-thin storage exists on local).
+#
+# What gets baked: identical to the VM template's customize contract —
+# ansible user (sudo + key from controller's ~/.ssh/ansible.pub), apt
+# packages, SSH hardening, machine-id + sshd hostkey reset so every
+# clone gets a unique DHCP client-id and host identity.
+
+- name: Bootstrap LXC template on foundation (local-only, pre-bootserv)
+  hosts: "{{ target_hosts | default('foundation') }}"
+  gather_facts: false
+  become: true
+  vars_files:
+    - ../vars/templates.yml
+  vars:
+    ansible_pubkey: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
+    lxc_packages: openssh-server curl wget sudo rsync htop
+
+  pre_tasks:
+    - name: Ensure ansible SSH keypair exists on controller
+      ansible.builtin.command:
+        cmd: ssh-keygen -t ed25519 -f ~/.ssh/ansible -N ""
+        creates: ~/.ssh/ansible
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Derive this node's LXC template list (anchor + index)
+      ansible.builtin.set_fact:
+        lxc_templates: "{{ lxc_templates | default([]) + [tmpl | combine({'id': (template_ct_ids[inventory_hostname] | int) + idx})] }}"
+      loop: "{{ lxc_templates_base }}"
+      loop_control:
+        loop_var: tmpl
+        index_var: idx
+        label: "{{ tmpl.hostname }} → {{ (template_ct_ids[inventory_hostname] | int) + idx }}"
+
+    - name: Update PVE appliance catalog
+      ansible.builtin.command: pveam update
+      changed_when: true
+
+    - name: Check available LXC base images
+      ansible.builtin.command: pveam list local
+      register: pveam_list
+      changed_when: false
+
+    - name: Download LXC base images
+      ansible.builtin.command: "pveam download local {{ item.image }}"
+      loop: "{{ lxc_templates }}"
+      when: item.image not in pveam_list.stdout
+      changed_when: true
+
+  tasks:
+    - name: Build local LXC templates (skipped if CTID already exists)
+      ansible.builtin.include_tasks: ../tasks/create-lxc-template.yml
+      loop: "{{ lxc_templates }}"
+      loop_control:
+        loop_var: lxc_template
