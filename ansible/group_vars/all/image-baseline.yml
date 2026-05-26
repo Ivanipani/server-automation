@@ -30,7 +30,7 @@
 # a baked host doesn't rewrite /etc/shadow.
 image_baseline_users:
   - name: ansible
-    groups: [ansible, sudo]
+    groups: [sudo]
     shell: /bin/bash
     ssh_key: "~/.ssh/ansible.pub"
     # No `password:` — key-only automation account.

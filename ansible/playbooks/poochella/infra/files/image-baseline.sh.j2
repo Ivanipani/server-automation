@@ -54,18 +54,38 @@ usermod -L root
 rm -f /root/.ssh/authorized_keys
 
 # ── Users ────────────────────────────────────────────────────────
-# Pre-create every supplementary group. `useradd -G` refuses if any
-# named group doesn't yet exist (validation runs BEFORE same-name
-# primary-group auto-creation). `sudo` ships with Debian; `ansible`
-# does not.
-{% for g in image_baseline_users | map(attribute='groups') | flatten | unique | list %}
+# Pre-create every group we'll touch — both each user's same-name
+# primary group AND every declared supplementary group. useradd
+# refuses to auto-create a same-name primary group when one already
+# exists ("group NAME exists - if you want to add this user to that
+# group, use -g"), and the Debian cloud image ships with an
+# `ansible` group present (cloud-init defaults). Making both layers
+# explicit dodges every "is this primary or supplementary?" ambiguity.
+{% set _all_groups = [] %}
+{% for u in image_baseline_users %}
+{%   set _ = _all_groups.append(u.name) %}
+{%   for g in u.groups %}
+{%     set _ = _all_groups.append(g) %}
+{%   endfor %}
+{% endfor %}
+{% for g in _all_groups | unique | list %}
 getent group {{ g }} >/dev/null || groupadd {{ g }}
 {% endfor %}
 
 {% for u in image_baseline_users %}
 # {{ u.name }}
+#
+# `-N` (no-user-group) suppresses the "group NAME exists - use -g"
+# refusal that fires whenever USERGROUPS_ENAB=yes (Debian default)
+# AND a same-name group already exists. `-g` alone does NOT suppress
+# that check — the auto-create-user-group logic runs independently
+# of the primary-group flag. With `-N -g <name>`: no auto-create
+# attempt, primary group adopted from the pre-created same-name
+# group. Supplementary groups via `-G` with the primary filtered
+# out. Resulting membership: primary = <user>, supplementary =
+# the rest of `u.groups`.
 if ! id -u {{ u.name }} >/dev/null 2>&1; then
-  useradd -m -s {{ u.shell }} -G {{ u.groups | join(',') }} {{ u.name }}
+  useradd -m -s {{ u.shell }} -N -g {{ u.name }} -G {{ u.groups | reject('equalto', u.name) | list | join(',') }} {{ u.name }}
 fi
 {% if u.password is defined %}
 # `chpasswd -e` takes a pre-hashed entry, so the cleartext never
@@ -126,10 +146,17 @@ Match User {{ image_baseline_sshd.password_breakglass_user }}
 __BASELINE_EOF__
 chmod 0644 {{ image_baseline_sshd.drop_in_path }}
 chown root:root {{ image_baseline_sshd.drop_in_path }}
-# Validate; refuse to leave a broken sshd config behind. `sshd -t`
-# is available whenever openssh-server is installed (every medium
-# installs it before this script runs).
-if command -v sshd >/dev/null 2>&1; then
+# Validate; refuse to leave a broken sshd config behind. Gated on
+# host keys EXISTING in /etc/ssh/ — `sshd -t -f <file>` still loads
+# the default host keys for the sanity-of-keys check, and inside
+# virt-customize's libguestfs chroot openssh-server's postinst
+# host-key generation no-ops ("Running in chroot, ignoring request")
+# so keys don't exist yet at script time. virt-sysprep
+# `ssh-hostkeys` would reset them anyway. On the netboot preseed,
+# LXC bake, and PVE first-boot paths, hostkeys exist and the
+# validate runs normally.
+if command -v sshd >/dev/null 2>&1 \
+   && ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
   sshd -t -f {{ image_baseline_sshd.drop_in_path }}
 fi
 
