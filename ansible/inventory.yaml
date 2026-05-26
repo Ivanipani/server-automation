@@ -26,11 +26,21 @@
 #   - NFS mounts: `physical_nfs_mounts` (list of
 #     {share, path, options}) declares which nas01 shares to mount on
 #     each baremetal host. Set on a group's `vars:` block (today:
-#     `hypervisors` mounts the `proxmox` share) or directly on a host.
-#     Same precedence as firewall rules — HOST > most-specific GROUP >
-#     parent — and the deepest definition REPLACES the parent's list.
-#     Absence of the var is equivalent to "no mounts" (the playbook
-#     uses `| default([])`). Consumed by 17-host/16-nfs-mounts.yml.
+#     `physical` defines the cluster-wide mounts; `hypervisors` re-lists
+#     those + adds `proxmox`) or directly on a host. Same precedence
+#     as firewall rules — HOST > most-specific GROUP > parent — and
+#     the deepest definition REPLACES the parent's list. Absence of
+#     the var is equivalent to "no mounts" (the playbook uses
+#     `| default([])`). Consumed by 17-host/16-nfs-mounts.yml.
+#
+#     NOTE on Synology share access: DSM enforces a proprietary
+#     "Synology ACL" layer on top of POSIX. Newly-created shares
+#     default to admin-only access regardless of POSIX mode; chmod
+#     from an NFS client briefly sets the dirent but DSM resyncs to
+#     match its ACL. To grant access, edit the share's Permissions in
+#     DSM UI (Control Panel → Shared Folder → Edit → Permissions) or
+#     run synoacltool on the NAS — neither is automated by the
+#     synology-storage role today.
 #   - `vm: {...}`                   → Tofu creates this VM on Proxmox.
 #     VM boot disks live on the node-local `vms` PVE storage. NO VM
 #     receives a Longhorn-backed data disk: Longhorn replica state lives
@@ -356,6 +366,25 @@ storage:
       #
       # Consumed by playbooks/poochella/infra/15-nas/30-storage.yml
       # (synology-storage role); preflight.yml asserts this shape.
+      #
+      # NFS export scope: every share below is opened to the whole LAN
+      # (10.1.1.0/24) RW. Trade-off: any LAN device can mount any share
+      # — including `k3s-snapshots` (contains the cluster join token —
+      # mount = cluster takeover) and `longhorn-backup` (volume data).
+      # Acceptable because OPNsense WAN default-deny means there is no
+      # path from the internet, and the LAN is single-admin. Tighten
+      # individual shares by replacing the LAN-wide rule with per-IP
+      # rules if a share ever needs to be restricted.
+      #
+      # Squash policy: every rule uses `squash: all_squash` so every
+      # NFS client user (root or otherwise) is squashed to DSM's
+      # "admin" identity, which on this NAS resolves to `pani` (the
+      # only activated DSM user). Consequence: file ownership on the
+      # NAS is always `pani` regardless of which client user wrote
+      # the file — and crucially, server-side users do NOT need to
+      # exist on DSM. Adding a new server-side user requires no NAS
+      # change. To restore per-user ownership (and require matching
+      # Synology users), switch back to `no_root_squash`.
       storage:
         vol_path: /volume1
         shares:
@@ -368,22 +397,9 @@ storage:
             quota_gb: 10
             nfs:
               rules:
-                # One rule per CP VM. Today only kube-ctl-01 is real;
-                # -02/-03 join once the mini-PCs land (Phase 2). The
-                # rules are harmless until those IPs exist.
-                - host: 10.1.1.110           # kube-ctl-01
+                - host: 10.1.1.0/24
                   privilege: rw
-                  squash: no_root_squash
-                  security: sys
-                  async: true
-                - host: 10.1.1.111           # kube-ctl-02 (Phase 2)
-                  privilege: rw
-                  squash: no_root_squash
-                  security: sys
-                  async: true
-                - host: 10.1.1.112           # kube-ctl-03 (Phase 2)
-                  privilege: rw
-                  squash: no_root_squash
+                  squash: all_squash
                   security: sys
                   async: true
           # Durable mirror of bootserv01's published build artifacts
@@ -402,14 +418,9 @@ storage:
             quota_gb: 100
             nfs:
               rules:
-                - host: 10.1.1.105           # pve-home-01 (foundation/producer)
+                - host: 10.1.1.0/24
                   privilege: rw
-                  squash: no_root_squash
-                  security: sys
-                  async: true
-                - host: 10.1.1.106           # worker-home-02
-                  privilege: rw
-                  squash: no_root_squash
+                  squash: all_squash
                   security: sys
                   async: true
           # Cluster-wide scratch space: arbitrary files shared across
@@ -423,14 +434,9 @@ storage:
             quota_gb: 100
             nfs:
               rules:
-                - host: 10.1.1.105           # pve-home-01
+                - host: 10.1.1.0/24
                   privilege: rw
-                  squash: no_root_squash
-                  security: sys
-                  async: true
-                - host: 10.1.1.106           # worker-home-02
-                  privilege: rw
-                  squash: no_root_squash
+                  squash: all_squash
                   security: sys
                   async: true
           # Longhorn BackupTarget destination (the Flux-side Longhorn
@@ -444,24 +450,9 @@ storage:
             quota_gb: 1024
             nfs:
               rules:
-                - host: 10.1.1.106           # worker-home-02 (engine origin)
+                - host: 10.1.1.0/24
                   privilege: rw
-                  squash: no_root_squash
-                  security: sys
-                  async: true
-                - host: 10.1.1.110           # kube-ctl-01
-                  privilege: rw
-                  squash: no_root_squash
-                  security: sys
-                  async: true
-                - host: 10.1.1.111           # kube-ctl-02 (Phase 2)
-                  privilege: rw
-                  squash: no_root_squash
-                  security: sys
-                  async: true
-                - host: 10.1.1.112           # kube-ctl-03 (Phase 2)
-                  privilege: rw
-                  squash: no_root_squash
+                  squash: all_squash
                   security: sys
                   async: true
 

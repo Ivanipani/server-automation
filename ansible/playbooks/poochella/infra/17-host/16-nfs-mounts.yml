@@ -94,3 +94,13 @@
       loop: "{{ physical_nfs_mounts | default([]) }}"
       loop_control:
         label: "{{ item.share }} → {{ item.path }}"
+
+    # NOTE: client-side `chmod` does NOT grant access on Synology shares.
+    # DSM enforces a proprietary "Synology ACL" layer that overrides
+    # POSIX mode; chmod from an NFS client briefly sets the dirent mode
+    # but DSM periodically resyncs the mode to match the Synology ACL
+    # (which defaults to admin-only on share create). Share access must
+    # be granted on the NAS side — either via DSM UI (Control Panel →
+    # Shared Folder → Edit → Permissions) or via `synoacltool` over SSH.
+    # Automation candidate: SYNO.Core.Share.Permission API
+    # (not wired into the synology-storage role yet).
