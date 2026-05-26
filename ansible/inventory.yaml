@@ -181,6 +181,16 @@ physical:
   vars:
     firewall_inbound_allow:
       - { proto: tcp, port: 22, comment: "ssh" }
+    # Default NFS mounts for every physical host. Deeper groups
+    # REPLACE this list (no merge — see header), so `hypervisors`
+    # re-lists these entries below and adds its own on top.
+    physical_nfs_mounts:
+      - share: build-artifacts
+        path: /mnt/nas/build-artifacts
+        options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
+      - share: scratch
+        path: /mnt/nas/scratch
+        options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
   children:
     hypervisors:
     workers:
@@ -202,14 +212,21 @@ hypervisors:
     firewall_inbound_allow:
       - { port: 22, proto: tcp }
       - { port: 8006, proto: tcp, comment: "PVE web UI" }
-    # NFS mount from nas01. The `proxmox` RW share was the publish
-    # target for the deleted 20-hypervisor/40-bake-images.yml (Packer →
-    # NAS image-bake path); the current bake flow publishes to
-    # bootserv01 HTTP instead (13-foundation/95-bake-publish-images.yml).
-    # The mount is retained for manual workflows / backups; remove if
-    # there's no use for it. Resilient mount opts (soft,timeo=30) keep
-    # a NAS hiccup from hanging anything that might still write here.
+    # NFS mounts for hypervisors. REPLACES (does not merge) the
+    # parent `physical.physical_nfs_mounts`, so the `build-artifacts`
+    # and `scratch` mounts are re-listed here. The hypervisor-only
+    # addition is `proxmox` — originally the publish target for the
+    # deleted 20-hypervisor/40-bake-images.yml (Packer → NAS image-bake
+    # path); the current bake flow publishes to bootserv01 HTTP instead
+    # (13-foundation/95-bake-publish-images.yml). Retained for manual
+    # workflows / backups; remove if unused.
     physical_nfs_mounts:
+      - share: build-artifacts
+        path: /mnt/nas/build-artifacts
+        options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
+      - share: scratch
+        path: /mnt/nas/scratch
+        options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
       - share: proxmox
         path: /mnt/nas/proxmox
         options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
@@ -377,12 +394,41 @@ storage:
           # doesn't require re-baking from upstream. Layout inside the
           # share mirrors bootserv01's /srv/http: cloud-images/ +
           # lxc-templates/.
+          # Mounted on every PHYSICAL host (see
+          # physical.vars.physical_nfs_mounts in inventory.yaml) so any
+          # node can browse / restore artifacts off-box.
           - name: build-artifacts
             description: "bootserv01 cloud-images + lxc-templates mirror"
             quota_gb: 100
             nfs:
               rules:
                 - host: 10.1.1.105           # pve-home-01 (foundation/producer)
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
+                - host: 10.1.1.106           # worker-home-02
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
+          # Cluster-wide scratch space: arbitrary files shared across
+          # every physical host. No defined schema; treat as a shared
+          # /tmp that survives reboots. RW for every physical host;
+          # extend the rule list when a new baremetal host comes
+          # online. Mounted at /mnt/nas/scratch on every physical host
+          # (see physical.vars.physical_nfs_mounts in inventory.yaml).
+          - name: scratch
+            description: "Cluster-wide scratch / shared arbitrary files"
+            quota_gb: 100
+            nfs:
+              rules:
+                - host: 10.1.1.105           # pve-home-01
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
+                - host: 10.1.1.106           # worker-home-02
                   privilege: rw
                   squash: no_root_squash
                   security: sys
