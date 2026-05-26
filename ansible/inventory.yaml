@@ -356,7 +356,12 @@ storage:
       mac_address: "90:09:d0:96:65:63"
       nas:
         images_dir: /volume1/proxmox/images/vm
-        rsync_user: pve-publisher
+        # DSM SSH user used for rsync workflows (rsync-over-SSH style:
+        # <user>@nas01.lan:<path>). Currently `pani` is the single
+        # activated DSM user — every rsync workflow rides that account.
+        # Split into a dedicated `pve-publisher` (or per-workflow user)
+        # later if least-privilege becomes a concern.
+        rsync_user: pani
         https_url_base: https://nas01.lan/proxmox/images/vm
       # Programmatically-managed NFS shares on nas01 (additive).
       # The underlying storage pool + volume are created MANUALLY in

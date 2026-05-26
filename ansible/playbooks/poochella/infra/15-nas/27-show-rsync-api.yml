@@ -1,0 +1,99 @@
+---
+# Read-only probe: discover the DSM API endpoint name + method for
+# enabling the rsync service. Used to figure out what to add to
+# synology-dsm role's file_services.yml.
+
+- hosts: nas01
+  gather_facts: false
+  connection: local
+  vars:
+    synology_dsm_username: pani
+    synology_dsm_validate_certs: false
+    synology_dsm_base_url: "https://{{ ansible_host }}:5001"
+    synology_dsm_request_timeout: 30
+
+  tasks:
+    - name: Probe DSM rsync API
+      module_defaults:
+        synology_dsm_api_request:
+          base_url: '{{ synology_dsm_base_url }}'
+          validate_certs: '{{ synology_dsm_validate_certs }}'
+          timeout: '{{ synology_dsm_request_timeout }}'
+          login_cookie: '{{ synology_dsm_login_cookie | default(omit) }}'
+          synotoken: '{{ synology_dsm_syno_token | default(omit) }}'
+      block:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: login.yml
+
+        # Ask SYNO.API.Info what's exposed under FileServ namespaces.
+        - name: Query API.Info for rsync-related APIs
+          synology_dsm_api_request:
+            api_name: SYNO.API.Info
+            api_method: query
+            api_version: 1
+            request_method: GET
+            api_params:
+              query: '"all"'
+          register: _api_info
+          failed_when: false
+
+        - name: Filter API list for rsync + backup-ish entries
+          ansible.builtin.set_fact:
+            _candidate_apis: >-
+              {{ (_api_info.json.data | default({}) | dict2items)
+                 | selectattr('key', 'search', '(?i)(rsync|backup|network)')
+                 | map(attribute='key') | list }}
+
+        - name: Show candidate API names
+          ansible.builtin.debug:
+            var: _candidate_apis
+
+        # Also try a few likely method-name candidates for GET on the
+        # most-likely api name (SYNO.Core.FileServ.Rsync).
+        # Probe the API.Info for SYNO.Backup.Service.NetworkBackup to see
+        # method/version detail.
+        - name: Query API.Info for NetworkBackup
+          synology_dsm_api_request:
+            api_name: SYNO.API.Info
+            api_method: query
+            api_version: 1
+            request_method: GET
+            api_params:
+              query: '"SYNO.Backup.Service.NetworkBackup"'
+          register: _nb_info
+          failed_when: false
+
+        - name: Show NetworkBackup API metadata
+          ansible.builtin.debug:
+            var: _nb_info.json
+
+        - name: GET current NetworkBackup config (v1)
+          synology_dsm_api_request:
+            api_name: SYNO.Backup.Service.NetworkBackup
+            api_method: get
+            api_version: 1
+            request_method: GET
+          register: _nb_get_v1
+          failed_when: false
+
+        - name: GET current NetworkBackup config (v2, in case)
+          synology_dsm_api_request:
+            api_name: SYNO.Backup.Service.NetworkBackup
+            api_method: get
+            api_version: 2
+            request_method: GET
+          register: _nb_get_v2
+          failed_when: false
+
+        - name: Show NetworkBackup GET results
+          ansible.builtin.debug:
+            msg:
+              v1: "{{ _nb_get_v1.json | default('<no>') }}"
+              v2: "{{ _nb_get_v2.json | default('<no>') }}"
+
+      always:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: logout.yml
+          when: synology_dsm_login_cookie is defined

@@ -71,6 +71,18 @@
     synology_dsm_smb_disable_shadow_copy: false
     synology_dsm_smb_enable_transfer_log: false       # see header caveat
 
+    # --- File services: rsync ------------------------------------------------
+    # rsync is a prerequisite for the off-NAS Longhorn-backup replication
+    # workflow (rsync-over-SSH from the cluster to a remote target — or
+    # vice versa). DSM calls this "Network Backup Service" internally.
+    # `enable_rsync_account` left OFF because the homelab uses rsync-over-
+    # SSH (user@host:path style); flip it on if you ever need rsync://
+    # protocol auth on port 873.
+    synology_dsm_rsync_enable: true
+    synology_dsm_rsync_enable_rsync_account: false
+    synology_dsm_rsync_enable_custom_config: false
+    synology_dsm_rsync_sshd_port: "22"
+
     # --- User Home Service ---------------------------------------------------
     # NOT MANAGED. The synology-dsm role's users.yml is gated behind
     # `synology_dsm_manage_user_home_service` (default false in the

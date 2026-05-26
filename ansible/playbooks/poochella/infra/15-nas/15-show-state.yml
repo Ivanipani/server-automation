@@ -58,6 +58,15 @@
           register: _nfs
           failed_when: false
 
+        - name: Get rsync (Network Backup Service) config
+          synology_dsm_api_request:
+            api_name: SYNO.Backup.Service.NetworkBackup
+            api_version: 1
+            api_method: get
+            request_method: GET
+          register: _rsync
+          failed_when: false
+
         - name: Get SMB config
           synology_dsm_api_request:
             api_name: SYNO.Core.FileServ.SMB
@@ -94,6 +103,8 @@
               terminal_data:  "{{ _terminal.json | default({}) }}"
               nfs_ok:         "{{ not (_nfs.failed | default(true)) }}"
               nfs_data:       "{{ _nfs.json | default({}) }}"
+              rsync_ok:       "{{ not (_rsync.failed | default(true)) }}"
+              rsync_data:     "{{ _rsync.json | default({}) }}"
               smb_ok:         "{{ not (_smb.failed | default(true)) }}"
               smb_data:       "{{ _smb.json | default({}) }}"
               user_home_ok:   "{{ not (_user_home.failed | default(true)) }}"
@@ -109,6 +120,7 @@
           vars:
             t: "{{ _terminal.json.data    | default({}) if not (_terminal.failed | default(true))    else {} }}"
             n: "{{ _nfs.json.data         | default({}) if not (_nfs.failed | default(true))         else {} }}"
+            r: "{{ _rsync.json.data       | default({}) if not (_rsync.failed | default(true))       else {} }}"
             s: "{{ _smb.json.data         | default({}) if not (_smb.failed | default(true))         else {} }}"
             u: "{{ _user_home.json.data   | default({}) if not (_user_home.failed | default(true))   else {} }}"
             f: "{{ _pkg_feeds.json.data['items'] | default([]) if not (_pkg_feeds.failed | default(true)) else [] }}"
@@ -133,6 +145,12 @@
               synology_dsm_nfs_enable: {{ (n.enable_nfs | to_json) if 'enable_nfs' in n else '???' }}
               synology_dsm_nfs_enable_v4: {{ (n.enable_nfs_v4 | to_json) if 'enable_nfs_v4' in n else '???' }}
               synology_dsm_nfs_enable_v4_1: {{ (n.enable_nfs_v4_1 | to_json) if 'enable_nfs_v4_1' in n else '???' }}
+
+              # rsync (DSM API name: SYNO.Backup.Service.NetworkBackup)
+              synology_dsm_rsync_enable: {{ (r.enable | to_json) if 'enable' in r else '???' }}
+              synology_dsm_rsync_enable_rsync_account: {{ (r.enable_rsync_account | to_json) if 'enable_rsync_account' in r else '???' }}
+              synology_dsm_rsync_enable_custom_config: {{ (r.enable_custom_config | to_json) if 'enable_custom_config' in r else '???' }}
+              synology_dsm_rsync_sshd_port: {{ ('"' + (r.rsync_sshd_port | string) + '"') if 'rsync_sshd_port' in r else '???' }}
 
               # SMB
               synology_dsm_smb_enable: {{ (s.enable_samba | to_json) if 'enable_samba' in s else '???' }}

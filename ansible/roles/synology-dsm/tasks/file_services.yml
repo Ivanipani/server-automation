@@ -46,3 +46,25 @@
         "disable_shadow_copy":{{ synology_dsm_smb_disable_shadow_copy | to_json }},
         "smb_transfer_log_enable":{{ synology_dsm_smb_enable_transfer_log | to_json }}
         }]
+
+# DSM calls rsync "Network Backup Service" in its API
+# (SYNO.Backup.Service.NetworkBackup). `rsync_sshd_port` is a STRING in
+# DSM's payload (e.g. "22"), not an int — to_json preserves that.
+- name: Enable/Disable rsync service
+  synology_dsm_api_request:
+    api_name: SYNO.Entry.Request
+    api_method: request
+    request_method: POST
+    api_params:
+      stop_on_error: 'false'
+      mode: sequential
+      compound: >-
+        [{
+        "api":"SYNO.Backup.Service.NetworkBackup",
+        "method":"set",
+        "version":"1",
+        "enable":{{ synology_dsm_rsync_enable | to_json }},
+        "enable_rsync_account":{{ synology_dsm_rsync_enable_rsync_account | to_json }},
+        "enable_custom_config":{{ synology_dsm_rsync_enable_custom_config | to_json }},
+        "rsync_sshd_port":{{ synology_dsm_rsync_sshd_port | to_json }}
+        }]

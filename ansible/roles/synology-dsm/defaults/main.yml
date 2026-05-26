@@ -71,3 +71,13 @@ synology_dsm_smb_enable_transfer_log: false
 # NOTE: AFP support intentionally not exposed here. Synology removed AFP
 # in DSM 7.2; on 7.3.x the SYNO.Core.FileServ.AFP endpoint no longer
 # exists and the upstream task would 404.
+
+# rsync server (DSM still calls this "Network Backup Service" in its
+# API — SYNO.Backup.Service.NetworkBackup). Toggling `enable` turns the
+# rsync daemon on; `enable_rsync_account` opts the rsync:// protocol's
+# native account auth (port 873) ON in addition to rsync-over-SSH.
+# Keep off by default; the baseline play enables what the homelab needs.
+synology_dsm_rsync_enable: false
+synology_dsm_rsync_enable_rsync_account: false
+synology_dsm_rsync_enable_custom_config: false
+synology_dsm_rsync_sshd_port: "22"
