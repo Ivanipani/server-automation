@@ -65,6 +65,50 @@
     path: /root/.ssh/authorized_keys
     state: absent
 
+# Register the break-glass account in Proxmox's user DB so it can sign in
+# to the web UI, not just SSH/console. The Linux account already exists
+# (create-user above) and its PAM password works — but PVE rejects web UI
+# logins for any *@pam user that isn't listed in /etc/pve/user.cfg.
+# root@pam is unusable for web UI break-glass because the task above
+# locks the root Linux password, so PAM refuses every input on :8006.
+# Hypervisors only: workers don't have `pveum`.
+- name: Register break-glass user in PVE (web UI break-glass)
+  when:
+    - inventory_hostname in groups.get('hypervisors', [])
+    - image_baseline_sshd.password_breakglass_user | length > 0
+  vars:
+    _pve_breakglass: "{{ image_baseline_sshd.password_breakglass_user }}@pam"
+  block:
+    - name: List existing PVE users
+      ansible.builtin.command:
+        cmd: pveum user list --output-format json
+      register: _pveum_users
+      changed_when: false
+
+    - name: Add break-glass user to PVE
+      ansible.builtin.command:
+        cmd: pveum user add {{ _pve_breakglass }} --comment "Break-glass (Linux PAM, host-base)"
+      when: >-
+        _pveum_users.stdout | from_json
+        | selectattr('userid', 'equalto', _pve_breakglass)
+        | list | length == 0
+
+    - name: List existing PVE ACLs
+      ansible.builtin.command:
+        cmd: pveum acl list --output-format json
+      register: _pveum_acls
+      changed_when: false
+
+    - name: Grant break-glass user Administrator at /
+      ansible.builtin.command:
+        cmd: pveum acl modify / -user {{ _pve_breakglass }} -role Administrator
+      when: >-
+        _pveum_acls.stdout | from_json
+        | selectattr('ugid', 'equalto', _pve_breakglass)
+        | selectattr('roleid', 'equalto', 'Administrator')
+        | selectattr('path', 'equalto', '/')
+        | list | length == 0
+
 # proxmox-auto-install-assistant is a small utility from the PVE repo
 # that prepares unattended-install ISOs (img/proxmox/). We want it on
 # every physical host so any of them can rebuild a fresh-install ISO.
