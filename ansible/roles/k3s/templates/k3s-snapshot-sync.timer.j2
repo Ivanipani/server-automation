@@ -1,0 +1,17 @@
+[Unit]
+Description=Mirror k3s embedded-etcd snapshots + token to nas01 (every 4h)
+Documentation=https://docs.k3s.io/cli/etcd-snapshot
+
+[Timer]
+# OnBootSec=15min so a freshly booted CP doesn't immediately hammer the
+# NAS before networking + the NFS mount have settled. OnUnitActiveSec=4h
+# is the steady-state cadence: tighter than the k3s snapshot frequency
+# (default every 12h) so the NAS is always within 4h of the local state.
+# Persistent=true catches missed firings (e.g. CP was off when a fire
+# was scheduled) and runs on next start.
+OnBootSec=15min
+OnUnitActiveSec=4h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

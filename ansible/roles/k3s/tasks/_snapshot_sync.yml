@@ -1,0 +1,56 @@
+---
+# Producer-side wiring for the off-box etcd-snapshot mirror.
+#
+# k3s writes embedded-etcd snapshots locally to
+# /var/lib/rancher/k3s/server/db/snapshots/ every 12h (retention 5).
+# This task file installs a sidecar systemd timer that rsyncs both the
+# snapshot directory AND the cluster join token
+# (/var/lib/rancher/k3s/server/token) to the nas01 `k3s-snapshots` NFS
+# share at /mnt/nas/k3s-snapshots/<hostname>/. Without the token, a
+# snapshot is unusable — `k3s server --cluster-reset
+# --cluster-reset-restore-path=...` refuses to start.
+#
+# Sidecar approach (rather than k3s native --etcd-snapshot-dir):
+# leaves k3s writing locally so a NAS outage at boot doesn't entangle
+# k3s startup; only the mirror step fails, the cluster keeps running.
+#
+# Pre-condition: the nas01 k3s-snapshots share is mounted on this host
+# at /mnt/nas/k3s-snapshots (set up by 17-host/16-nfs-mounts.yml,
+# re-imported from 30-guests/site.yml scoped to kube_control_plane —
+# `physical_nfs_mounts` is declared on the kube_control_plane group's
+# vars block in inventory.yaml).
+#
+# Invoked from 40-kube/20-k3s.yml after the joiners complete, scoped to
+# kube_control_plane.
+
+- name: Ensure rsync is installed
+  ansible.builtin.apt:
+    name: rsync
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Render k3s-snapshot-sync.service
+  ansible.builtin.template:
+    src: k3s-snapshot-sync.service.j2
+    dest: /etc/systemd/system/k3s-snapshot-sync.service
+    mode: "0644"
+    owner: root
+    group: root
+  register: _sync_service
+
+- name: Render k3s-snapshot-sync.timer
+  ansible.builtin.template:
+    src: k3s-snapshot-sync.timer.j2
+    dest: /etc/systemd/system/k3s-snapshot-sync.timer
+    mode: "0644"
+    owner: root
+    group: root
+  register: _sync_timer
+
+- name: Enable + start k3s-snapshot-sync.timer
+  ansible.builtin.systemd:
+    name: k3s-snapshot-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ _sync_service.changed or _sync_timer.changed }}"

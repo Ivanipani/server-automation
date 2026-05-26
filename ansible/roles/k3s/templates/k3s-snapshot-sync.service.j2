@@ -1,0 +1,29 @@
+[Unit]
+Description=Mirror k3s embedded-etcd snapshots + cluster join token to nas01
+Documentation=https://docs.k3s.io/datastore/backup-restore
+# Snapshots live on the boot disk under /var/lib/rancher/k3s/; the
+# off-box destination is the NFS-mounted nas01 share. The mount must
+# be up for the rsync to land; if the NAS is down at fire time, the
+# service fails loudly (which the timer reports), the next firing
+# retries.
+RequiresMountsFor=/mnt/nas/k3s-snapshots
+After=k3s.service
+
+[Service]
+Type=oneshot
+# Mirror an EXACT copy of the local snapshot directory (k3s manages
+# retention locally — default 5 snapshots; --delete keeps the NAS in
+# sync with that). The token rsync is NON-deleting (single file).
+# Without the token, a snapshot is unusable: k3s server --cluster-reset
+# --cluster-reset-restore-path=... refuses to start.
+#
+# rsync flags: -rlt only — NO -o/-g/-p. The nas01 NFS export uses
+# `all_squash → admin` so every write lands as DSM's `pani` user
+# regardless of client uid; `rsync -a` (which implies -o/-g/-p) would
+# attempt chown/chmod, get "Operation not permitted" from the NFS
+# server, and exit code 23 (partial transfer). -rlt preserves what we
+# actually want (recursive + symlinks + mtime; "which snapshot is most
+# recent?" on the NAS is the only attribute we care about).
+ExecStartPre=/bin/mkdir -p /mnt/nas/k3s-snapshots/{{ inventory_hostname }}/snapshots
+ExecStart=/usr/bin/rsync -rlt --delete /var/lib/rancher/k3s/server/db/snapshots/ /mnt/nas/k3s-snapshots/{{ inventory_hostname }}/snapshots/
+ExecStart=/usr/bin/rsync -rlt /var/lib/rancher/k3s/server/token /mnt/nas/k3s-snapshots/{{ inventory_hostname }}/token
