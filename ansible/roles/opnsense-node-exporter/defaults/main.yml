@@ -1,0 +1,34 @@
+---
+# Toggle. Default-on so the role is opt-in via host/group_vars; the
+# playbook's `meta: end_host` guards short-circuit when off.
+opnsense_node_exporter_enabled: true
+
+# Plugin pkg. The plugin runs the standard prom node_exporter on FreeBSD
+# and owns its rc.d state; we drive its config DB via REST.
+opnsense_node_exporter_plugin_pkg: os-node_exporter
+
+# Bind address. "0.0.0.0" = all interfaces, matching the web-UI default
+# (the API treats empty string as a missing field and silently drops it).
+# WAN inbound is firewalled by default; pin to the LAN IP (e.g.
+# 10.1.1.1) for defense-in-depth.
+opnsense_node_exporter_listen_address: "0.0.0.0"
+
+# Default node_exporter port.
+opnsense_node_exporter_listen_port: "9100"
+
+# Collector toggles. The general/set endpoint validates against the full
+# model and writes "" (≈ off) for any field the body omits — partial
+# POSTs leave the service in `disabled`. Defaults match the web-UI
+# defaults (every collector on). Override per-collector to trim.
+opnsense_node_exporter_collectors:
+  cpu: "1"
+  devstat: "1"
+  exec: "1"
+  filesystem: "1"
+  interrupts: "1"
+  loadavg: "1"
+  meminfo: "1"
+  netdev: "1"
+  ntp: "1"
+  time: "1"
+  zfs: "1"

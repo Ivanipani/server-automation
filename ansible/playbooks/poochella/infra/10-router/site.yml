@@ -9,3 +9,4 @@
 - import_playbook: 20-dnsmasq.yml
 - import_playbook: 30-unbound.yml
 - import_playbook: 40-tailscale.yml
+- import_playbook: 50-node-exporter.yml

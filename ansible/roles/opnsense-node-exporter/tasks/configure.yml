@@ -1,0 +1,47 @@
+---
+# Drive the os-node_exporter plugin's config DB via its REST API. The
+# plugin owns the node_exporter rc.d state, so flipping plugin state
+# here is what actually makes the exporter start and bind.
+#
+# Expects: connection-local play (talks to OPNsense from the controller
+# via https + basic auth). Auth credentials come from module_defaults
+# in the calling playbook. Plugin must already be installed (install.yml).
+#
+# Idempotency: general/set is server-side idempotent — repeated POSTs
+# with identical bodies are no-ops. /service/reconfigure re-renders
+# config and restarts node_exporter only if the rendered output differs.
+
+- name: Skip when disabled
+  ansible.builtin.meta: end_host
+  when: not opnsense_node_exporter_enabled
+
+- name: Push plugin settings (full general model)
+  # general/set validates against the FULL model — omitted fields are
+  # written as "" (≈ off), which leaves the service in `disabled` even
+  # when `enabled: "1"` is in the payload. Send every field the web UI
+  # sends (enabled + listen + every collector).
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/nodeexporter/general/set"
+    method: POST
+    body_format: json
+    body:
+      general: "{{ opnsense_node_exporter_collectors | combine({
+                    'enabled': '1',
+                    'listenaddress': opnsense_node_exporter_listen_address,
+                    'listenport': opnsense_node_exporter_listen_port,
+                 }) }}"
+  changed_when: true
+
+- name: Reconfigure node_exporter (re-render config + restart if changed)
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/nodeexporter/service/reconfigure"
+    method: POST
+    body_format: json
+    body: {}
+
+- name: Verify node_exporter service is running
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/nodeexporter/service/status"
+    method: GET
+  register: nexp_status
+  failed_when: (nexp_status.json.status | default('')) != 'running'

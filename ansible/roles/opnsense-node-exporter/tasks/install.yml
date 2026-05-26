@@ -1,0 +1,18 @@
+---
+# Install the os-node_exporter plugin via raw SSH. Idempotent via `pkg info -q`.
+# Expects: SSH-connected play (`become: true`). FreeBSD lacks Python by default.
+
+- name: Skip when disabled
+  ansible.builtin.meta: end_host
+  when: not opnsense_node_exporter_enabled
+
+- name: Check if os-node_exporter plugin is installed
+  ansible.builtin.raw: pkg info -q {{ opnsense_node_exporter_plugin_pkg }}
+  register: nexp_plugin_check
+  changed_when: false
+  failed_when: false
+
+- name: Install os-node_exporter plugin
+  ansible.builtin.raw: pkg install -y {{ opnsense_node_exporter_plugin_pkg }}
+  when: nexp_plugin_check.rc != 0
+  changed_when: true

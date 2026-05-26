@@ -1,0 +1,58 @@
+---
+# Tier 10 — install and enable the os-node_exporter plugin on OPNsense
+# so Prometheus can scrape standard host metrics (CPU/mem/disk/net) from
+# the router at http://10.1.1.1:9100/metrics — the same shape as the
+# Linux `node-exporter` role deployed on every `physical` host by
+# 17-host/50-node-exporter.yml.
+#
+# Architecture: the os-node_exporter plugin owns the node_exporter rc.d
+# state via its config DB; raw sysrc edits would be ineffective. We
+# drive the plugin's REST API:
+#   - general/set           enabled=1, listenaddress/port
+#   - service/reconfigure   re-render config + restart if changed
+#   - service/status        verify running
+#
+# Pre-conditions:
+#   • 10-bootstrap.yml has run (ansible user on OPNsense).
+#   • `vault_opnsense_api_key` + `vault_opnsense_api_secret` in the vault.
+#
+# Scraping notes (NOT in IaC):
+#   • Default LAN firewall allows LAN clients to reach the firewall IP,
+#     so scraping 10.1.1.1:9100 from a Prometheus on the LAN (e.g. a
+#     k3s pod) should work without an extra rule.
+#   • The plugin defaults to listening on all interfaces; OPNsense's
+#     WAN ruleset blocks inbound by default, but you can pin
+#     `opnsense_node_exporter_listen_address` to the LAN IP for
+#     defense-in-depth.
+#
+# Two plays: the first installs the plugin pkg over SSH (FreeBSD raw),
+# the second drives the plugin's API from the controller (connection:
+# local). Day-2 safe: re-runnable any time, idempotent across all phases.
+
+- name: Install os-node_exporter plugin on OPNsense
+  hosts: router
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Install plugin
+      ansible.builtin.import_role:
+        name: opnsense-node-exporter
+        tasks_from: install
+
+- name: Configure os-node_exporter plugin via REST API
+  hosts: router
+  gather_facts: false
+  connection: local
+  module_defaults:
+    ansible.builtin.uri:
+      url_username: "{{ opnsense_api_key }}"
+      url_password: "{{ opnsense_api_secret }}"
+      force_basic_auth: true
+      validate_certs: false
+      return_content: true
+      status_code: [200]
+  tasks:
+    - name: Configure plugin + start service
+      ansible.builtin.import_role:
+        name: opnsense-node-exporter
+        tasks_from: configure
