@@ -44,23 +44,16 @@
       [ -n "$pls" ]  && echo "                 partlabels: $pls (ours if already provisioned)"
 
       # Suggested selector skeleton for non-boot, non-removable disks.
+      # Hypervisors today have no data-disk convention (Longhorn replicas
+      # live on baremetal kube_workers only); the skeleton emits a worker-
+      # shaped pool member with the mount comment so the operator can
+      # repurpose it deliberately.
       if [ "$base" != "$boot" ] && [ "$rm" != "1" ]; then
         floor=$(( (gib / 100) * 100 ))
         rotflag=false; [ "$rota" = "1" ] && rotflag=true
         wipe=""; [ -n "$sigs" ] && wipe="
         wipe: force            # disk holds foreign signatures"
-        if [ "$is_hyper" = "yes" ]; then
-          suggest="$suggest
-      - select: { min_size_gib: $floor, rotational: $rotflag }$wipe
-        partitions:
-          - label: <unique-partlabel>
-            vg: longhorndata
-            thinpool: longhornthin
-            pve_storage: longhorn-data
-            content: images
-            size: \"0\""
-        else
-          suggest="$suggest
+        suggest="$suggest
       - select: { min_size_gib: $floor, rotational: $rotflag }$wipe
         partitions:
           - label: <unique-partlabel>
@@ -68,7 +61,6 @@
             thinpool: longhornthin
             size: \"0\"
             # mount: { path: /var/lib/longhorn, fstype: ext4 }   # on ONE partition per pool"
-        fi
       fi
     done
 
@@ -84,8 +76,8 @@
       echo "              thinpool: vmthin"
       echo "              pve_storage: vms"
       echo "              content: images,rootdir"
-      echo "              size: \"0\"        # or e.g. \"200G\" then a longhorn tail"
-      if [ -n "$suggest" ]; then echo "      # additional disks → longhorn-data:"; echo "$suggest"; fi
+      echo "              size: \"0\"        # fill the boot tail"
+      if [ -n "$suggest" ]; then echo "      # extra disks (decide pve_storage / mount intent before pasting):"; echo "$suggest"; fi
     else
       echo "      # Worker convention: boot disk is owned by the Debian installer;"
       echo "      # extra data disks combine into one longhornthin pool mounted at"

@@ -50,13 +50,15 @@
 #
 # Multiple partitions may target ONE vg/thinpool (each with its own
 # unique `label` partlabel) — this is how two physical disks back a
-# single, larger LVM-thin pool (e.g. NVMe + HDD → one `longhorn-data`
-# pool on a hypervisor, or one `longhorndata`/`longhornthin` pool on a
-# worker that mounts at /var/lib/longhorn).
+# single, larger LVM-thin pool (e.g. NVMe + HDD → one `longhorndata`/
+# `longhornthin` pool on a baremetal kube_worker that mounts at
+# /var/lib/longhorn).
 #
 # `pve_storage` (when used) is a FROZEN contract: tofu/modules/vm
-# hardcodes `vms` and `longhorn-data`. Renaming it is a breaking change
-# across Tofu/templates.
+# hardcodes `vms` (every VM/LXC boot disk + cloud-init drive). Renaming
+# it is a breaking change across Tofu/templates. Longhorn replica state
+# lives on baremetal kube_workers only — no hypervisor-side PVE storage
+# backs Longhorn.
 #
 # Schema (each partition declares AT MOST ONE of pve_storage or mount;
 # bare partitions — neither — join a pool whose target is declared on a

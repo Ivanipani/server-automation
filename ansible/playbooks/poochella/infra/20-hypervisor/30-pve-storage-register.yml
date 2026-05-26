@@ -2,9 +2,9 @@
 # Register each declared `pve_storage` thin pool with PVE as an `lvmthin`
 # storage. PVE-only follow-up to 17-host/15-storage.yml — the VG +
 # thin pool are already built (by the host-disks role); this playbook
-# just publishes them under their frozen contract names (`vms`,
-# `longhorn-data`) in /etc/pve/storage.cfg so Tofu can attach VM disks
-# to them. Workers don't run PVE and never appear here.
+# just publishes them under their frozen contract name (`vms`) in
+# /etc/pve/storage.cfg so Tofu can attach VM disks to them. Workers
+# don't run PVE and never appear here.
 #
 # Idempotent on the `lvmthin: <name>` line in /etc/pve/storage.cfg —
 # re-runs are a no-op. Storage is scoped --nodes <self> because nodes

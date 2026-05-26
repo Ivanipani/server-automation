@@ -13,3 +13,4 @@ img/debian/output/
 *tfstate*
 .playwright-mcp*
 img/bytepen/target
+kubeconfig

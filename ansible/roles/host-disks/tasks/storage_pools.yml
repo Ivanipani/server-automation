@@ -13,8 +13,7 @@
 # Multiple partitions (on different physical disks) may share one
 # vg/thinpool: that VG then spans every such partition's PV and the thin
 # pool grows over all of them — this is how a NVMe + HDD present as one
-# larger pool (e.g. `longhornthin` on a worker, `longhorn-data` on a
-# hypervisor).
+# larger pool (e.g. `longhornthin` on a baremetal kube_worker).
 #
 # Requires: carve.yml has created the by-partlabel devices.
 

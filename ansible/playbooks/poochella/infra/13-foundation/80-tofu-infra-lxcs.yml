@@ -2,30 +2,31 @@
 # Foundation tier — bring up ONLY the infra LXCs on the foundation
 # hypervisor(s). Today: bootserv01 on pve-home-01.
 #
-# Why a separate, targeted Tofu invocation: the full `tofu apply` lives
-# in 30-guests/10-opentofu.yml and creates every VM + LXC declared in
-# the inventory. We don't want to incur that cost (or risk) just to land
-# bootserv01 — fresh baremetals need it BEFORE the wider 17-host tier
-# can run against them. So this play runs `tofu apply -target=<module>`
-# scoped at the per-node `infra_lxcs_<node>` Tofu modules (defined
-# statically in tofu/main.tf with fixed names), which creates ONLY the
-# infra LXCs pinned to those nodes and never touches any VM resource.
+# Why a separate, targeted Tofu invocation: the full per-node apply
+# lives in 30-guests/10-opentofu.yml and creates every VM + LXC declared
+# in the inventory for each hypervisor. We don't want to incur that cost
+# (or risk) just to land bootserv01 — fresh baremetals need it BEFORE
+# the wider 17-host tier can run against them. So this play loops over
+# the `foundation` group and per-iteration runs
+# `tofu apply -target=module.hypervisor.module.infra_lxcs` against that
+# hypervisor's per-node Tofu workspace (tofu/per-node/<host>/), which
+# creates ONLY the infra LXCs and never touches any VM resource.
 #
-# Same state file as the full apply: targeting is per-invocation, not
-# state-level. The later 30-guests/10-opentofu.yml runs the un-targeted
-# apply against the same state and reconciles everything (including the
-# LXC, which is already as declared and ends up a no-op).
+# State: each hypervisor has its own state file under
+# tofu/per-node/<host>/terraform.tfstate. Targeting is per-invocation:
+# the later 30-guests/10-opentofu.yml runs the un-targeted apply against
+# the same state and reconciles everything (the LXC is a no-op then).
 #
 # Idempotent: re-running on a fully-built fleet is a no-op
 # (Tofu sees the LXC matches state, nothing to do).
 #
 # Adding a foundation hypervisor:
 #   1. Add it to `foundation:` in inventory.yaml + the node's vault key
-#      to `proxmox_api_tokens` in group_vars/all/vars.yml
-#   2. Follow the 3-step hypervisor checklist (tofu/provider.tf header)
-#      — endpoint, provider block, module call (LXC + VM)
-#   3. Add `module.infra_lxcs_<new_node>` to the `targets:` list below
-#      (the env-var below is map-based — no per-node line to maintain)
+#      to `proxmox_api_tokens` in group_vars/all/vars.yml.
+#   2. `cp -r tofu/per-node/pve-home-01 tofu/per-node/<new-host>` and
+#      edit `local.hypervisor_name` in the new main.tf.
+#   (Nothing else: this play's loop is over `foundation`, so the new
+#   host is picked up automatically.)
 
 - name: Verify each foundation hypervisor's Proxmox API token (vault + PVE)
   hosts: "{{ target_hosts | default('foundation') }}"
@@ -63,34 +64,31 @@
           {{ inventory_hostname }} doesn't list '{{ token_name }}' under
           {{ token_user }}. Recreate it on that node and update the vault.
 
-- name: Provision foundation infra LXCs (targeted Tofu apply)
+- name: Provision foundation infra LXCs (per-node targeted apply)
   hosts: localhost
   connection: local
   gather_facts: false
   tasks:
-    - name: Run tofu apply -target=<infra_lxcs modules>
+    - name: Run tofu apply -target=module.hypervisor.module.infra_lxcs per foundation node
       community.general.terraform:
-        # playbook_dir = .../infra/13-foundation; repo root is 5 levels up.
-        project_path: "{{ playbook_dir }}/../../../../../tofu"
+        # playbook_dir = .../infra/13-foundation; the per-node Tofu
+        # workspace lives at tofu/per-node/<host>/ (5 levels up).
+        project_path: "{{ playbook_dir }}/../../../../../tofu/per-node/{{ item }}"
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true
-        # Targeted: ONLY the per-node infra_lxcs modules. Never touches
-        # any module.vms_<node>. Add `module.infra_lxcs_<new_node>` here
-        # when adding a foundation hypervisor.
+        # Targeted: ONLY the per-node `infra_lxcs` submodule (inside the
+        # `hypervisor` wrapper). Never touches the `vms` submodule.
         targets:
-          - module.infra_lxcs_pve_home_01
+          - module.hypervisor.module.infra_lxcs
       environment:
-        # Single JSON-encoded map → Tofu's `var.proxmox_api_tokens`
-        # (same shape as 30-guests/10-opentofu.yml). Each per-node
-        # provider block in tofu/provider.tf looks up its hypervisor's
-        # token by name; the targeted apply only exercises the
-        # foundation node's provider, but every declared provider must
-        # still resolve, so we pass the full map.
-        TF_VAR_proxmox_api_tokens: "{{ proxmox_api_tokens | to_json }}"
+        TF_VAR_proxmox_api_token: "{{ proxmox_api_tokens[item] }}"
+      loop: "{{ groups[target_hosts | default('foundation')] }}"
       register: tofu_output
-      no_log: false
 
-    - name: Show provisioned infra LXCs
+    - name: Show reconciled foundation infra LXCs
       ansible.builtin.debug:
-        msg: "Foundation infra LXCs reconciled."
+        msg: "Foundation infra LXCs reconciled on {{ item.item }}."
+      loop: "{{ tofu_output.results }}"
+      loop_control:
+        label: "{{ item.item }}"

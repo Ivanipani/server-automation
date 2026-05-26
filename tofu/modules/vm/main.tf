@@ -1,7 +1,7 @@
-# One Proxmox node's VMs. Instantiated once per node by tofu/main.tf
-# with that node's aliased provider, so this works for independent
-# (non-clustered) nodes as well as cluster members — each node is
-# addressed through its own API endpoint.
+# VMs for ONE standalone Proxmox hypervisor. Instantiated by
+# tofu/modules/hypervisor, which inherits the per-node directory's
+# single proxmox provider and feeds the inventory slice pinned to that
+# hypervisor.
 resource "proxmox_virtual_environment_vm" "vm" {
   for_each = var.vms
 
@@ -30,22 +30,6 @@ resource "proxmox_virtual_environment_vm" "vm" {
     interface    = "virtio0"
     size         = each.value.disk_size
     datastore_id = "vms" # node-local LVM-thin; VM is pinned to its node
-  }
-
-  # Optional second disk for k3s workers (Longhorn data), backed by the
-  # node-local `longhorn-data` LVM-thin pool. Emitted only when the host
-  # declares `vm.data_disk_size` in inventory.yaml — one worker per node,
-  # sized to consume that node's whole longhorn pool (kept just under the
-  # physical pool: the pool is thin-provisioned, so over-committing it
-  # would let Longhorn exhaust it). Presents as virtio1 (/dev/vdb) in the
-  # guest; 10-longhorn-storage.yml ext4-formats + mounts it.
-  dynamic "disk" {
-    for_each = each.value.data_disk_size > 0 ? [1] : []
-    content {
-      interface    = "virtio1"
-      size         = each.value.data_disk_size
-      datastore_id = "longhorn-data"
-    }
   }
 
   # The cloud-init drive is attached because this block is present. VM `name`

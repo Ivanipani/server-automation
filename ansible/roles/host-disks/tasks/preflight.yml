@@ -255,7 +255,7 @@
 # one. Length 0 means the whole pool is bare (no target declared
 # anywhere); length > 1 means targets disagree. Applies to pve_storage-
 # and mount-backed pools alike — both may span multiple disks (NVMe +
-# HDD → one larger longhornthin / longhorn-data) and the convention is
+# HDD → one larger longhornthin pool on a baremetal worker) and the convention is
 # to declare the target on exactly one partition per pool.
 - name: "Assert every (vg,thinpool) has exactly one declared target"
   ansible.builtin.assert:
@@ -278,16 +278,12 @@
   loop: "{{ host_disks_resolved | map(attribute='_pool_key') | unique | list }}"
   when: host_disks_action == 'overwrite'
 
-# ── Hypervisor-only frozen-contract assertions ───────────────────────
-# Tofu hardcodes the storage IDs (`vms` for every VM boot disk, the
-# cloud-init drive and every LXC; `longhorn-data` for `vm.data_disk_size`)
-# so the NAMES are frozen — but each hypervisor only needs the storages
-# the VMs pinned to it actually use:
-#   - `vms` is required on every hypervisor (universal: every VM/LXC
-#     uses it for the boot disk + cloud-init drive).
-#   - `longhorn-data` is required only on hypervisors that host VMs
-#     declaring `vm.data_disk_size` (i.e. kube_workers). A CP-only
-#     hypervisor (e.g. pve-home-01 today) does NOT need it.
+# ── Hypervisor-only frozen-contract assertion ────────────────────────
+# Tofu hardcodes `vms` as the PVE storage for every VM/LXC boot disk +
+# the cloud-init drive — so `vms` is the one frozen storage NAME that
+# every hypervisor must yield. Longhorn replica state lives on baremetal
+# kube_workers only, never on a hypervisor; no VM receives a Longhorn-
+# backed data disk.
 - name: Assert this hypervisor provides `vms` storage (universal)
   ansible.builtin.assert:
     that:
@@ -300,72 +296,3 @@
   when:
     - inventory_hostname in groups['hypervisors']
     - host_disks_action == 'overwrite'
-
-- name: Assert this hypervisor provides `longhorn-data` iff a pinned VM uses it
-  ansible.builtin.assert:
-    that:
-      - >-
-        _data_pinned | length == 0
-        or 'longhorn-data' in (host_disks_resolved | selectattr('pve_storage', 'defined')
-                                | map(attribute='pve_storage') | list)
-    fail_msg: >-
-      {{ inventory_hostname }} hosts VM(s) {{ _data_pinned }} that declare
-      `vm.data_disk_size`, which Tofu attaches to the `longhorn-data` PVE
-      storage on this node — but this node's storage.disks would NOT
-      produce `longhorn-data`. Either add a partition that yields it, or
-      re-pin those VMs to a hypervisor that has it.
-  vars:
-    _data_pinned: >-
-      {{ groups['all'] | map('extract', hostvars)
-         | selectattr('vm', 'defined')
-         | selectattr('vm.proxmox_node', 'defined')
-         | selectattr('vm.proxmox_node', 'equalto', inventory_hostname)
-         | selectattr('vm.data_disk_size', 'defined')
-         | map(attribute='inventory_hostname') | list }}
-  when:
-    - inventory_hostname in groups['hypervisors']
-    - host_disks_action == 'overwrite'
-
-# ── Advisory sizing guard (NON-fatal by design, hypervisors only) ────
-# data_disk_size is hand-set in inventory and read by Tofu statically;
-# replica-2 usable capacity is bounded by the SMALLER node and is a
-# Longhorn/Flux concern. A hard assert here would fight deliberate, tight
-# homelab sizing on byte-estimate error, so this only WARNS. `just
-# disk-plan` prints the authoritative capacity + recommended size.
-- name: Estimate longhorn-data raw capacity (GiB, boot reserve removed)
-  ansible.builtin.set_fact:
-    host_disks_longhorn_capacity_gib: >-
-      {{
-        ((host_disks_devices
-          | selectattr('pve_storages', 'contains', 'longhorn-data')
-          | map(attribute='capacity_b') | map('int') | sum)
-         // 1073741824) | int
-      }}
-  when:
-    - inventory_hostname in groups['hypervisors']
-    - host_disks_action == 'overwrite'
-
-- name: "Advisory: longhorn-data capacity vs pinned workers' data_disk_size"
-  ansible.builtin.debug:
-    msg: >-
-      ADVISORY [{{ inventory_hostname }}]: longhorn-data ≈
-      {{ host_disks_longhorn_capacity_gib }} GiB raw, backed by
-      {{ host_disks_devices
-         | selectattr('pve_storages', 'contains', 'longhorn-data')
-         | map(attribute='device') | list }}.
-      VM(s) pinned here with a data disk: {{ _pinned }}. Confirm each
-      data_disk_size fits the THIN pool (it is overcommittable — `just
-      disk-plan` gives the exact figure). Replica-2 usable size is bounded
-      by the smaller node and is set Flux-side, not here.
-  vars:
-    _pinned: >-
-      {{ groups['all'] | map('extract', hostvars)
-         | selectattr('vm', 'defined')
-         | selectattr('vm.proxmox_node', 'defined')
-         | selectattr('vm.proxmox_node', 'equalto', inventory_hostname)
-         | selectattr('vm.data_disk_size', 'defined')
-         | map(attribute='inventory_hostname') | list }}
-  when:
-    - inventory_hostname in groups['hypervisors']
-    - host_disks_action == 'overwrite'
-    - _pinned | length > 0

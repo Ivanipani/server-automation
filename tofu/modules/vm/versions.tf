@@ -4,11 +4,10 @@ terraform {
   required_providers {
     proxmox = {
       source = "bpg/proxmox"
-      # The caller passes a node-specific aliased provider via the
-      # `providers = { proxmox = proxmox.<node> }` meta-argument. This
-      # module is instantiated once per Proxmox node so it can target an
-      # independent (non-clustered) node's own API endpoint.
-      configuration_aliases = [proxmox]
+      # No configuration_aliases — the caller (modules/hypervisor) has a
+      # single default `proxmox` provider inherited from the per-node
+      # directory (tofu/per-node/<host>/provider.tf), which serves one
+      # standalone PVE host per Tofu workspace.
     }
   }
 }

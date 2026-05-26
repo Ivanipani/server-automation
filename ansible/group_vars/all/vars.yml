@@ -46,12 +46,13 @@ proxmox_api_token: "{{ vault_proxmox_api_token }}"
 # Per-hypervisor Proxmox API tokens (standalone nodes don't share
 # /etc/pve, so each node has its own token minted on it). Keyed by the
 # inventory node name; consumed by 30-guests/10-opentofu.yml and
-# 13-foundation/80-tofu-infra-lxcs.yml, both of which pass this WHOLE
-# map to OpenTofu as a single JSON-encoded `TF_VAR_proxmox_api_tokens`
-# env var bound to `var.proxmox_api_tokens` (a `map(string)`). Only PVE
-# hosts appear here — workers (plain Debian) do not run the PVE API.
-# Add a hypervisor = mint a `tofu-lan` token on it and add the secret
-# with `just secret-encrypt vault_proxmox_api_token_<host>`.
+# 13-foundation/80-tofu-infra-lxcs.yml, which each loop over their
+# target hypervisor group and per-iteration pass `proxmox_api_tokens[item]`
+# as a single `TF_VAR_proxmox_api_token` to the matching
+# `tofu/per-node/<host>/` workspace. Only PVE hosts appear here —
+# workers (plain Debian) do not run the PVE API. Add a hypervisor =
+# mint a `tofu-lan` token on it and add the secret with
+# `just secret-encrypt vault_proxmox_api_token_<host>`.
 proxmox_api_tokens:
   pve-home-01: "{{ vault_proxmox_api_token_pve_home_01 }}"
 k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
@@ -63,10 +64,10 @@ k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
 # image-bake path: Packer → rsync to NAS → Tofu pulls via NFS). That
 # playbook was deleted when the bake flow moved to bootserv01 HTTP
 # (13-foundation/95-bake-publish-images.yml is the current producer).
-# These vars are retained for: tofu/locals.tf still reads the same
-# hostvars entry directly (yamldecode) to compose URLs for any
-# proxmox_virtual_environment_download_file resource. If no remaining
-# consumer is found, the vars + the NAS `proxmox` share can be removed
+# These vars currently have NO consumer — the per-node Tofu modules
+# under tofu/modules/{hypervisor,vm,lxc} do not read nas01. Retained
+# only as scaffolding in case a future `proxmox_virtual_environment_download_file`
+# resource needs them; safe to drop along with the NAS `proxmox` share
 # in a follow-up.
 # Adding a second NAS = add a host to the `storage` group and parameterize
 # these by an `image_publish_target` selector.

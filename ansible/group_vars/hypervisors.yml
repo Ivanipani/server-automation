@@ -8,26 +8,17 @@
 
 # ── Storage convention (consumed by 17-host/15-storage.yml) ─────────
 #
-# Tofu hardcodes two PVE storage NAMES: `vms` (every VM/LXC boot disk +
-# cloud-init drive) and `longhorn-data` (the second virtio disk for
-# kube_workers that declare `vm.data_disk_size`). preflight.yml turns
-# those hardcodes into per-node assertions:
+# Tofu hardcodes ONE PVE storage NAME: `vms` (every VM/LXC boot disk +
+# cloud-init drive). preflight.yml asserts every hypervisor yields it.
 #
-#   1. EVERY hypervisor must yield `vms` (universal: there is no VM
-#      without a boot disk).
-#   2. A hypervisor must yield `longhorn-data` IF it hosts any VM with
-#      `vm.data_disk_size`. A CP-only node does NOT need it.
-#
-# Today: pve-home-01 hosts the k3s control planes + bootserv01 only
-# (longhorn workers live on baremetal worker-home-02), so it has a
-# 256 GB NVMe carved into `vms` only — no longhorn-data. A future
-# longhorn-hosting hypervisor wants a ≥1 TB boot NVMe (carved into
-# `vms` + `longhorn-data`); additional disks are optional and, by
-# convention, extend `longhorn-data` by re-using
-# vg=longhorndata / thinpool=longhornthin / pve_storage=longhorn-data.
-# The VG then spans every such disk and the thin pool grows over all
-# of them. Disks are named by STABLE SELECTOR, never /dev/disk/by-id;
-# preview/derive a host's block with `just disk-plan`.
+# Longhorn replica state lives on baremetal kube_workers (today:
+# worker-home-02), NOT on any hypervisor pool. No VM receives a
+# Longhorn-backed data disk; CPs are pure consumers via the iSCSI/NFS
+# clients installed by 40-kube/10-longhorn-host-prep.yml. A hypervisor
+# therefore only ever needs `vms` — a small boot NVMe is sufficient
+# (pve-home-01 today: 256 GB NVMe). Disks are named by STABLE
+# SELECTOR, never /dev/disk/by-id; preview/derive a host's block with
+# `just disk-plan`.
 #
 # The DESTRUCTIVE carve is opt-in per-run via `host_disks_action: overwrite`
 # (defaults/main.yml in the host-disks role defaults to `info`, which is

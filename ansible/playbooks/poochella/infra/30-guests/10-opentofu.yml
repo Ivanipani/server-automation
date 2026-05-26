@@ -1,13 +1,12 @@
 ---
-# Provisions VMs (and, when revived, containers) defined in tofu/ using
-# OpenTofu.
+# Provisions every Proxmox guest (VMs + LXCs) defined in inventory.yaml
+# by looping a per-hypervisor `tofu apply` over the `hypervisors` group.
 #
-# Topology: every Proxmox hypervisor is a standalone PVE host. Each
-# node has its own API token (separate /etc/pve), so OpenTofu uses one
-# aliased provider per node (tofu/provider.tf). This playbook passes
-# every token in a single JSON-encoded `TF_VAR_proxmox_api_tokens` env
-# var bound to Tofu's `var.proxmox_api_tokens` (a `map(string)`); each
-# provider block looks up its hypervisor by name.
+# Topology: every Proxmox hypervisor is a standalone PVE host with its
+# own Tofu workspace under `tofu/per-node/<host>/` and its own state.
+# This playbook iterates the group and runs one `tofu apply` per node,
+# passing each iteration's token via `TF_VAR_proxmox_api_token` sourced
+# from the `proxmox_api_tokens` map in group_vars/all/vars.yml.
 #
 # Auth indirection: `proxmox_api_tokens` (group_vars/all/vars.yml) maps
 # node => `{{ vault_* }}`. No plaintext token ever hits disk — values are
@@ -18,7 +17,8 @@
 #   just secret-encrypt vault_proxmox_api_token_<node_with_underscores>
 #   # paste the encrypted block into group_vars/all/vault.yml, then add
 #   # the node to the `proxmox_api_tokens` map in group_vars/all/vars.yml.
-#   # See the 3-step Tofu-side checklist in tofu/provider.tf.
+#   # Also `cp -r tofu/per-node/pve-home-01 tofu/per-node/<new-host>` and
+#   # edit local.hypervisor_name in its main.tf. See tofu/README.md.
 #
 # To rotate a token:
 #   ssh root@<node> 'pveum user token modify root@pam tofu-lan'
@@ -60,40 +60,32 @@
           {{ inventory_hostname }} doesn't list '{{ token_name }}' under
           {{ token_user }}. Recreate it on that node and update the vault.
 
-- name: Provision infrastructure with OpenTofu
+- name: Provision infrastructure with OpenTofu (one apply per hypervisor)
   hosts: localhost
   connection: local
   gather_facts: false
   tasks:
-    - name: Run tofu init and apply
+    - name: Run tofu init + apply for each hypervisor
       community.general.terraform:
-        # playbook_dir is this file's own dir (deterministic under both
-        # direct-run and import_playbook): infra/30-provision → repo root
-        # is four levels up.
-        project_path: "{{ playbook_dir }}/../../../../../tofu"
+        # playbook_dir = .../infra/30-guests; the per-node Tofu workspace
+        # lives at tofu/per-node/<host>/ in the repo root (5 levels up).
+        project_path: "{{ playbook_dir }}/../../../../../tofu/per-node/{{ item }}"
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true
       environment:
-        # Single JSON-encoded map → Tofu's `var.proxmox_api_tokens`.
-        # Each provider block in tofu/provider.tf looks up its
-        # hypervisor's token by name. Adding a hypervisor: extend
-        # `proxmox_api_tokens` in group_vars/all/vars.yml (and follow
-        # the 3-step checklist in tofu/provider.tf).
-        TF_VAR_proxmox_api_tokens: "{{ proxmox_api_tokens | to_json }}"
-        # NOTE: an earlier iteration also exported TF_VAR_ansible_pubkey
-        # so tofu/modules/lxc could inject it via
-        # `initialization.user_account.keys`. PVE's container-clone API
-        # doesn't accept ssh-public-keys, and the Debian LXC template
-        # baked by tasks/create-lxc-template.yml already installs the
-        # key on the ansible user — so the Tofu var (and this env line)
-        # were removed. If a future Tofu-managed resource needs a
-        # controller-supplied secret, add the env line + a matching
-        # variable in tofu/variables.tf.
+        # Per-iteration token. The per-node workspace exposes a single
+        # `proxmox_api_token` string variable; we source it from the
+        # `proxmox_api_tokens` map in group_vars/all/vars.yml. No
+        # plaintext on disk — env var only.
+        TF_VAR_proxmox_api_token: "{{ proxmox_api_tokens[item] }}"
+      loop: "{{ groups['hypervisors'] }}"
       register: tofu_output
-      no_log: false
 
-    - name: Show provisioned resources
+    - name: Show provisioned resources (per hypervisor)
       ansible.builtin.debug:
         msg: |
-          VMs: {{ tofu_output.outputs.vm_ips.value | default({}) }}
+          {{ item.item }}: VMs={{ item.outputs.vm_ips.value | default({}) }}
+      loop: "{{ tofu_output.results }}"
+      loop_control:
+        label: "{{ item.item }}"

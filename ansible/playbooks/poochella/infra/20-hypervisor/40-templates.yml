@@ -23,11 +23,11 @@
 #
 # Per-node IDs come from the explicit `template_vm_ids` /
 # `template_ct_ids` maps in inventory.yaml (single source of truth, also
-# read by tofu/locals.tf). Each node's value is its *anchor* (first
-# template) ID; the per-image-family templates are anchor+0, anchor+1, …
-# in vm_templates_base / lxc_templates_base order. VMIDs only need to be
-# unique per node now (independent nodes), but distinct anchors stay
-# harmless and keep the maps stable if a cluster is ever formed.
+# read by tofu/modules/hypervisor/locals.tf). Each node's value is its
+# *anchor* (first template) ID; the per-image-family templates are
+# anchor+0, anchor+1, … in vm_templates_base / lxc_templates_base
+# order. VMIDs only need to be unique per node now (standalone-only
+# topology), but distinct anchors stay harmless.
 #
 # Pre-conditions:
 #   - 30-storage.yml has run (the `vms` LVM-thin storage exists on

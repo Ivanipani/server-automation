@@ -1,6 +1,7 @@
-# One Proxmox node's LXCs. Instantiated once per node by tofu/main.tf
-# with that node's aliased provider — same per-node-module pattern as
-# tofu/modules/vm, so independent (non-clustered) nodes work the same.
+# LXCs for ONE standalone Proxmox hypervisor. Instantiated by
+# tofu/modules/hypervisor (same shape as tofu/modules/vm), which
+# inherits the per-node directory's single proxmox provider and feeds
+# the inventory slice (filtered to LXCs tagged `infra`).
 #
 # Each LXC is **cloned** from its node's anchor LXC template (the
 # `template_ct_ids[node]` value from inventory). The clone preserves

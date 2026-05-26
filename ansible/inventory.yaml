@@ -10,15 +10,11 @@
 # Conventions:
 #   - `ip_address` + `mac_address`  → host appears as a dnsmasq static lease
 #   - `static_ip: true`             → suppress the dnsmasq reservation (e.g. router)
-#   - `vm: {...}`                   → Tofu creates this VM on Proxmox
-#   - `vm.data_disk_size: <GiB>`    → attach a 2nd virtio disk backed by
-#     the node-local `longhorn-data` PVE storage (k3s workers, Longhorn).
-#     One worker per node, sized to consume that node's whole longhorn
-#     pool (kept just under the physical pool — it is thin-provisioned,
-#     so over-committing it would let Longhorn exhaust the pool). The
-#     `proxmox_node` MUST point to a hypervisor that yields a
-#     `longhorn-data` storage (preflight asserts this); CP-only nodes
-#     like pve-home-01 don't and will refuse to host such a VM.
+#   - `vm: {...}`                   → Tofu creates this VM on Proxmox.
+#     VM boot disks live on the node-local `vms` PVE storage. NO VM
+#     receives a Longhorn-backed data disk: Longhorn replica state lives
+#     ONLY on baremetal kube_workers, which carve their own data disks
+#     directly via `storage:` (see worker-home-02 below).
 #   - `lxc: { proxmox_node, cores, memory, disk_size, unprivileged,
 #     features, tags, ... }` → Tofu creates this LXC on Proxmox
 #     (parallels `vm:`). Cloned from `template_ct_ids[proxmox_node]`
@@ -57,32 +53,29 @@
 #                                                     # with the same vg+thinpool
 #     `label` is the GPT partlabel (unique per node, the idempotency
 #     key); `size` is sgdisk +SIZE ("0" = fill). `pve_storage` is a
-#     FROZEN contract (Tofu hardcodes `vms`/`longhorn-data`). A
-#     non-`boot` selector MUST resolve to EXACTLY ONE non-boot,
-#     non-removable disk — 0 or >1 matches is a HARD FAILURE (the role
-#     never guesses). Several partitions, on different disks, may share
-#     one vg/thinpool → that is how a NVMe + HDD become one larger pool
-#     (`longhorn-data` on a hypervisor, `longhornthin` mounted at
-#     /var/lib/longhorn on a worker). Convention: declare the target
-#     on EXACTLY ONE partition per (vg,thinpool); the rest just declare
-#     label/vg/thinpool/size and join the pool. Preflight enforces "at
-#     least one targeted partition per pool". Selectors match hardware
-#     attributes, so kernel renames are irrelevant and swapping a disk
-#     for an identical/larger one needs NO edit when the selector is
+#     FROZEN contract (Tofu hardcodes `vms`). A non-`boot` selector
+#     MUST resolve to EXACTLY ONE non-boot, non-removable disk — 0 or
+#     >1 matches is a HARD FAILURE (the role never guesses). Several
+#     partitions, on different disks, may share one vg/thinpool → that
+#     is how a NVMe + HDD become one larger pool (e.g. `longhornthin`
+#     mounted at /var/lib/longhorn on a baremetal kube_worker).
+#     Convention: declare the target on EXACTLY ONE partition per
+#     (vg,thinpool); the rest just declare label/vg/thinpool/size and
+#     join the pool. Preflight enforces "at least one targeted
+#     partition per pool". Selectors match hardware attributes, so
+#     kernel renames are irrelevant and swapping a disk for an
+#     identical/larger one needs NO edit when the selector is
 #     attribute-based. Preview resolution + a paste-ready block with
 #     `just disk-plan`.
 #
 #   CONVENTION (enforced in preflight, hypervisors only):
 #     - every hypervisor yields a `vms` PVE storage (required: every
 #       VM/LXC boot disk + cloud-init drive lands there; Tofu
-#       hardcodes the name).
-#     - any hypervisor that hosts kube_workers (VMs declaring
-#       `vm.data_disk_size`) ALSO yields a `longhorn-data` PVE
-#       storage. CP-only hypervisors don't need it and pve-home-01 is
-#       sized accordingly (256 GB NVMe, vms only).
-#   Hardware sizing follows the role: a small NVMe is enough for
-#   CP-only nodes; longhorn-hosting nodes want a ≥1 TB NVMe (plus
-#   optional HDDs that extend `longhorn-data`).
+#       hardcodes the name). That is the ONLY hypervisor-side PVE
+#       storage in the contract — Longhorn replicas live on baremetal
+#       kube_workers, NOT on any hypervisor pool.
+#   Hardware sizing: a small NVMe is enough for every hypervisor under
+#   this model (pve-home-01 today: 256 GB NVMe, vms only).
 #   See group_vars/hypervisors.yml.
 #
 #   CONVENTION (worker side): plain Linux baremetal kube_workers
@@ -123,13 +116,12 @@ all:
     network_cidr: "/24"
     ansible_python_interpreter: /usr/bin/python3
     # Proxmox API endpoints, one per HYPERVISOR. Read by Tofu via
-    # tofu/locals.tf → provider.tf, which declares one aliased provider
-    # per node. Every hypervisor is standalone — there is no shared API,
-    # so each node must be addressed directly. Workers (plain Linux
-    # baremetal) do NOT appear here — they don't run the PVE API.
-    # Adding a hypervisor: extend `proxmox_api_tokens` in
-    # group_vars/all/vars.yml + follow the 3-step checklist in
-    # tofu/provider.tf (endpoint here, provider block, module call).
+    # tofu/modules/hypervisor/locals.tf, then consumed by each per-node
+    # workspace's provider.tf (tofu/per-node/<host>/). Every hypervisor
+    # is standalone — there is no shared API, so each node must be
+    # addressed directly. Workers (plain Linux baremetal) do NOT appear
+    # here — they don't run the PVE API. Adding a hypervisor: see the
+    # checklist in tofu/README.md.
     proxmox_endpoints:
       pve-home-01: "https://pve-home-01.lan:8006"
     # Per-hypervisor Proxmox template IDs. Read by Ansible
@@ -187,10 +179,9 @@ hypervisors:
           # PVE installer takes the first ~100 GiB (lvm.hdsize=100) as
           # the `pve` VG (hypervisor); the free tail (~156 GiB) is
           # carved into a single vm-storage pool that backs `vms`.
-          # NO `longhorn-data` on this node — pve-home-01 hosts the k3s
-          # control planes (and bootserv01) only; Longhorn workers live
-          # on baremetal worker-home-02. Preflight enforces the
-          # corollary (no VM pinned here may declare `data_disk_size`).
+          # That is the ONLY PVE storage every hypervisor needs:
+          # Longhorn replica state lives on baremetal kube_workers
+          # (worker-home-02), never on a hypervisor pool.
           storage:
             disks:
               - select: boot
@@ -224,7 +215,9 @@ workers:
       # The other disks (1 TB NVMe + WDC HDD) are combined into a single
       # longhorndata/longhornthin LVM-thin pool, ext4-mounted at
       # /var/lib/longhorn for Longhorn baremetal replicas — see the
-      # `storage:` block below and 40-kube/10-longhorn-host-prep.yml.
+      # `storage:` block below. The host-disks role realises it from
+      # 17-host/15-storage.yml; the Longhorn install (Flux repo) then
+      # places replicas into that mountpoint.
       debian_install:
         disk: /dev/nvme0n1
       # Baremetal Debian net-boot via iPXE from the Mellanox ConnectX-4

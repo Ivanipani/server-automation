@@ -30,10 +30,13 @@ firewall_inbound_allow:
 # node.longhorn.io/create-default-disk=true: when the Flux-side Longhorn
 # sets `createDefaultDiskLabeledNodes: true`, Longhorn creates its
 # default disk ONLY on nodes carrying this label, at the default data
-# path /var/lib/longhorn — which is exactly the dedicated longhorn-data
-# disk that 40-kube/10-longhorn-host-prep.yml ext4-mounts there. Result:
-# replica storage + rebuild IO stay on the workers and OFF the
-# schedulable etcd control planes (the co-location starvation risk).
+# path /var/lib/longhorn — which on baremetal kube_workers is the
+# longhorndata/longhornthin ext4 mount that the host-disks role builds
+# from each worker's inventory `storage.disks` block (see
+# worker-home-02 in inventory.yaml; realised by 17-host/15-storage.yml).
+# Result: replica storage + rebuild IO stay on the baremetal workers
+# and OFF the schedulable etcd control plane VMs (the co-location
+# starvation risk).
 # Contract: Flux MUST set createDefaultDiskLabeledNodes=true, else
 # Longhorn would make a default disk on EVERY node, defeating this.
 k3s_node_labels:
