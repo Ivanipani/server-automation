@@ -34,7 +34,10 @@
   when:
     - item.nfs is defined
     - (item.nfs.rules | default([])) | length > 0
-  failed_when: >-
-    not _nfs_save_results.failed | default(false)
-    and not (_nfs_save_results.json.success | default(false))
+  # Jinja2 `|` (filter) has LOWER precedence than `not`, so the parens
+  # below are load-bearing — without them, `not X | default(false)`
+  # parses as `(not X) | default(false)` and DSM's `success: false`
+  # responses get silently swallowed. (Diagnosed 2026-05-26 after the
+  # `save` endpoint started returning code 2301 with no visible error.)
+  failed_when: not (_nfs_save_results.json.success | default(false))
   changed_when: _nfs_save_results.json.success | default(false)

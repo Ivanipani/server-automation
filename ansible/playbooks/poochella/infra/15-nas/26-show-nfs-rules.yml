@@ -1,0 +1,48 @@
+---
+# Read-only probe: dump the actual NFS rule shape DSM has stored for
+# the `scratch` share. Used to capture DSM 7.3.x payload format so the
+# `dsm_nfs_rule` filter in the synology-storage role can be updated to
+# match (DSM has changed the schema since the May 21 capture).
+
+- hosts: nas01
+  gather_facts: false
+  connection: local
+  vars:
+    synology_dsm_username: pani
+    synology_dsm_validate_certs: false
+    synology_dsm_base_url: "https://{{ ansible_host }}:5001"
+    synology_dsm_request_timeout: 30
+
+  tasks:
+    - name: Probe DSM NFS rule shape
+      module_defaults:
+        synology_dsm_api_request:
+          base_url: '{{ synology_dsm_base_url }}'
+          validate_certs: '{{ synology_dsm_validate_certs }}'
+          timeout: '{{ synology_dsm_request_timeout }}'
+          login_cookie: '{{ synology_dsm_login_cookie | default(omit) }}'
+          synotoken: '{{ synology_dsm_syno_token | default(omit) }}'
+      block:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: login.yml
+
+        - name: Load NFS rules for `scratch` (read-only)
+          synology_dsm_api_request:
+            api_name: SYNO.Core.FileServ.NFS.SharePrivilege
+            api_method: load
+            api_version: 1
+            request_method: POST
+            api_params:
+              share_name: '"scratch"'
+          register: _load
+
+        - name: Show the stored rule shape
+          ansible.builtin.debug:
+            var: _load.json
+
+      always:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: logout.yml
+          when: synology_dsm_login_cookie is defined
