@@ -148,9 +148,9 @@ ssh-refresh:
     echo "Done."
 
 
-# READ-ONLY: inspect every physical host's disks (hypervisors + workers) and print a paste-ready `storage.disks` selector skeleton. Run after any disk add/swap
+# READ-ONLY: report PRESENT/MISSING per declared partition on every physical host (host-disks role in info mode). Never halts. Safe anytime.
 disk-plan:
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/15-storage-plan.yml
+    cd ansible && ansible-playbook --vault-password-file ansible-pass -e host_disks_action=info playbooks/poochella/infra/17-host/15-storage.yml
 
 
 # READ-ONLY: refresh LVFS metadata on every baremetal and report available component firmware updates (NVMe SSDs, NICs, TPMs, etc.). Does NOT cover the HP MP9 G2 system BIOS — see runbooks/firmware-updates.md.

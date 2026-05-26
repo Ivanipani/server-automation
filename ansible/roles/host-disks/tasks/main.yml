@@ -1,11 +1,39 @@
 ---
-# host-disks role dispatcher — orchestration is in the storage playbook
-# (17-host/15-storage.yml), which imports tasks_from per play. This file
-# exists for `roles: [host-disks]` entry-point compatibility.
+# host-disks role dispatcher — single entry point. Switches on
+# `host_disks_action` (defaults/main.yml): info (default, read-only,
+# never halts), overwrite (destructive carve + pool build, the explicit
+# consent), or skip (silent no-op).
+#
+# Callers normally do `import_role: name: host-disks` (no tasks_from);
+# the storage playbook (17-host/15-storage.yml) is the canonical caller.
+# Direct `tasks_from:` invocations still work for piecemeal dev — each
+# task file is self-contained — but the action gates below are bypassed
+# in that path, so you own the safety story.
 
-- name: host-disks role default entry-point is unused — see 17-host/15-storage.yml
-  ansible.builtin.debug:
-    msg: >-
-      Use `tasks_from:` to invoke specific stages (preflight, carve,
-      storage_pools, mounts, discover).
-  run_once: true
+- name: Validate host_disks_action
+  ansible.builtin.assert:
+    that:
+      - host_disks_action in ['info', 'overwrite', 'skip']
+    fail_msg: >-
+      host_disks_action must be one of 'info', 'overwrite', 'skip'
+      (got '{{ host_disks_action }}'). Set per-host in host_vars or
+      per-run with `-e host_disks_action=<mode>`.
+
+# end_host (not end_play): a sibling host in the same play may be in
+# info or overwrite mode and must still get its turn.
+- name: "[skip] Exit this host on [host_disks_action = skip]"
+  ansible.builtin.meta: end_host
+  when: host_disks_action == 'skip'
+
+- name: "[info] Resolve declared layout, then report PRESENT/MISSING"
+  when: host_disks_action == 'info'
+  block:
+    - ansible.builtin.import_tasks: preflight.yml
+    - ansible.builtin.import_tasks: inspect.yml
+
+- name: "[overwrite] Preflight, carve, build pools"
+  when: host_disks_action == 'overwrite'
+  block:
+    - ansible.builtin.import_tasks: preflight.yml
+    - ansible.builtin.import_tasks: carve.yml
+    - ansible.builtin.import_tasks: storage_pools.yml

@@ -123,7 +123,9 @@
   when: not (disk.select is string and disk.select == 'boot')
 
 - name: "[{{ disk.select | string }}] Assert the selector matched EXACTLY one disk"
-  when: not (disk.select is string and disk.select == 'boot')
+  when:
+    - not (disk.select is string and disk.select == 'boot')
+    - host_disks_action == 'overwrite'
   ansible.builtin.assert:
     that:
       - _sel.stdout_lines | length == 1
@@ -136,10 +138,29 @@
       refuses to guess.
 
 - name: "[{{ disk.select | string }}] Record the selected device"
-  when: not (disk.select is string and disk.select == 'boot')
+  when:
+    - not (disk.select is string and disk.select == 'boot')
+    - _sel.stdout_lines | length == 1
   ansible.builtin.set_fact:
     _dev: "{{ _sel.stdout_lines[0] | trim }}"
     _is_boot: false
+
+# Info-mode tolerant fallback: when a selector matches 0 or >1 disks,
+# the overwrite-mode assert above would halt. Info mode reports reality
+# instead — set a sentinel `_dev` so the per-partition append in
+# host_disks_resolved still happens (inspect.yml turns the sentinel into
+# "MISSING (disk not found)"). The downstream sizing and host_disks_devices
+# append are skipped (they only matter in overwrite mode, where the
+# unmatched path cannot fire).
+- name: "[{{ disk.select | string }}] (info) Record <unmatched> sentinel for non-1 match"
+  when:
+    - not (disk.select is string and disk.select == 'boot')
+    - host_disks_action == 'info'
+    - _sel.stdout_lines | length != 1
+  ansible.builtin.set_fact:
+    _dev: '<unmatched>'
+    _is_boot: false
+    _wipe: 'refuse'
 
 # ── Common: size, wipe policy, accumulate ─────────────────────────────
 
@@ -147,6 +168,7 @@
   ansible.builtin.command: "lsblk -bdno SIZE {{ _dev }}"
   register: _dev_size
   changed_when: false
+  when: _dev != '<unmatched>'
 
 - name: "[{{ _dev }}] Compute the effective wipe policy"
   ansible.builtin.set_fact:
@@ -159,6 +181,7 @@
                if (disk.wipe | default('refuse')) == 'force'
                   or (host_disks_force_wipe | default(false) | bool)
                else 'refuse') }}
+  when: _dev != '<unmatched>'
 
 # Per-partition signature. Targeted partitions (pve_storage OR mount)
 # naming the same vg+thinpool must produce the same _sig — i.e. agree on
@@ -211,3 +234,4 @@
                             | selectattr('pve_storage', 'defined')
                             | map(attribute='pve_storage') | unique | list),
          }] }}
+  when: _dev != '<unmatched>'

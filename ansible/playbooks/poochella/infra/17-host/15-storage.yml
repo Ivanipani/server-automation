@@ -1,16 +1,22 @@
 ---
 # Node-local storage, end to end, for every PHYSICAL host that declares
-# `storage.disks` in inventory.yaml. For each such host the playbook
-# (1) preflights + resolves selectors, (2) gates each disk then carves
-# its GPT partition(s) in declared order, (3) builds the LVM-thin
-# pool(s) and ext4-mounts any `mount:` partition's thin LV. PVE
-# registration (`pvesm add lvmthin`) is a hypervisor-only follow-up in
-# 20-hypervisor/30-pve-storage-register.yml — NOT in this playbook,
-# which is PVE-free.
+# `storage.disks` in inventory.yaml. The host-disks role dispatches on
+# `host_disks_action` (defaults/main.yml):
+#   - info       (DEFAULT) read-only PRESENT/MISSING per declared partition;
+#                tolerates missing disks; never halts, never mutates. The
+#                `just disk-plan` recipe runs this playbook in info mode.
+#   - overwrite  DESTRUCTIVE: preflight gates + wipe-gate per disk + sgdisk
+#                carve + LVM-thin pool build + ext4 mount (if `mount:` set).
+#                THE explicit consent — set per-host or per-run.
+#   - skip       silent no-op (meta: end_host).
+#
+# PVE registration (`pvesm add lvmthin`) is a hypervisor-only follow-up in
+# 20-hypervisor/30-pve-storage-register.yml — NOT in this playbook, which
+# is PVE-free.
 #
 # Hosts without a `storage:` block are silently skipped by the `when:`
-# guard on each play so plain physical hosts that don't run local
-# storage pools simply pass through this tier without effect.
+# guard on the role import below, so plain physical hosts that don't run
+# local storage pools simply pass through this tier without effect.
 #
 # DISK-CENTRIC + STABLE SELECTORS. Each disk is declared with a
 # `select:` that names it by *intent*, never by a kernel device name:
@@ -39,22 +45,23 @@
 #                                        convention — NVMe + HDD share
 #                                        one longhornthin with the mount
 #                                        declared on exactly one of them.
-# Preflight additionally asserts every (vg,thinpool) has AT LEAST ONE
-# targeted partition (you can't have an all-bare pool).
+# Preflight (overwrite mode only) additionally asserts every (vg,thinpool)
+# has AT LEAST ONE targeted partition. Info mode tolerates a node mid-
+# migration and reports whatever's actually present.
 #
-# DECLARED, NOT DISCOVERED: a selector MUST resolve to exactly one
-# non-boot, non-removable disk. Zero or many matches is a HARD preflight
-# failure — the role never guesses. Kernel renames (sdX/nvmeXnY shuffle
+# DECLARED, NOT DISCOVERED: in OVERWRITE mode a selector MUST resolve to
+# exactly one non-boot, non-removable disk. Zero or many matches is a
+# HARD preflight failure — the role never guesses. In INFO mode the
+# zero/many path is tolerant and reports the partitions as
+# "MISSING (disk not found)" instead. Kernel renames (sdX/nvmeXnY shuffle
 # when a disk is added) are irrelevant. Swapping a disk for an identical
 # or larger one needs NO inventory edit when the selector is
-# attribute-based; `just disk-plan` prints every disk + a paste-ready
-# block when you do need to change one.
+# attribute-based; `just disk-plan` reports compliance to confirm before
+# you carve.
 #
-# DESTRUCTIVE on first run (plays 1-2, the carve). Refuses unless
-# `confirm_carve_data_disk: true` is set per host (group_vars/physical.yml).
 # Idempotent on the GPT partlabel, the VG/thinpool, the thin LV name, and
-# the fstab entry, so re-runs (incl. site.yml) are safe; play 3 also
-# GROWS an existing thin pool onto a newly-fitted larger disk.
+# the fstab entry, so overwrite-mode re-runs are safe; the pool-build pass
+# also GROWS an existing thin pool onto a newly-fitted larger disk.
 #
 # A data disk that still holds old signatures (stale GPT/MBR/FS/LVM) is
 # REFUSED unless that disk declares `wipe: force` in inventory.yaml
@@ -64,13 +71,15 @@
 # override (avoid; prefer the per-disk field):
 #   ansible-playbook --vault-password-file ansible-pass \
 #     playbooks/poochella/infra/17-host/15-storage.yml \
-#     -e host_disks_force_wipe=true --limit pve-home-01
+#     -e host_disks_action=overwrite -e host_disks_force_wipe=true \
+#     --limit pve-home-01
 #
 # Disk swap / capacity-expansion runbook: docs/storage-disk-runbook.md
 # (drain the Longhorn worker → verify the volume's replica is healthy on
-# the PEER physical node → swap → re-run this playbook → Longhorn rebuilds
-# the replica). Data safety lives at the Longhorn layer (separate Flux
-# repo), NOT here — this playbook only makes the empty re-init safe.
+# the PEER physical node → swap → re-run this playbook with
+# `-e host_disks_action=overwrite` → Longhorn rebuilds the replica). Data
+# safety lives at the Longhorn layer (separate Flux repo), NOT here —
+# this playbook only makes the empty re-init safe.
 #
 # Pre-conditions:
 #   - 17-host/10-bootstrap.yml completed (ansible user, repos staged)
@@ -78,36 +87,16 @@
 #     the boot disk has an unpartitioned tail for the boot pool. See the
 #     answer files under scripts/images/proxmox/pve-home-0X.toml.
 #   - `storage.disks` declared for each participating host in
-#     inventory.yaml (preview the resolution with `just disk-plan`)
-#   - No real (non-template) VMs or containers exist on any participating
-#     hypervisor (the hypervisor-only preflight gate checks this).
+#     inventory.yaml (preview compliance with `just disk-plan`)
+#   - Overwrite mode only: no real (non-template) VMs or containers exist
+#     on any participating hypervisor (the hypervisor-only preflight gate
+#     checks this; info mode skips it).
 
-- name: Disk preflight (gates + boot detection + selector resolution)
+- name: Disk realisation (info / overwrite / skip, per host_disks_action)
   hosts: "{{ target_hosts | default('physical') }}"
   become: true
   tasks:
-    - name: Run host-disks preflight
+    - name: Run host-disks role
       ansible.builtin.import_role:
         name: host-disks
-        tasks_from: preflight.yml
-      when: storage is defined and storage.disks is defined
-
-- name: Wipe-gate each disk, then carve its partitions in order
-  hosts: "{{ target_hosts | default('physical') }}"
-  become: true
-  tasks:
-    - name: Run host-disks carve
-      ansible.builtin.import_role:
-        name: host-disks
-        tasks_from: carve.yml
-      when: storage is defined and storage.disks is defined
-
-- name: Build / grow LVM-thin pools and mount any ext4-mount partitions
-  hosts: "{{ target_hosts | default('physical') }}"
-  become: true
-  tasks:
-    - name: Run host-disks storage_pools
-      ansible.builtin.import_role:
-        name: host-disks
-        tasks_from: storage_pools.yml
       when: storage is defined and storage.disks is defined

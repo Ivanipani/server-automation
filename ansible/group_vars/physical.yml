@@ -34,16 +34,6 @@ ssh_hardening:
 firewall_inbound_allow:
   - { proto: tcp, port: 22, comment: "ssh" }
 
-# ── Storage opt-in (consumed by host-disks role) ─────────────────────
-# DESTRUCTIVE on first run: setting this true authorizes sgdisk to write
-# GPTs on disks declared in inventory `storage.disks`. The role still
-# REFUSES if a disk holds foreign signatures unless that disk also
-# declares `wipe: force` (declared + scoped, the preferred path). Safe
-# to leave true fleet-wide because of that secondary gate; the boot
-# disk is never wiped. Hosts without a `storage:` block are skipped
-# entirely by the playbook-level `when:` guard in 17-host/15-storage.yml.
-confirm_carve_data_disk: false
-
 # ── NFS mounts from nas01 (consumed by 17-host/16-nfs-mounts.yml) ────
 # Default is empty — workers don't mount NAS shares today. Hypervisors
 # override in group_vars/hypervisors.yml to add the `proxmox` RW share

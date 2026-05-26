@@ -122,16 +122,26 @@
 # guard (15-storage.yml) so that plain physical hosts without local
 # storage pools work fleet-wide.
 
-# DESTRUCTIVE: setting this true authorizes sgdisk to write the GPT.
-# Per-host opt-in lives in group_vars/physical.yml or host_vars.
-confirm_carve_data_disk: false
+# Tri-state mode dispatcher (tasks/main.yml switches on this):
+#   info       — DEFAULT. Read-only. For each declared partition, report
+#                PRESENT / MISSING (by GPT partlabel under
+#                /dev/disk/by-partlabel/). Tolerates missing disks
+#                ("MISSING (disk not found)"). Never halts, never mutates.
+#                Safe everywhere, every run.
+#   overwrite  — DESTRUCTIVE. The carve + LVM-thin pool build. This IS the
+#                explicit consent: setting it authorizes sgdisk to write
+#                the GPT. Set per-host (host_vars/<name>.yml) or per-run
+#                (`-e host_disks_action=overwrite --limit <host>`).
+#   skip       — Silent no-op (`meta: end_host`). Use to bypass even info
+#                reporting on a host whose disks are managed out-of-band.
+host_disks_action: info
 
 # EXTRA-DESTRUCTIVE fleet-wide escape hatch — EMERGENCY USE ONLY. Prefer
 # the per-disk `wipe: force` field in inventory: it is declared, scoped to
 # exactly the disk you mean, and self-documenting. This global flag forces
 # `wipe: force` semantics on EVERY resolved non-boot disk for one run; it
-# does NOT bypass `confirm_carve_data_disk`, never touches the boot disk,
-# and never touches a disk that already carries one of our partlabels
-# (idempotent). Keep false in group_vars/host_vars; pass per-run only when
-# you truly mean it: `-e host_disks_force_wipe=true`.
+# does NOT bypass the `host_disks_action: overwrite` mode gate, never
+# touches the boot disk, and never touches a disk that already carries
+# one of our partlabels (idempotent). Keep false in group_vars/host_vars;
+# pass per-run only when you truly mean it: `-e host_disks_force_wipe=true`.
 host_disks_force_wipe: false

@@ -19,15 +19,6 @@
     update_cache: true
     cache_valid_time: 3600
 
-- name: Assert opt-in flag is set (refuses to run without explicit confirmation)
-  ansible.builtin.assert:
-    that:
-      - confirm_carve_data_disk | default(false) | bool
-    fail_msg: >-
-      `confirm_carve_data_disk` is not true on {{ inventory_hostname }}.
-      Set it in group_vars/physical.yml or
-      host_vars/{{ inventory_hostname }}.yml, then re-run.
-
 - name: Assert this node declares a storage layout
   ansible.builtin.assert:
     that:
@@ -52,21 +43,27 @@
   ansible.builtin.command: qm list
   register: qm_list
   changed_when: false
-  when: inventory_hostname in groups['hypervisors']
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
 
 - name: List existing containers (pct list)
   ansible.builtin.command: pct list
   register: pct_list
   changed_when: false
-  when: inventory_hostname in groups['hypervisors']
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
 
-# Templates are REGENERABLE — 40-templates.yml (the next tier step)
-# destroys + re-bakes them from pinned cloud images — so they must not
-# permanently block a re-carve. Real guests carry data and are never
-# regenerable: they still HARD REFUSE. `qm list` cannot tell the two
-# apart (a stopped real VM looks identical), so classify every listed
-# guest by its `template:` config key. The destroy below is an opt-in
-# MUTATION, not a gate — deliberately so (carve_destroy_templates).
+# Overwrite mode is the "nuke from orbit" path: every guest on this
+# hypervisor — real or template — is stopped + `--purge` destroyed before
+# the carve, so the VMs' LVs (which sit on the very storage we're about
+# to rebuild) are gone. Real guests come back via 30-guests Tofu apply;
+# regenerable templates come back via 20-hypervisor/40-templates.yml.
+# `qm list` cannot tell template from real guest apart (a stopped real
+# VM looks identical to a template), so classify every listed guest by
+# its `template:` config key — only so the stop step can skip templates
+# (they're not running).
 - name: Extract VMIDs / CTIDs (drop the listing header line)
   ansible.builtin.set_fact:
     _vmids: >-
@@ -77,21 +74,27 @@
       {{ pct_list.stdout_lines[1:]
          | map('regex_replace', '^\s*(\d+).*$', '\1')
          | select('match', '^\d+$') | list }}
-  when: inventory_hostname in groups['hypervisors']
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
 
 - name: Read each VM config (template detection)
   ansible.builtin.command: "qm config {{ item }}"
   loop: "{{ _vmids | default([]) }}"
   register: _vm_cfg
   changed_when: false
-  when: inventory_hostname in groups['hypervisors']
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
 
 - name: Read each container config (template detection)
   ansible.builtin.command: "pct config {{ item }}"
   loop: "{{ _ctids | default([]) }}"
   register: _ct_cfg
   changed_when: false
-  when: inventory_hostname in groups['hypervisors']
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
 
 - name: Partition listed guests into templates vs real guests
   ansible.builtin.set_fact:
@@ -99,56 +102,88 @@
     _real_vmids: "{{ _vm_cfg.results | rejectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
     _tmpl_ctids: "{{ _ct_cfg.results | selectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
     _real_ctids: "{{ _ct_cfg.results | rejectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
-  when: inventory_hostname in groups['hypervisors']
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
 
-- name: Refuse if any real (non-template) VM or container exists
-  ansible.builtin.assert:
-    that:
-      - _real_vmids | length == 0
-      - _real_ctids | length == 0
-    fail_msg: >-
-      Real (non-template) guests exist on {{ inventory_hostname }} —
-      VMs {{ _real_vmids }}, containers {{ _real_ctids }}. The
-      disk-carving step would risk their data. Refusing to proceed.
-  when: inventory_hostname in groups['hypervisors']
+# ── Stop + destroy every guest (real + template) ─────────────────────
+# Real guests first: shutdown gracefully (60s), then purge. Templates
+# don't need stopping (they don't run). Idempotent: an already-stopped
+# VM / already-destroyed guest is tolerated.
 
-- name: Refuse if templates exist and the destroy opt-in is unset
-  ansible.builtin.assert:
-    that:
-      - (_tmpl_vmids | length) + (_tmpl_ctids | length) == 0
-        or (carve_destroy_templates | default(false) | bool)
-    fail_msg: >-
-      Only regenerable templates exist on {{ inventory_hostname }} —
-      VMs {{ _tmpl_vmids }}, containers {{ _tmpl_ctids }} — but
-      `carve_destroy_templates` is not true. Set it in
-      group_vars/hypervisors.yml (or `-e carve_destroy_templates=true`)
-      to have preflight `qm/pct destroy --purge` them first;
-      40-templates.yml re-bakes them in the next tier step.
-  when: inventory_hostname in groups['hypervisors']
+- name: "Stop real VMs (graceful, 60s timeout)"
+  ansible.builtin.command: "qm stop {{ item }} --timeout 60 --skiplock"
+  loop: "{{ _real_vmids | default([]) }}"
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
+  register: _vm_stop
+  changed_when: _vm_stop.rc == 0
+  failed_when:
+    - _vm_stop.rc != 0
+    - "'not running' not in (_vm_stop.stderr | default(''))"
+    - "'does not exist' not in (_vm_stop.stderr | default(''))"
 
-- name: "Destroy regenerable VM templates (carve_destroy_templates opt-in)"
+- name: "Destroy real VMs (--purge)"
+  ansible.builtin.command: "qm destroy {{ item }} --purge --skiplock"
+  loop: "{{ _real_vmids | default([]) }}"
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
+  register: _vm_destroy
+  changed_when: _vm_destroy.rc == 0
+  failed_when:
+    - _vm_destroy.rc != 0
+    - "'does not exist' not in (_vm_destroy.stderr | default(''))"
+
+- name: "Stop real containers"
+  ansible.builtin.command: "pct stop {{ item }}"
+  loop: "{{ _real_ctids | default([]) }}"
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
+  register: _ct_stop
+  changed_when: _ct_stop.rc == 0
+  failed_when:
+    - _ct_stop.rc != 0
+    - "'not running' not in (_ct_stop.stderr | default(''))"
+    - "'does not exist' not in (_ct_stop.stderr | default(''))"
+
+- name: "Destroy real containers (--purge)"
+  ansible.builtin.command: "pct destroy {{ item }} --purge"
+  loop: "{{ _real_ctids | default([]) }}"
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
+  register: _ct_destroy
+  changed_when: _ct_destroy.rc == 0
+  failed_when:
+    - _ct_destroy.rc != 0
+    - "'does not exist' not in (_ct_destroy.stderr | default(''))"
+
+- name: "Destroy VM templates (--purge); 40-templates.yml re-bakes them"
   ansible.builtin.command: "qm destroy {{ item }} --purge"
   loop: "{{ _tmpl_vmids | default([]) }}"
   when:
     - inventory_hostname in groups['hypervisors']
-    - carve_destroy_templates | default(false) | bool
+    - host_disks_action == 'overwrite'
   register: _vm_tmpl_destroy
   changed_when: _vm_tmpl_destroy.rc == 0
   failed_when:
     - _vm_tmpl_destroy.rc != 0
-    - "'does not exist' not in _vm_tmpl_destroy.stderr"
+    - "'does not exist' not in (_vm_tmpl_destroy.stderr | default(''))"
 
-- name: "Destroy regenerable CT templates (carve_destroy_templates opt-in)"
+- name: "Destroy CT templates (--purge); 40-templates.yml re-bakes them"
   ansible.builtin.command: "pct destroy {{ item }} --purge"
   loop: "{{ _tmpl_ctids | default([]) }}"
   when:
     - inventory_hostname in groups['hypervisors']
-    - carve_destroy_templates | default(false) | bool
+    - host_disks_action == 'overwrite'
   register: _ct_tmpl_destroy
   changed_when: _ct_tmpl_destroy.rc == 0
   failed_when:
     - _ct_tmpl_destroy.rc != 0
-    - "'does not exist' not in _ct_tmpl_destroy.stderr"
+    - "'does not exist' not in (_ct_tmpl_destroy.stderr | default(''))"
 
 # ── Boot-disk detection (portable — PVE + plain Debian) ──────────────
 # Find the disk hosting the root filesystem. Works for PVE (root LV in
@@ -209,6 +244,7 @@
       Duplicate `label` (GPT partlabel) in {{ inventory_hostname }}'s
       storage.disks. Each partlabel must be unique per node (it is the
       GPT label and the idempotency key).
+  when: host_disks_action == 'overwrite'
 
 # Cross-pool consistency: partitions naming the same (vg,thinpool) must
 # (a) include AT LEAST ONE targeted partition (pve_storage OR mount) and
@@ -240,6 +276,7 @@
          | selectattr('_pool_key', 'equalto', item)
          | map(attribute='_sig') | list }}.
   loop: "{{ host_disks_resolved | map(attribute='_pool_key') | unique | list }}"
+  when: host_disks_action == 'overwrite'
 
 # ── Hypervisor-only frozen-contract assertions ───────────────────────
 # Tofu hardcodes the storage IDs (`vms` for every VM boot disk, the
@@ -260,7 +297,9 @@
       `vms` (Tofu hardcodes it for every VM/LXC boot disk + cloud-init
       drive). Got {{ host_disks_resolved | selectattr('pve_storage', 'defined')
                      | map(attribute='pve_storage') | unique | list }}.
-  when: inventory_hostname in groups['hypervisors']
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
 
 - name: Assert this hypervisor provides `longhorn-data` iff a pinned VM uses it
   ansible.builtin.assert:
@@ -283,7 +322,9 @@
          | selectattr('vm.proxmox_node', 'equalto', inventory_hostname)
          | selectattr('vm.data_disk_size', 'defined')
          | map(attribute='inventory_hostname') | list }}
-  when: inventory_hostname in groups['hypervisors']
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
 
 # ── Advisory sizing guard (NON-fatal by design, hypervisors only) ────
 # data_disk_size is hand-set in inventory and read by Tofu statically;
@@ -300,7 +341,9 @@
           | map(attribute='capacity_b') | map('int') | sum)
          // 1073741824) | int
       }}
-  when: inventory_hostname in groups['hypervisors']
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
 
 - name: "Advisory: longhorn-data capacity vs pinned workers' data_disk_size"
   ansible.builtin.debug:
@@ -324,4 +367,5 @@
          | map(attribute='inventory_hostname') | list }}
   when:
     - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite'
     - _pinned | length > 0

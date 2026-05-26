@@ -43,7 +43,7 @@
 - import_playbook: ../17-host/15-storage.yml
   vars:
     target_hosts: foundation
-    confirm_carve_data_disk: true
+    host_disks_action: overwrite
 
 - import_playbook: ../17-host/30-firewall.yml
   vars: { target_hosts: foundation }

@@ -62,8 +62,8 @@
     lxc_templates_base:
       - hostname: debian-13-lxc-template
         image: debian-13-standard_13.1-2_amd64.tar.zst
-      - hostname: ubuntu-24-lxc-template
-        image: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+      # - hostname: ubuntu-24-lxc-template
+      #   image: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
     # PINNED upstream cloud images (dated snapshots, NOT /latest/ //
     # /current/). image_file carries the version so re-pinning forces a
     # fresh download instead of reusing the stale cached ISO.
@@ -71,9 +71,9 @@
       - name: debian-13-template
         image_url: https://cloud.debian.org/images/cloud/trixie/20260518-2482/debian-13-genericcloud-amd64-20260518-2482.qcow2
         image_file: debian-13-genericcloud-amd64-20260518-2482.qcow2
-      - name: ubuntu-24-template
-        image_url: https://cloud-images.ubuntu.com/noble/20260323/noble-server-cloudimg-amd64.img
-        image_file: noble-server-cloudimg-amd64-20260323.img
+      # - name: ubuntu-24-template
+      #   image_url: https://cloud-images.ubuntu.com/noble/20260323/noble-server-cloudimg-amd64.img
+      #   image_file: noble-server-cloudimg-amd64-20260323.img
     build_lxc_templates: true
     build_vm_templates: true
     # Non-destructive by default: re-runs (and site.yml) leave existing
