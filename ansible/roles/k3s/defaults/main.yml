@@ -47,6 +47,17 @@ k3s_disable_components: []
 #   kubectl label node <n> topology.kubernetes.io/zone=<proxmox_node> --overwrite
 k3s_node_labels: []
 
+# Extra `--node-taint key=value:effect` entries (one per list item)
+# stamped onto the kubelet at registration, alongside --node-label. The
+# role is generic; poochella drives this from group_vars/kube_control
+# _plane.yml to pin the well-known
+#   node-role.kubernetes.io/control-plane=:NoSchedule
+# taint so workloads land on workers by default. SAME CAVEAT as
+# --node-label above: applied only at FIRST registration — to re-taint
+# an already-joined node, do it once by hand:
+#   kubectl taint node <n> <key>=<value>:<effect> --overwrite
+k3s_node_taints: []
+
 # kubeconfig file mode on control planes. 0644 makes it readable by the
 # `ansible` user without sudo, which is convenient for fetch-back patterns.
 k3s_kubeconfig_mode: "0644"

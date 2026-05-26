@@ -10,8 +10,18 @@
       {% for lbl in k3s_node_labels %}
       --node-label {{ lbl }}
       {% endfor %}
+      {% for taint in k3s_node_taints %}
+      --node-taint {{ taint }}
+      {% endfor %}
 
 - ansible.builtin.include_tasks: _install.yml
+
+# See note in server_init.yml — flush the queued restart synchronously
+# so the readiness gate observes the post-restart agent, not the
+# pre-restart one. Today this matters mostly when SANs/args drift on
+# a CP, but applies symmetrically here.
+- name: Flush pending k3s-agent restart before the readiness gate
+  ansible.builtin.meta: flush_handlers
 
 - name: Ensure k3s-agent is enabled and started (non-blocking)
   ansible.builtin.command: systemctl enable --now --no-block k3s-agent

@@ -21,8 +21,16 @@
       {% for lbl in k3s_node_labels %}
       --node-label {{ lbl }}
       {% endfor %}
+      {% for taint in k3s_node_taints %}
+      --node-taint {{ taint }}
+      {% endfor %}
 
 - ansible.builtin.include_tasks: _install.yml
+
+# See note in server_init.yml — flush the restart synchronously so the
+# readiness gate observes the post-restart apiserver.
+- name: Flush pending k3s restart before the readiness gate
+  ansible.builtin.meta: flush_handlers
 
 - name: Ensure k3s is enabled and started (non-blocking)
   ansible.builtin.command: systemctl enable --now --no-block k3s

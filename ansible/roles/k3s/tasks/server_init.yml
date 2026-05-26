@@ -20,8 +20,20 @@
       {% for lbl in k3s_node_labels %}
       --node-label {{ lbl }}
       {% endfor %}
+      {% for taint in k3s_node_taints %}
+      --node-taint {{ taint }}
+      {% endfor %}
 
 - ansible.builtin.include_tasks: _install.yml
+
+# Flush the queued `restart k3s` handler NOW (rather than at play-end)
+# so the readiness gate below actually waits for the post-restart
+# apiserver — not the pre-restart one. Without this the restart fires
+# after the play ends, and the NEXT play (kube-vip on the VIP) starts
+# its short wait while k3s is mid-restart (etcd raft + apiserver
+# bootstrap routinely > 120s on a contended homelab) and times out.
+- name: Flush pending k3s restart before the readiness gate
+  ansible.builtin.meta: flush_handlers
 
 - name: Ensure k3s is enabled and started (non-blocking)
   ansible.builtin.command: systemctl enable --now --no-block k3s

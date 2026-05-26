@@ -32,3 +32,17 @@ firewall_inbound_allow:
   - { port: 2380, proto: tcp }       # embedded etcd peer
   - { port: 10250, proto: tcp }      # kubelet API
   - { port: 8472, proto: udp }       # flannel VXLAN
+
+# Keep arbitrary workloads off the control plane by default. Rendered by
+# the k3s role as `--node-taint` flags in INSTALL_K3S_EXEC. Pods that
+# legitimately must run on a CP — kube-vip, the longhorn iSCSI/NFS
+# clients reconciled by the Flux repo — declare a matching toleration.
+# The control-plane taint key is the same well-known one kubeadm
+# clusters use, so off-the-shelf manifests already know to tolerate it.
+#
+# CAVEAT (same as --node-label): k3s/kubelet apply --node-taint only at
+# FIRST registration; already-joined nodes are NOT re-tainted by a re-
+# run. After first adoption, taint by hand:
+#   kubectl taint node <n> node-role.kubernetes.io/control-plane=:NoSchedule --overwrite
+k3s_node_taints:
+  - "node-role.kubernetes.io/control-plane=:NoSchedule"
