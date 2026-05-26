@@ -1,7 +1,7 @@
 ---
 # Mount nas01 NFS shares onto every PHYSICAL host (hypervisors + workers).
 #
-# What gets mounted is declared in `physical_nfs_mounts` — set on a
+# What gets mounted is declared in `nfs_mounts` — set on a
 # group's `vars:` block (today: `hypervisors` mounts the `proxmox` RW
 # share) or directly on a host in inventory.yaml. Hosts with no
 # definition mount nothing (the play uses `| default([])`). The
@@ -33,7 +33,7 @@
 #
 # Pre-conditions (asserted in 15-nas/30-storage.yml on its side):
 #   - nas01 is reachable on the LAN (10.1.1.0/24)
-#   - The shares listed in `physical_nfs_mounts` exist with the right
+#   - The shares listed in `nfs_mounts` exist with the right
 #     NFS export rules
 #
 # Re-run safely: ansible.posix.mount is idempotent on /etc/fstab and
@@ -68,7 +68,7 @@
         state: present
         update_cache: true
         cache_valid_time: 3600
-      when: physical_nfs_mounts | default([]) | length > 0
+      when: nfs_mounts | default([]) | length > 0
 
     # Create the mountpoint via mkdir -p + a `creates:` guard, NOT via
     # `ansible.builtin.file: state=directory`. Reason: once the NFS
@@ -80,7 +80,7 @@
       ansible.builtin.command:
         cmd: "mkdir -p {{ item.path | quote }}"
         creates: "{{ item.path }}"
-      loop: "{{ physical_nfs_mounts | default([]) }}"
+      loop: "{{ nfs_mounts | default([]) }}"
       loop_control:
         label: "{{ item.path }}"
 
@@ -91,7 +91,7 @@
         fstype: nfs
         opts: "{{ item.options }}"
         state: mounted
-      loop: "{{ physical_nfs_mounts | default([]) }}"
+      loop: "{{ nfs_mounts | default([]) }}"
       loop_control:
         label: "{{ item.share }} → {{ item.path }}"
 

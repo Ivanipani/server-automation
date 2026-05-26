@@ -23,7 +23,7 @@
 #     re-list it. `firewall_outbound_deny` defaults to denying SSH out
 #     on guests (30-guests/40-firewall.yml); set `firewall_outbound_deny: []`
 #     on a group/host to opt out.
-#   - NFS mounts: `physical_nfs_mounts` (list of
+#   - NFS mounts: `nfs_mounts` (list of
 #     {share, path, options}) declares which nas01 shares to mount on
 #     each baremetal host. Set on a group's `vars:` block (today:
 #     `physical` defines the cluster-wide mounts; `hypervisors` re-lists
@@ -194,7 +194,7 @@ physical:
     # Default NFS mounts for every physical host. Deeper groups
     # REPLACE this list (no merge — see header), so `hypervisors`
     # re-lists these entries below and adds its own on top.
-    physical_nfs_mounts:
+    nfs_mounts:
       - share: build-artifacts
         path: /mnt/nas/build-artifacts
         options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
@@ -223,14 +223,14 @@ hypervisors:
       - { port: 22, proto: tcp }
       - { port: 8006, proto: tcp, comment: "PVE web UI" }
     # NFS mounts for hypervisors. REPLACES (does not merge) the
-    # parent `physical.physical_nfs_mounts`, so the `build-artifacts`
+    # parent `physical.nfs_mounts`, so the `build-artifacts`
     # and `scratch` mounts are re-listed here. The hypervisor-only
     # addition is `proxmox` — originally the publish target for the
     # deleted 20-hypervisor/40-bake-images.yml (Packer → NAS image-bake
     # path); the current bake flow publishes to bootserv01 HTTP instead
     # (13-foundation/95-bake-publish-images.yml). Retained for manual
     # workflows / backups; remove if unused.
-    physical_nfs_mounts:
+    nfs_mounts:
       - share: build-artifacts
         path: /mnt/nas/build-artifacts
         options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
@@ -416,7 +416,7 @@ storage:
           # share mirrors bootserv01's /srv/http: cloud-images/ +
           # lxc-templates/.
           # Mounted on every PHYSICAL host (see
-          # physical.vars.physical_nfs_mounts in inventory.yaml) so any
+          # physical.vars.nfs_mounts in inventory.yaml) so any
           # node can browse / restore artifacts off-box.
           - name: build-artifacts
             description: "bootserv01 cloud-images + lxc-templates mirror"
@@ -433,7 +433,7 @@ storage:
           # /tmp that survives reboots. RW for every physical host;
           # extend the rule list when a new baremetal host comes
           # online. Mounted at /mnt/nas/scratch on every physical host
-          # (see physical.vars.physical_nfs_mounts in inventory.yaml).
+          # (see physical.vars.nfs_mounts in inventory.yaml).
           - name: scratch
             description: "Cluster-wide scratch / shared arbitrary files"
             quota_gb: 100
@@ -521,7 +521,7 @@ kubernetes:
           - { port: 2380, proto: tcp }       # embedded etcd peer
           - { port: 10250, proto: tcp }      # kubelet API
           - { port: 8472, proto: udp }       # flannel VXLAN
-        # NFS mounts on every CP. Same `physical_nfs_mounts` schema as
+        # NFS mounts on every CP. Same `nfs_mounts` schema as
         # the baremetal side — the variable name is legacy but the
         # mount mechanics are identical. Re-imported from
         # 17-host/16-nfs-mounts.yml via 40-kube/site.yml scoped to
@@ -533,7 +533,7 @@ kubernetes:
         # snapshots locally every 12h; the sidecar rsyncs them + the
         # cluster join token here so a CP-VM rebuild can be rescued
         # via `--cluster-reset --cluster-reset-restore-path=...`.
-        physical_nfs_mounts:
+        nfs_mounts:
           - share: k3s-snapshots
             path: /mnt/nas/k3s-snapshots
             options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"

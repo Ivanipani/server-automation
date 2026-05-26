@@ -19,7 +19,7 @@
 - import_playbook: 30-disable-auto-upgrades.yml
 - import_playbook: 40-firewall.yml
 
-# Mount nas01 NFS shares onto VM groups that declare `physical_nfs_mounts`
+# Mount nas01 NFS shares onto VM groups that declare `nfs_mounts`
 # (today: kube_control_plane). Re-uses the baremetal-side
 # 17-host/16-nfs-mounts.yml — same schema, same module — scoped to the
 # VM group. Slot 50 keeps the gap-10 convention while sitting after

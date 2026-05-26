@@ -17,7 +17,7 @@
 # Pre-condition: the nas01 k3s-snapshots share is mounted on this host
 # at /mnt/nas/k3s-snapshots (set up by 17-host/16-nfs-mounts.yml,
 # re-imported from 30-guests/site.yml scoped to kube_control_plane —
-# `physical_nfs_mounts` is declared on the kube_control_plane group's
+# `nfs_mounts` is declared on the kube_control_plane group's
 # vars block in inventory.yaml).
 #
 # Invoked from 40-kube/20-k3s.yml after the joiners complete, scoped to
