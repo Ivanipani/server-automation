@@ -23,6 +23,14 @@
 #     re-list it. `firewall_outbound_deny` defaults to denying SSH out
 #     on guests (30-guests/40-firewall.yml); set `firewall_outbound_deny: []`
 #     on a group/host to opt out.
+#   - NFS mounts: `physical_nfs_mounts` (list of
+#     {share, path, options}) declares which nas01 shares to mount on
+#     each baremetal host. Set on a group's `vars:` block (today:
+#     `hypervisors` mounts the `proxmox` share) or directly on a host.
+#     Same precedence as firewall rules — HOST > most-specific GROUP >
+#     parent — and the deepest definition REPLACES the parent's list.
+#     Absence of the var is equivalent to "no mounts" (the playbook
+#     uses `| default([])`). Consumed by 17-host/16-nfs-mounts.yml.
 #   - `vm: {...}`                   → Tofu creates this VM on Proxmox.
 #     VM boot disks live on the node-local `vms` PVE storage. NO VM
 #     receives a Longhorn-backed data disk: Longhorn replica state lives
@@ -194,6 +202,17 @@ hypervisors:
     firewall_inbound_allow:
       - { port: 22, proto: tcp }
       - { port: 8006, proto: tcp, comment: "PVE web UI" }
+    # NFS mount from nas01. The `proxmox` RW share was the publish
+    # target for the deleted 20-hypervisor/40-bake-images.yml (Packer →
+    # NAS image-bake path); the current bake flow publishes to
+    # bootserv01 HTTP instead (13-foundation/95-bake-publish-images.yml).
+    # The mount is retained for manual workflows / backups; remove if
+    # there's no use for it. Resilient mount opts (soft,timeo=30) keep
+    # a NAS hiccup from hanging anything that might still write here.
+    physical_nfs_mounts:
+      - share: proxmox
+        path: /mnt/nas/proxmox
+        options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
   children:
     pve_standalone:
       # Independent PVE nodes — no corosync, no HA, no live-migration.

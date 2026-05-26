@@ -1,7 +1,0 @@
----
-# Parent (umbrella) group for all VMs. Firewall rules live in
-# inventory.yaml — either on a LEAF child group's `vars:` block
-# (`dev`, `kube_control_plane`, `kube_workers`, …) or directly on the
-# host. The uniform baseline (default-deny in, allow SSH, deny SSH out)
-# is applied to this whole group by
-# playbooks/poochella/infra/30-guests/40-firewall.yml.

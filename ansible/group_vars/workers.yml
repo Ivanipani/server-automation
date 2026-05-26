@@ -1,6 +1,0 @@
----
-# Vars for plain Linux baremetal hosts (no PVE). Empty today: the
-# 17-host tier picks up every worker through `physical` (see
-# group_vars/physical.yml). Firewall rules for workers (or any group)
-# go in inventory.yaml on the group's `vars:` block — see the
-# `kube_workers` entry there for the pattern.

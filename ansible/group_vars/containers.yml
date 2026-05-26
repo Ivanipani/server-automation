@@ -1,7 +1,0 @@
----
-# Parent (umbrella) group for all LXCs. Firewall rules live in
-# inventory.yaml — either on a LEAF child group's `vars:` block
-# (e.g. `dns` would set per-container DNS ports) or directly on the
-# host (e.g. bootserv01). The uniform baseline (default-deny in, allow
-# SSH, deny SSH out) is applied to this whole group by
-# playbooks/poochella/infra/30-guests/40-firewall.yml.
