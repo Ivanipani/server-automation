@@ -20,11 +20,9 @@ tailscale_enabled: false
 # medium (preseed, VM/LXC bake, PVE auto-install). Override per-host
 # by setting `image_baseline_sshd:` in host_vars/<name>.yml.
 
-# Firewall default-allow rules (consumed by 17-host/30-firewall.yml +
-# firewall-basic role). Per-group can extend; workers and hypervisors
-# add their own service ports on top.
-firewall_inbound_allow:
-  - { proto: tcp, port: 22, comment: "ssh" }
+# Firewall rules live in inventory.yaml — on each group's `vars:` block
+# (or per-host) — so the policy sits next to the topology it applies to.
+# See the header of inventory.yaml for the resolution rules.
 
 # ── NFS mounts from nas01 (consumed by 17-host/16-nfs-mounts.yml) ────
 # Default is empty — workers don't mount NAS shares today. Hypervisors

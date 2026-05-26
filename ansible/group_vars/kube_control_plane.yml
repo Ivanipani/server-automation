@@ -1,37 +1,6 @@
 ---
-# Inbound firewall policy for k3s control-plane VMs (the
-# `kube_control_plane` leaf group).
-#
-# Consumed by playbooks/poochella/infra/30-guests/40-firewall.yml. The
-# uniform baseline (default-deny in, allow SSH, deny SSH out) is set by
-# that play; this list is ONLY the per-group extra openings. These ports
-# must be open BEFORE 40-kube/20-k3s.yml so the cluster can form behind
-# the default-deny-incoming firewall.
-#
-# GROUP-DRIVEN, not host-enumerated: membership in `kube_control_plane`
-# is the predicate, so adding a CP needs no edit here.
-#
-# Ports (k3s default flannel VXLAN + embedded etcd; see roles/k3s):
-#   6443/tcp   kube-apiserver + kube-vip L2 VIP
-#   2379/tcp   embedded etcd client
-#   2380/tcp   embedded etcd peer
-#   10250/tcp  kubelet API
-#   8472/udp   flannel VXLAN
-# Out of scope here (handled by the platform/app layer, not k3s
-# bring-up): NodePort 30000-32767, MetalLB/Traefik 80/443/7946.
-#
-# STOPGAP / known limitation: firewall-basic has no source-CIDR support,
-# so etcd (2379-2380) and kubelet (10250) are exposed to the whole LAN,
-# not just the cluster subnet. Acceptable here (single L2 behind
-# OPNsense WAN default-deny, consistent with how 5432 is exposed), but
-# the robust fix is a source-restricted allow in firewall-basic —
-# tracked as a follow-up, not silently accepted.
-firewall_inbound_allow:
-  - { port: 6443, proto: tcp }       # kube-apiserver + kube-vip VIP
-  - { port: 2379, proto: tcp }       # embedded etcd client
-  - { port: 2380, proto: tcp }       # embedded etcd peer
-  - { port: 10250, proto: tcp }      # kubelet API
-  - { port: 8472, proto: udp }       # flannel VXLAN
+# k3s control-plane vars. Firewall rules live in inventory.yaml on the
+# `kube_control_plane` group's `vars:` block.
 
 # Keep arbitrary workloads off the control plane by default. Rendered by
 # the k3s role as `--node-taint` flags in INSTALL_K3S_EXEC. Pods that

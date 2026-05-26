@@ -10,6 +10,19 @@
 # Conventions:
 #   - `ip_address` + `mac_address`  → host appears as a dnsmasq static lease
 #   - `static_ip: true`             → suppress the dnsmasq reservation (e.g. router)
+#   - Firewall rules: `firewall_inbound_allow` (list of {proto, port,
+#     comment?}) and `firewall_outbound_deny` (list of {proto, port})
+#     live on EITHER a group (`<group>.vars`) OR a host. Resolution is
+#     standard Ansible precedence: HOST > most-specific GROUP > parent
+#     groups. There is NO list merge — the deepest level that defines
+#     the var REPLACES the parent's value. To "extend" a group's rules
+#     on one host, copy the group's list and add. Consumed by both
+#     17-host/30-firewall.yml (baremetal) and 30-guests/40-firewall.yml
+#     (VMs + LXCs) via the firewall-basic role; SSH 22/tcp is hardcoded
+#     in the role to prevent lockout, so groups/hosts do NOT need to
+#     re-list it. `firewall_outbound_deny` defaults to denying SSH out
+#     on guests (30-guests/40-firewall.yml); set `firewall_outbound_deny: []`
+#     on a group/host to opt out.
 #   - `vm: {...}`                   → Tofu creates this VM on Proxmox.
 #     VM boot disks live on the node-local `vms` PVE storage. NO VM
 #     receives a Longhorn-backed data disk: Longhorn replica state lives
@@ -153,6 +166,13 @@ router:
       static_ip: true
 
 physical:
+  # Baseline inbound policy for EVERY baremetal Linux host (hypervisors
+  # + workers). SSH 22/tcp is hardcoded by the firewall-basic role —
+  # this list is for service ports on top of that. Deeper groups
+  # (`hypervisors`, `kube_workers`) REPLACE this list with their own.
+  vars:
+    firewall_inbound_allow:
+      - { proto: tcp, port: 22, comment: "ssh" }
   children:
     hypervisors:
     workers:
@@ -167,6 +187,13 @@ hypervisors:
   # PVE host lives under `pve_standalone`; the sibling `pve_cluster`
   # group is gated off (see header) and exists only as deprecated
   # scaffolding.
+  vars:
+    # PVE web UI on top of the baseline SSH. SSH is repeated here only
+    # because this list REPLACES `physical.firewall_inbound_allow`;
+    # the role hardcodes SSH so removing it would still leave SSH open.
+    firewall_inbound_allow:
+      - { port: 22, proto: tcp }
+      - { port: 8006, proto: tcp, comment: "PVE web UI" }
   children:
     pve_standalone:
       # Independent PVE nodes — no corosync, no HA, no live-migration.
@@ -388,7 +415,11 @@ virtual-machines:
   # firewall play covers both groups explicitly.
   children:
     dev:
-      # Developer/scratch VMs (Ivan's devbox). Policy: group_vars/dev.yml
+      # Developer/scratch VMs (Ivan's devbox).
+      vars:
+        firewall_inbound_allow:
+          # Dev/scratch range (port-forwards, ad-hoc services).
+          - { port: "50000:50100", proto: tcp }
       # hosts:
       #   devbox01:
       #     ansible_host: devbox01.lan
@@ -400,10 +431,35 @@ virtual-machines:
       #       memory: 8192
       #       disk_size: 100
       #       tags: [dev, ivan]
+    # databases:
+    #   # Database VMs. STOPGAP: firewall-basic has no source-CIDR
+    #   # support, so 5432 is LAN-wide. Acceptable behind OPNsense
+    #   # WAN default-deny on a single L2 — tracked as a follow-up.
+    #   vars:
+    #     firewall_inbound_allow:
+    #       - { port: 5432, proto: tcp }            # PostgreSQL
+    #       - { port: "50000:50100", proto: tcp }   # dev/scratch range
+    #   # hosts:
+    #   #   postgres01:
+    #   #     ...
 
 kubernetes:
   children:
     kube_control_plane:
+      # k3s control plane: kube-apiserver + embedded etcd + kubelet +
+      # flannel VXLAN. Must be open BEFORE 40-kube/20-k3s.yml so the
+      # cluster can form behind default-deny-incoming.
+      # STOPGAP: firewall-basic has no source-CIDR support, so etcd
+      # (2379-2380) and kubelet (10250) are LAN-wide. Acceptable behind
+      # OPNsense WAN default-deny on a single L2 — tracked as a
+      # follow-up.
+      vars:
+        firewall_inbound_allow:
+          - { port: 6443, proto: tcp }       # kube-apiserver + kube-vip VIP
+          - { port: 2379, proto: tcp }       # embedded etcd client
+          - { port: 2380, proto: tcp }       # embedded etcd peer
+          - { port: 10250, proto: tcp }      # kubelet API
+          - { port: 8472, proto: udp }       # flannel VXLAN
       hosts:
         kube-ctl-01:
           ansible_host: kube-ctl-01.lan
@@ -440,6 +496,21 @@ kubernetes:
     #         disk_size: 30
     #         tags: [kube, control-plane]
     kube_workers:
+      # k3s workers: kubelet + flannel VXLAN. Same STOPGAP as
+      # kube_control_plane re: no source-CIDR support.
+      #
+      # `firewall_outbound_deny: []` OPTS OUT of the parent
+      # 30-guests SSH-out deny default: the baremetal worker-home-02
+      # hosts dev/CI workloads that need git over SSH to GitHub as
+      # `pani`. Risk traded off — a worker-side process gaining
+      # git-via-SSH egress — is acceptable because the worker is
+      # baremetal-owned (not multi-tenant VM substrate) and an
+      # attacker with shell on it already has many egress paths.
+      vars:
+        firewall_inbound_allow:
+          - { port: 10250, proto: tcp }      # kubelet API
+          - { port: 8472, proto: udp }       # flannel VXLAN
+        firewall_outbound_deny: []
       hosts:
         worker-home-02:
 
@@ -472,3 +543,15 @@ containers:
           firewall_inbound_allow:
             - { proto: tcp, port: 22, comment: "ssh" }
             - { proto: tcp, port: 80, comment: "http" }
+    # dns:
+    #   # DNS/DHCP LXCs (pihole). Carried over from the prior
+    #   # host-keyed _container_inbound map for pihole02.
+    #   vars:
+    #     firewall_inbound_allow:
+    #       - { port: 53, proto: tcp }    # DNS
+    #       - { port: 53, proto: udp }    # DNS
+    #       - { port: 67, proto: udp }    # DHCP
+    #       - { port: 80, proto: tcp }    # admin UI
+    #   # hosts:
+    #   #   pihole02:
+    #   #     ...

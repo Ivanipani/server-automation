@@ -2,44 +2,38 @@
 # Firewall configuration for all poochella guests.
 #
 # Default-deny incoming, allow outgoing EXCEPT SSH out, with PER-GROUP
-# inbound allowances. The per-group policy is GROUP-DRIVEN, not
-# host-enumerated: each LEAF group owns its open ports in
-# group_vars/<group>.yml as `firewall_inbound_allow`. This playbook is a
-# thin, host-agnostic loop — there are no host/port maps here anymore.
+# (and per-host) inbound allowances. The per-group policy lives in
+# inventory.yaml on each group's `vars:` block (single source of truth
+# alongside the topology); per-host overrides live directly on the host
+# (e.g. bootserv01). This playbook is a thin, host-agnostic loop —
+# there are no host/port maps here anymore.
 #
-#   Consequences of group-driven:
+#   Consequences of inventory-driven:
 #     - adding/uncommenting a host inherits its group's policy with zero
 #       edits to this file;
 #     - an empty group (e.g. `databases` until a DB VM exists) simply
 #       opens nothing;
-#     - the port rationale lives WITH the data (single source of truth).
+#     - the port rationale lives WITH the topology in inventory.yaml.
 #
-#   Leaf groups & where their policy lives:
-#     dev                -> group_vars/dev.yml
-#     databases          -> group_vars/databases.yml
-#     kube_control_plane -> group_vars/kube_control_plane.yml
-#     kube_workers       -> group_vars/kube_workers.yml
-#     webservers         -> group_vars/webservers.yml
-#     dns                -> group_vars/dns.yml
-#   (k3s port rationale + the firewall-basic source-CIDR STOPGAP note
-#    now live in group_vars/kube_*.yml.)
+#   Per-group `vars.firewall_inbound_allow` blocks live on (today):
+#     dev, kube_control_plane, kube_workers (and commented scaffolds
+#     for `databases` and `dns`).
+#   Per-host overrides today: bootserv01 (SSH + HTTP).
 #
-# Precedence is unambiguous: a VM in nested groups (e.g. kube-ctl-01 in
-# kube_control_plane -> kubernetes -> virtual-machines) resolves
-# `firewall_inbound_allow` from the MOST-SPECIFIC group that defines it.
-# Only LEAF groups define it (the parent groups virtual-machines /
-# kubernetes / containers leave it unset), so exactly one value is ever
-# in scope — there is no merge or clobber to reason about.
+# Precedence is standard Ansible: HOST > most-specific GROUP > parent.
+# There is NO list merge — the deepest level that defines the var
+# REPLACES the parent's value. See inventory.yaml's header for the
+# resolution rules.
 #
 # The k3s ports MUST be open before 40-kube/20-k3s.yml runs so the
 # cluster can form behind this default-deny-incoming firewall (this
 # playbook runs earlier, in tier 30-guests).
 
 # Uniform fleet baseline for guests: no lateral SSH out. The default is
-# applied to every leaf group below; a leaf can opt out by setting
-# `firewall_outbound_deny` in its group_vars/<group>.yml. Currently only
-# `kube_workers` opts out (baremetal worker-home-02 needs git-over-SSH
-# to GitHub as `pani` — see group_vars/kube_workers.yml).
+# applied to every leaf group below; a group or host can opt out by
+# setting `firewall_outbound_deny: []` on its inventory.yaml `vars:`
+# block. Currently only `kube_workers` opts out (baremetal
+# worker-home-02 needs git-over-SSH to GitHub as `pani`).
 
 # Virtual machines (dev, databases).
 - hosts: virtual-machines

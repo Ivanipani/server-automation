@@ -1,6 +1,7 @@
 ---
-# PVE-only knobs. Generic-host vars (tailscale, ssh, firewall) live in
-# group_vars/physical.yml.
+# PVE-only knobs. Generic-host vars (tailscale, ssh) live in
+# group_vars/physical.yml; firewall rules live in inventory.yaml (on
+# each group's `vars:` block).
 
 # PVE clustering is gated off (assertion in 20-hypervisor/20-cluster.yml).
 # Every hypervisor is standalone — there is nothing cluster-related to
@@ -51,7 +52,3 @@ physical_nfs_mounts:
     # `soft,timeo=30` keeps a NAS hiccup from hanging anything that
     # might still write here.
     options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
-
-firewall_inbound_allow:
-  - { port: 22, proto: tcp }
-  - { port: 8006, proto: tcp }
