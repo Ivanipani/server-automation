@@ -521,6 +521,22 @@ kubernetes:
           - { port: 2380, proto: tcp }       # embedded etcd peer
           - { port: 10250, proto: tcp }      # kubelet API
           - { port: 8472, proto: udp }       # flannel VXLAN
+        # NFS mounts on every CP. Same `physical_nfs_mounts` schema as
+        # the baremetal side — the variable name is legacy but the
+        # mount mechanics are identical. Re-imported from
+        # 17-host/16-nfs-mounts.yml via 40-kube/site.yml scoped to
+        # kube_control_plane (mirroring how 13-foundation re-imports
+        # 17-host playbooks against the `foundation` group).
+        #
+        # `k3s-snapshots`: target for the off-box etcd-snapshot rsync
+        # sidecar (roles/k3s/tasks/_snapshot_sync.yml). k3s writes
+        # snapshots locally every 12h; the sidecar rsyncs them + the
+        # cluster join token here so a CP-VM rebuild can be rescued
+        # via `--cluster-reset --cluster-reset-restore-path=...`.
+        physical_nfs_mounts:
+          - share: k3s-snapshots
+            path: /mnt/nas/k3s-snapshots
+            options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
       hosts:
         kube-ctl-01:
           ansible_host: kube-ctl-01.lan
