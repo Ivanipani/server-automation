@@ -191,6 +191,7 @@ physical:
   vars:
     firewall_inbound_allow:
       - { proto: tcp, port: 22, comment: "ssh" }
+      - { proto: tcp, port: 9100, comment: "node-exporter" }
     # Default NFS mounts for every physical host. Deeper groups
     # REPLACE this list (no merge — see header), so `hypervisors`
     # re-lists these entries below and adds its own on top.
@@ -222,6 +223,7 @@ hypervisors:
     firewall_inbound_allow:
       - { port: 22, proto: tcp }
       - { port: 8006, proto: tcp, comment: "PVE web UI" }
+      - { port: 9100, proto: tcp, comment: "node-exporter" }
     # NFS mounts for hypervisors. REPLACES (does not merge) the
     # parent `physical.nfs_mounts`, so the `build-artifacts`
     # and `scratch` mounts are re-listed here. The hypervisor-only
@@ -549,7 +551,7 @@ kubernetes:
             # at the physical layer (any CP loss = etcd loss).
             proxmox_node: pve-home-01
             cores: 4
-            memory: 8192
+            memory: 12288
             disk_size: 30
             tags: [kube, control-plane]
     #     kube-ctl-02:
@@ -585,8 +587,9 @@ kubernetes:
       # attacker with shell on it already has many egress paths.
       vars:
         firewall_inbound_allow:
-          - { port: 10250, proto: tcp }      # kubelet API
-          - { port: 8472, proto: udp }       # flannel VXLAN
+          - { port: 10250, proto: tcp, comment: "kubelet API" }      # kubelet API
+          - { port: 8472, proto: udp, comment: "flannel VXLAN"}       # flannel VXLAN
+          - { port: 9100, proto: tcp, comment: "node-exporter" }
         firewall_outbound_deny: []
       hosts:
         worker-home-02:
@@ -620,6 +623,7 @@ containers:
           firewall_inbound_allow:
             - { proto: tcp, port: 22, comment: "ssh" }
             - { proto: tcp, port: 80, comment: "http" }
+            - { proto: tcp, port: 443, comment: "https" }
     # dns:
     #   # DNS/DHCP LXCs (pihole). Carried over from the prior
     #   # host-keyed _container_inbound map for pihole02.
