@@ -285,6 +285,93 @@ storage:
         images_dir: /volume1/proxmox/images/vm
         rsync_user: pve-publisher
         https_url_base: https://nas01.lan/proxmox/images/vm
+      # Programmatically-managed NFS shares on nas01 (additive).
+      # The underlying storage pool + volume are created MANUALLY in
+      # DSM (out of scope by design — see synology-storage role's
+      # main.yml). Ansible only owns share existence, quotas, and NFS
+      # export rules.
+      #
+      # Consumed by playbooks/poochella/infra/15-nas/30-storage.yml
+      # (synology-storage role); preflight.yml asserts this shape.
+      storage:
+        vol_path: /volume1
+        shares:
+          # Off-box mirror of k3s embedded-etcd snapshots + the
+          # /var/lib/rancher/k3s/server/token (snapshots are useless
+          # without it). rsync'd from each CP on a systemd timer; see
+          # roles/k3s/tasks/_snapshot_sync.yml (Phase 0.2).
+          - name: k3s-snapshots
+            description: "k3s etcd snapshots (off-box backup)"
+            quota_gb: 10
+            nfs:
+              rules:
+                # One rule per CP VM. Today only kube-ctl-01 is real;
+                # -02/-03 join once the mini-PCs land (Phase 2). The
+                # rules are harmless until those IPs exist.
+                - host: 10.1.1.110           # kube-ctl-01
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
+                - host: 10.1.1.111           # kube-ctl-02 (Phase 2)
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
+                - host: 10.1.1.112           # kube-ctl-03 (Phase 2)
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
+          # Durable mirror of bootserv01's published build artifacts
+          # (Debian VM qcow2 + LXC tar.zst, with sha256 sidecars).
+          # Producer at 13-foundation/95-bake-publish-images.yml pushes
+          # to bootserv01 over `pct push`; a follow-up job (TBD) rsyncs
+          # those out to this share so a bootserv01 LXC rebuild
+          # doesn't require re-baking from upstream. Layout inside the
+          # share mirrors bootserv01's /srv/http: cloud-images/ +
+          # lxc-templates/.
+          - name: build-artifacts
+            description: "bootserv01 cloud-images + lxc-templates mirror"
+            quota_gb: 100
+            nfs:
+              rules:
+                - host: 10.1.1.105           # pve-home-01 (foundation/producer)
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
+          # Longhorn BackupTarget destination (the Flux-side Longhorn
+          # config points its BackupTarget URL at
+          # nfs://nas01.lan:/volume1/longhorn-backup). Backup chunks +
+          # metadata; restore path for re-imaged workers. Allow every
+          # kube node since Longhorn manager pods on any node may list
+          # backups, and engines on any future worker initiate uploads.
+          - name: longhorn-backup
+            description: "Longhorn BackupTarget"
+            quota_gb: 1024
+            nfs:
+              rules:
+                - host: 10.1.1.106           # worker-home-02 (engine origin)
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
+                - host: 10.1.1.110           # kube-ctl-01
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
+                - host: 10.1.1.111           # kube-ctl-02 (Phase 2)
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
+                - host: 10.1.1.112           # kube-ctl-03 (Phase 2)
+                  privilege: rw
+                  squash: no_root_squash
+                  security: sys
+                  async: true
 
 virtual-machines:
   # No loose `hosts:` here on purpose. Every VM lives in a LEAF child
