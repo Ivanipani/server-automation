@@ -14,22 +14,17 @@
 #     /hosts/<host>.ipxe           per-host dispatch (kernel/initrd/preseed URL)
 #     /debian-13/{linux,initrd.gz} pinned upstream netboot installer
 #     /preseed/<host>.cfg          per-host preseed (LAN-only)
-#     /keys/<host>.pub             per-host authorized_keys (LAN-only)
+#     /scripts/image-baseline.sh   canonical pre-bake baseline script
+#                                  (LAN-only — embeds the tourmanager
+#                                  vault password hash); the preseed's
+#                                  late_command wgets + execs it
 #
 # Pre-conditions:
 #   - this play targets a fresh Debian 13 LXC with the ansible user + sudo
 #   - the LXC has outbound HTTP to ftp.debian.org for the netboot fetch
-#   - bootserv_ansible_pubkey and bootserv_tourmanager_password are non-empty
-
-- name: Assert required vars are set
-  ansible.builtin.assert:
-    that:
-      - bootserv_ansible_pubkey | length > 0
-      - bootserv_tourmanager_password | length > 0
-    fail_msg: >-
-      bootserv role needs bootserv_ansible_pubkey +
-      bootserv_tourmanager_password. Both come from the calling
-      playbook + vault.
+#   - tourmanager_user_pass + ~/.ssh/ansible.pub on the controller exist
+#     (the canonical image-baseline.sh.j2 template reads them via
+#     lookup() at render time; nothing role-local to assert)
 
 # The Tofu LXC module clones from the Debian 13 template and cannot
 # override the template's baked-in hostname at clone time (PVE's
@@ -71,7 +66,7 @@
           bootserv_http_root ~ '/debian-13',
           bootserv_http_root ~ '/hosts',
           bootserv_http_root ~ '/preseed',
-          bootserv_http_root ~ '/keys']
+          bootserv_http_root ~ '/scripts']
          + (bootserv_static_dirs | map('regex_replace', '^', bootserv_http_root ~ '/') | list) }}
 
 # --- TFTP: iPXE chainload binaries -----------------------------------
@@ -190,17 +185,18 @@
   loop_control:
     label: "{{ item }}"
 
-- name: Render per-host authorized_keys
-  ansible.builtin.copy:
-    content: "{{ bootserv_ansible_pubkey }}\n"
-    dest: "{{ bootserv_http_root }}/keys/{{ item }}.pub"
+# ── Canonical image-baseline.sh -----------------------------------
+# Single source of truth applied to every freshly-installed or
+# cloned Debian/PVE host (preseed late_command wgets + execs it).
+# Same script the VM bake, LXC bake, and PVE first-boot run. See
+# group_vars/all/image-baseline.yml + files/image-baseline.sh.j2.
+- name: Render canonical image-baseline.sh into bootserv docroot (LAN-only)
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../files/image-baseline.sh.j2"
+    dest: "{{ bootserv_http_root }}/scripts/image-baseline.sh"
     owner: "{{ bootserv_owner }}"
     group: "{{ bootserv_group }}"
     mode: "0640"
-  loop: "{{ groups['all'] }}"
-  when: hostvars[item].debian_netboot is defined
-  loop_control:
-    label: "{{ item }}"
 
 # --- dnsmasq (TFTP only) ---------------------------------------------
 - name: Configure dnsmasq for TFTP-only

@@ -1,0 +1,31 @@
+---
+# Render the canonical image-baseline.sh to a controller-local path
+# (/var/tmp/poochella-image-baseline.sh). Used by the PVE-ISO build
+# helper (img/proxmox/build.sh) which then concatenates first-boot.sh
+# + this script into the `--on-first-boot` bundle that
+# proxmox-auto-install-assistant embeds in the ISO.
+#
+# Distinct from playbooks/poochella/infra/tasks/render-image-baseline.yml
+# which renders to /var/tmp on the play's target host (a hypervisor) for
+# the VM/LXC bake flow. The PVE-ISO build runs on the operator's
+# laptop and needs the file on localhost.
+#
+# Reads group_vars/all/image-baseline.yml + group_vars/all/vars.yml
+# automatically. tourmanager_user_pass (from vault) is resolved at
+# render time; bring the vault password (--vault-password-file).
+
+- name: Render image-baseline.sh to the controller's /var/tmp
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Render template
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../infra/files/image-baseline.sh.j2"
+        dest: /var/tmp/poochella-image-baseline.sh
+        mode: "0700"
+
+    - name: Show resulting path (build.sh consumes this)
+      ansible.builtin.debug:
+        msg: "Rendered: /var/tmp/poochella-image-baseline.sh"

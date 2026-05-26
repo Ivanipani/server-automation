@@ -1,9 +1,25 @@
 ---
 # Creates a single LXC template container if it doesn't already exist.
 # Required vars:
-#   lxc_template    – dict with id, hostname, image
-#   lxc_packages    – space-separated package list for apt-get install
-#   ansible_pubkey  – contents of ~/.ssh/ansible.pub on the controller
+#   lxc_template                  – dict with id, hostname, image
+#   lxc_packages                  – space-separated package list for apt-get install
+#   image_baseline_rendered_path  – /var/tmp path on this PVE host to
+#                                   the rendered image-baseline.sh
+#                                   (set by include of
+#                                    tasks/render-image-baseline.yml
+#                                    in the calling playbook)
+#
+# Customization split:
+#   - This file handles LXC-specific bits ONLY: pct create, apt
+#     install of openssh-server (needed before baseline.sh's sshd -t
+#     validate), the sshd-keygen.service drop-in (LXC-only — VMs
+#     don't need it), and machine-id + ssh-host-keys reset for
+#     clone uniqueness.
+#   - User creation, sshd hardening drop-in, apt-no-auto-upgrades,
+#     and root locking are ALL done by image-baseline.sh which
+#     `pct exec` runs after openssh-server is installed. Single
+#     canonical source shared with the netboot preseed, VM qcow2
+#     bake, and PVE first-boot. See group_vars/all/image-baseline.yml.
 
 - name: "Check if LXC template {{ lxc_template.id }} exists"
   ansible.builtin.command: "pct status {{ lxc_template.id }}"
@@ -43,52 +59,33 @@
       ansible.builtin.command: "pct exec {{ lxc_template.id }} -- apt-get update"
       changed_when: true
 
+    # openssh-server MUST be installed before baseline.sh runs — the
+    # script invokes `sshd -t` to validate its rendered drop-in.
+    # The LXC base image doesn't ship sshd; without it the validation
+    # would skip silently (the script tolerates a missing sshd binary
+    # so it still works during preseed late_command) and a broken
+    # drop-in could land. Installing here makes the validate trip.
     - name: "Install packages in container {{ lxc_template.id }}"
       ansible.builtin.command: "pct exec {{ lxc_template.id }} -- apt-get install -y {{ lxc_packages }}"
       changed_when: true
 
-    - name: "Inject SSH public key for root in container {{ lxc_template.id }}"
-      ansible.builtin.shell: |
-        pct exec {{ lxc_template.id }} -- mkdir -p /root/.ssh
-        pct exec {{ lxc_template.id }} -- chmod 700 /root/.ssh
-        pct exec {{ lxc_template.id }} -- sh -c 'echo "{{ ansible_pubkey }}" > /root/.ssh/authorized_keys'
-        pct exec {{ lxc_template.id }} -- chmod 600 /root/.ssh/authorized_keys
+    # ── Canonical baseline (users, sudo, sshd drop-in, apt kill-switch,
+    #    root-lock) — same script every medium runs. See
+    #    files/image-baseline.sh.j2 + group_vars/all/image-baseline.yml.
+    - name: "Push baseline script into container {{ lxc_template.id }}"
+      ansible.builtin.command: >
+        pct push {{ lxc_template.id }}
+        {{ image_baseline_rendered_path }}
+        /var/tmp/image-baseline.sh
+        --perms 0700
       changed_when: true
 
-    - name: "Create ansible user in container {{ lxc_template.id }}"
-      ansible.builtin.command: "pct exec {{ lxc_template.id }} -- useradd -m -s /bin/bash -G sudo ansible"
+    - name: "Run baseline script inside container {{ lxc_template.id }}"
+      ansible.builtin.command: "pct exec {{ lxc_template.id }} -- bash /var/tmp/image-baseline.sh"
       changed_when: true
 
-    - name: "Inject SSH public key for ansible in container {{ lxc_template.id }}"
-      ansible.builtin.shell: |
-        pct exec {{ lxc_template.id }} -- mkdir -p /home/ansible/.ssh
-        pct exec {{ lxc_template.id }} -- chmod 700 /home/ansible/.ssh
-        pct exec {{ lxc_template.id }} -- sh -c 'echo "{{ ansible_pubkey }}" > /home/ansible/.ssh/authorized_keys'
-        pct exec {{ lxc_template.id }} -- chmod 600 /home/ansible/.ssh/authorized_keys
-        pct exec {{ lxc_template.id }} -- chown -R ansible:ansible /home/ansible/.ssh
-      changed_when: true
-
-    - name: "Grant passwordless sudo to ansible in container {{ lxc_template.id }}"
-      ansible.builtin.shell: |
-        pct exec {{ lxc_template.id }} -- sh -c 'echo "ansible ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/90-ansible'
-        pct exec {{ lxc_template.id }} -- chmod 0440 /etc/sudoers.d/90-ansible
-      changed_when: true
-
-    - name: "Lock root password in container {{ lxc_template.id }}"
-      ansible.builtin.command: "{{ item }}"
-      loop:
-        - "pct exec {{ lxc_template.id }} -- passwd -d root"
-        - "pct exec {{ lxc_template.id }} -- passwd -l root"
-      changed_when: true
-
-    - name: "Harden SSH in container {{ lxc_template.id }}"
-      # PermitRootLogin=no (not prohibit-password) matches the fleet-wide
-      # policy: no host accepts SSH as root, ever. Root is also locked in
-      # the previous task, so this is belt-and-suspenders.
-      ansible.builtin.command: "{{ item }}"
-      loop:
-        - "pct exec {{ lxc_template.id }} -- sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config"
-        - "pct exec {{ lxc_template.id }} -- sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config"
+    - name: "Remove baseline script from container {{ lxc_template.id }} (contains vault hash)"
+      ansible.builtin.command: "pct exec {{ lxc_template.id }} -- rm -f /var/tmp/image-baseline.sh"
       changed_when: true
 
     # First-boot SSH host-key regenerator. The next step deletes

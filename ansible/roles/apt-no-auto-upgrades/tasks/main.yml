@@ -23,7 +23,7 @@
 
 - name: Pin apt periodic behaviour (authoritative auto-upgrade kill-switch)
   ansible.builtin.copy:
-    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    dest: "{{ image_baseline_apt.auto_upgrades_path }}"
     owner: root
     group: root
     mode: "0644"
@@ -41,11 +41,7 @@
     state: stopped
     enabled: false
     masked: true
-  loop:
-    - apt-daily.timer
-    - apt-daily-upgrade.timer
-    - apt-daily.service
-    - apt-daily-upgrade.service
+  loop: "{{ image_baseline_apt.masked_units }}"
 
 - name: Check whether the unattended-upgrades service unit exists
   ansible.builtin.command: systemctl list-unit-files unattended-upgrades.service

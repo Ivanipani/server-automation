@@ -1,0 +1,191 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Canonical pre-bake baseline. Rendered from
+# playbooks/poochella/infra/files/image-baseline.sh.j2 using
+# group_vars/all/image-baseline.yml. Invoked by ALL four provisioning
+# mediums:
+#
+#   1. Netboot Debian preseed  → in-target wget+bash in late_command
+#                                (served LAN-only from bootserv01)
+#   2. VM qcow2 bake           → virt-customize --run baseline.sh
+#   3. LXC bake                → pct push + pct exec
+#   4. PVE auto-install        → first-boot hook embedded in ISO
+#
+# Output MUST match what the post-boot reconcile roles (host-base,
+# ssh-hardening, apt-no-auto-upgrades) produce, byte-for-byte, so a
+# 17-host run against a baked host stays no-op (changed=0).
+#
+# Idempotent: safe to re-run. Detects whether systemd is live (works
+# inside virt-customize's libguestfs chroot and inside d-i in-target).
+#
+# Contains the vault-derived tourmanager password hash — each invoker
+# is responsible for `rm`ing this file after the run. The bootserv01
+# copy is guarded by Caddy's LAN-only @sensitive ACL.
+
+set -eo pipefail
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "image-baseline.sh: must run as root" >&2
+  exit 1
+fi
+
+# Detect a live systemd vs. a chroot (libguestfs / d-i in-target / a
+# fresh-install environment where systemd hasn't started yet).
+# `systemctl mask` needs a running PID 1; the fallback is the same
+# semantic via a manual symlink to /dev/null (which systemd honours
+# once it does come up).
+SYSTEMD_LIVE=0
+if command -v systemctl >/dev/null 2>&1; then
+  if systemctl --no-pager is-system-running --quiet 2>/dev/null \
+     || [ -d /run/systemd/system ]; then
+    SYSTEMD_LIVE=1
+  fi
+fi
+
+# ── Lock root ────────────────────────────────────────────────────
+# `usermod -L` works whether root has a password set or not (the
+# preseed leaves it unset; the PVE installer sets a throwaway). After
+# this, root has no usable password and PermitRootLogin=no (set below)
+# blocks the SSH path entirely. `tourmanager` is the sole break-glass.
+usermod -L root
+# Remove any root authorized_keys (PVE installer + the old LXC bake
+# plant one; locked-root policy forbids any SSH path to root).
+rm -f /root/.ssh/authorized_keys
+
+# ── Users ────────────────────────────────────────────────────────
+# Pre-create every supplementary group. `useradd -G` refuses if any
+# named group doesn't yet exist (validation runs BEFORE same-name
+# primary-group auto-creation). `sudo` ships with Debian; `ansible`
+# does not.
+{% for g in image_baseline_users | map(attribute='groups') | flatten | unique | list %}
+getent group {{ g }} >/dev/null || groupadd {{ g }}
+{% endfor %}
+
+{% for u in image_baseline_users %}
+# {{ u.name }}
+if ! id -u {{ u.name }} >/dev/null 2>&1; then
+  useradd -m -s {{ u.shell }} -G {{ u.groups | join(',') }} {{ u.name }}
+fi
+{% if u.password is defined %}
+# `chpasswd -e` takes a pre-hashed entry, so the cleartext never
+# touches the host. Hash is username-salted SHA512 to match
+# roles/create-user/tasks/main.yml:29's
+# `password_hash('sha512', item.name)` idiom — guarantees
+# /etc/shadow is byte-identical between bake-time and 17-host's
+# reconcile pass.
+echo '{{ u.name }}:{{ u.password | password_hash("sha512", u.name) }}' | chpasswd -e
+{% endif %}
+{% if u.ssh_key is defined %}
+install -d -o {{ u.name }} -g {{ u.name }} -m 0700 /home/{{ u.name }}/.ssh
+cat > /home/{{ u.name }}/.ssh/authorized_keys <<'__BASELINE_EOF__'
+{{ lookup('file', u.ssh_key) }}
+__BASELINE_EOF__
+chown {{ u.name }}:{{ u.name }} /home/{{ u.name }}/.ssh/authorized_keys
+chmod 0600 /home/{{ u.name }}/.ssh/authorized_keys
+{% endif %}
+{% if u.sudoers is defined and (u.sudoers.nopassword | default(false)) %}
+# Format matches community.general.sudoers output (verified on
+# worker-home-02: `<user> ALL=NOPASSWD: ALL\n`, no header, no
+# `(ALL)` runas), so create-user's sudoers task stays no-op on a
+# baked host.
+cat > /etc/sudoers.d/{{ u.name }} <<'__BASELINE_EOF__'
+{{ u.name }} ALL=NOPASSWD: {{ u.sudoers.commands }}
+__BASELINE_EOF__
+chmod 0440 /etc/sudoers.d/{{ u.name }}
+visudo -cqf /etc/sudoers.d/{{ u.name }}
+{% endif %}
+
+{% endfor %}
+
+# ── sshd hardening drop-in ───────────────────────────────────────
+# Content matches roles/ssh-hardening/templates/10-hardening.conf.j2
+# byte-for-byte using the same image_baseline_sshd vars. When that
+# template's data source is switched (task #2), the inline content
+# here stays aligned because both render from the same vars.
+install -d -o root -g root -m 0755 /etc/ssh/sshd_config.d
+cat > {{ image_baseline_sshd.drop_in_path }} <<'__BASELINE_EOF__'
+{{ ansible_managed | comment }}
+# Managed by ansible role `ssh-hardening`. Edit
+# group_vars/all/image-baseline.yml's `image_baseline_sshd` block, not this file.
+
+# ── Global policy ─────────────────────────────────────────────────
+PasswordAuthentication {{ 'yes' if image_baseline_sshd.password_authentication else 'no' }}
+PermitRootLogin {{ 'yes' if image_baseline_sshd.permit_root_login else 'no' }}
+KbdInteractiveAuthentication {{ 'yes' if image_baseline_sshd.kbd_interactive_authentication else 'no' }}
+ChallengeResponseAuthentication {{ 'yes' if image_baseline_sshd.challenge_response_authentication else 'no' }}
+PubkeyAuthentication {{ 'yes' if image_baseline_sshd.pubkey_authentication else 'no' }}
+PermitEmptyPasswords {{ 'yes' if image_baseline_sshd.permit_empty_passwords else 'no' }}
+{% if image_baseline_sshd.password_breakglass_user %}
+
+# ── Break-glass: this user keeps password auth ───────────────────
+Match User {{ image_baseline_sshd.password_breakglass_user }}
+    PasswordAuthentication yes
+    PubkeyAuthentication no
+{% endif %}
+__BASELINE_EOF__
+chmod 0644 {{ image_baseline_sshd.drop_in_path }}
+chown root:root {{ image_baseline_sshd.drop_in_path }}
+# Validate; refuse to leave a broken sshd config behind. `sshd -t`
+# is available whenever openssh-server is installed (every medium
+# installs it before this script runs).
+if command -v sshd >/dev/null 2>&1; then
+  sshd -t -f {{ image_baseline_sshd.drop_in_path }}
+fi
+
+# ── Apt auto-upgrade kill-switch ─────────────────────────────────
+# File body matches roles/apt-no-auto-upgrades/tasks/main.yml:24-36
+# byte-for-byte (em-dash and all).
+cat > {{ image_baseline_apt.auto_upgrades_path }} <<'__BASELINE_EOF__'
+// Managed by Ansible (roles/apt-no-auto-upgrades) — do not edit.
+// 0 = disabled. Patching is deliberate, never unattended.
+APT::Periodic::Update-Package-Lists "0";
+APT::Periodic::Unattended-Upgrade "0";
+APT::Periodic::Download-Upgradeable-Packages "0";
+APT::Periodic::AutocleanInterval "0";
+__BASELINE_EOF__
+chmod 0644 {{ image_baseline_apt.auto_upgrades_path }}
+chown root:root {{ image_baseline_apt.auto_upgrades_path }}
+
+# Mask apt-daily timers + services. Manual symlink path works in
+# chroots (libguestfs / d-i in-target) where systemctl has no PID 1
+# to talk to; live systemd honours those symlinks on next boot AND
+# `systemctl mask` produces identical state when SYSTEMD_LIVE=1.
+{% for unit in image_baseline_apt.masked_units %}
+if [ "$SYSTEMD_LIVE" = "1" ]; then
+  systemctl stop {{ unit }} 2>/dev/null || true
+  systemctl disable {{ unit }} 2>/dev/null || true
+  systemctl mask {{ unit }} 2>/dev/null || true
+else
+  ln -sf /dev/null /etc/systemd/system/{{ unit }}
+fi
+{% endfor %}
+
+# unattended-upgrades.service is conditional — only mask if the
+# package is installed (matches the role's conditional at
+# apt-no-auto-upgrades/tasks/main.yml:50-62).
+_uu_unit_files() {
+  ls /lib/systemd/system/unattended-upgrades.service \
+     /usr/lib/systemd/system/unattended-upgrades.service \
+     /etc/systemd/system/unattended-upgrades.service 2>/dev/null
+}
+if [ "$SYSTEMD_LIVE" = "1" ]; then
+  if systemctl list-unit-files unattended-upgrades.service 2>/dev/null | grep -q unattended-upgrades.service; then
+    systemctl stop unattended-upgrades.service 2>/dev/null || true
+    systemctl disable unattended-upgrades.service 2>/dev/null || true
+    systemctl mask unattended-upgrades.service 2>/dev/null || true
+  fi
+elif _uu_unit_files >/dev/null 2>&1; then
+  ln -sf /dev/null /etc/systemd/system/unattended-upgrades.service
+fi
+
+# ── Obsolete-path scrub ──────────────────────────────────────────
+# Files written by the OLD per-medium logic that this script replaces.
+# Active on worker-home-02 (preseed-installed under the old scheme);
+# removing them here makes a re-run of the script over that host
+# converge cleanly with what fresh installs produce.
+{% for path in image_baseline_obsolete_paths %}
+rm -f {{ path }}
+{% endfor %}
+
+echo "image-baseline.sh: OK"

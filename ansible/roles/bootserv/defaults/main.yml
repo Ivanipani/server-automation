@@ -13,10 +13,11 @@ bootserv_static_dirs:
   - cloud-images   # virt-customize'd Debian VM qcow2s (+ .sha256 sidecars)
   - lxc-templates  # vzdump'd Debian LXC template tarballs (+ .sha256 sidecars)
 
-# LAN CIDR allowed to fetch sensitive paths (/preseed/, /keys/). Other
-# paths (/debian-13/, /boot.ipxe, /hosts/) are open to the listening
-# interface — those carry no secrets and have to be reachable by
-# pre-install initrds that may not have full network config yet.
+# LAN CIDR allowed to fetch sensitive paths (/preseed/, /scripts/).
+# Other paths (/debian-13/, /boot.ipxe, /hosts/) are open to the
+# listening interface — those carry no secrets and have to be
+# reachable by pre-install initrds that may not have full network
+# config yet.
 bootserv_lan_cidr: "10.1.1.0/24"
 
 # Upstream Debian 13 netboot kernel + initrd. The role fetches the
@@ -41,21 +42,13 @@ bootserv_http_listen: ":80"
 bootserv_owner: caddy
 bootserv_group: caddy
 
-# The canonical ansible-user pubkey (read from the controller's
-# ~/.ssh/ansible.pub by the calling playbook and passed in). Inlined
-# into the rendered preseed `late_command` so the installed Debian
-# trusts the same key as every other fleet host. Empty default forces
-# the caller to set it.
-bootserv_ansible_pubkey: ""
-
-# Break-glass tourmanager password baked into the per-host preseed.
-# Matches the host-base / ssh-hardening contract: `tourmanager` is the
-# one account that survives ssh-hardening's password-auth lockdown via a
-# `Match User tourmanager` block, so its password is the fleet's only
-# console-recovery path. Re-exported from `vault_tourmanager_user_pass`
-# via group_vars/all/vars.yml. Empty default forces the caller to set it
-# (asserted at the top of tasks/main.yml).
-bootserv_tourmanager_password: "{{ tourmanager_user_pass | default('') }}"
+# User accounts, SSH keys, sshd hardening, apt-no-auto-upgrades and
+# root locking are now ALL handled by the canonical image-baseline.sh
+# script (rendered into bootserv01:/srv/http/scripts/ by this role
+# and wgot+exec'd in the preseed late_command). The script reads
+# tourmanager_user_pass + ~/.ssh/ansible.pub directly via lookup()
+# at render time — no role-local indirection needed. See
+# group_vars/all/image-baseline.yml.
 
 # Timezone baked into preseeds.
 bootserv_timezone: "America/New_York"

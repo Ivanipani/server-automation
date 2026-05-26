@@ -49,12 +49,21 @@
   vars:
     users: "{{ host_base_users }}"
 
-- name: Set root password from vault
+# Lock root account. tourmanager is the sole break-glass — root has
+# no password path (locked) and no SSH path (PermitRootLogin=no from
+# ssh-hardening). Matches the pre-bake baseline script's
+# `usermod -L root + rm /root/.ssh/authorized_keys` so this task is a
+# no-op on baked hosts and a one-time CHANGED on hand-built ones that
+# previously had a vault-derived root password.
+- name: Lock root account (break-glass is tourmanager, not root)
   ansible.builtin.user:
     name: root
-    password: "{{ host_root_pass | password_hash('sha512') }}"
-    update_password: always
-  no_log: true
+    password_lock: true
+
+- name: Remove /root/.ssh/authorized_keys (no SSH path to root)
+  ansible.builtin.file:
+    path: /root/.ssh/authorized_keys
+    state: absent
 
 # proxmox-auto-install-assistant is a small utility from the PVE repo
 # that prepares unattended-install ISOs (img/proxmox/). We want it on

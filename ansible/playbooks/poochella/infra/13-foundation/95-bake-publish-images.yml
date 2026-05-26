@@ -45,7 +45,6 @@
   vars_files:
     - ../vars/templates.yml
   vars:
-    ansible_pubkey: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
     vm_packages: qemu-guest-agent,curl,wget,sudo,rsync,htop
     build_vm_templates: true
     build_lxc_templates: true
@@ -104,6 +103,10 @@
         state: present
       when: build_vm_templates | bool
 
+    - name: Render image-baseline.sh to the foundation node
+      ansible.builtin.include_tasks: ../tasks/render-image-baseline.yml
+      when: build_vm_templates | bool
+
   tasks:
     - name: Bake + publish VM images
       when: build_vm_templates | bool
@@ -120,3 +123,10 @@
       loop_control:
         loop_var: lxc_template
         label: "{{ lxc_template.hostname }}"
+
+  post_tasks:
+    - name: Remove rendered baseline script from foundation node (contains vault hash)
+      ansible.builtin.file:
+        path: "{{ image_baseline_rendered_path }}"
+        state: absent
+      when: image_baseline_rendered_path is defined

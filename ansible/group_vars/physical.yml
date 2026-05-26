@@ -14,19 +14,11 @@
 # gateway path.
 tailscale_enabled: false
 
-# SSH hardening policy (consumed by the ssh-hardening role's template).
-# A single `Match User tourmanager` block carves out the break-glass
-# account so it CAN still log in with a password after lockdown.
-ssh_hardening:
-  password_authentication: false
-  permit_root_login: false
-  kbd_interactive_authentication: false
-  challenge_response_authentication: false
-  pubkey_authentication: true
-  permit_empty_passwords: false
-  # Account that retains password access. Empty string disables the
-  # Match block entirely.
-  password_breakglass_user: tourmanager
+# SSH hardening policy now lives in group_vars/all/image-baseline.yml
+# (`image_baseline_sshd:` block) — single source of truth shared by the
+# ssh-hardening role AND the pre-bake baseline script applied to every
+# medium (preseed, VM/LXC bake, PVE auto-install). Override per-host
+# by setting `image_baseline_sshd:` in host_vars/<name>.yml.
 
 # Firewall default-allow rules (consumed by 17-host/30-firewall.yml +
 # firewall-basic role). Per-group can extend; workers and hypervisors

@@ -1,0 +1,36 @@
+---
+# Render the canonical image-baseline.sh to /var/tmp on the play's
+# target host. Used by bake playbooks (LXC + VM) so the bake step on
+# the hypervisor has a local file to hand to its medium-specific
+# upload tool (pct push, virt-customize --run, …).
+#
+# The bootserv role does its OWN render (directly into
+# bootserv01:/srv/http/scripts/) and the PVE ISO build embeds the
+# script differently — neither uses this include.
+#
+# Pre-conditions:
+#   - group_vars/all/image-baseline.yml auto-loads for every play
+#   - tourmanager_user_pass (from group_vars/all/vars.yml → vault) and
+#     ~/.ssh/ansible.pub on the controller are available — the template
+#     module renders on the controller side, so the lookups resolve
+#     against the controller's filesystem before the rendered file is
+#     copied to the target host
+#
+# Sets fact:
+#   image_baseline_rendered_path — absolute path on the target host
+#   to the rendered script. The calling playbook MUST follow up with
+#   a `file: state=absent` cleanup once the bake is done — the file
+#   contains the vault-derived tourmanager password hash and must not
+#   linger.
+
+- name: Render image-baseline.sh to the target host
+  ansible.builtin.template:
+    src: ../files/image-baseline.sh.j2
+    dest: /var/tmp/poochella-image-baseline.sh
+    mode: "0700"
+    owner: root
+    group: root
+
+- name: Capture rendered script path
+  ansible.builtin.set_fact:
+    image_baseline_rendered_path: /var/tmp/poochella-image-baseline.sh

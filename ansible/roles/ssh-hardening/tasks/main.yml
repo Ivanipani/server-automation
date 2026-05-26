@@ -2,13 +2,14 @@
 # Pre-flight: the break-glass user must already exist. If it does not,
 # rendering the Match block would lock us out via password while no
 # account can use it. host-base creates it; the 17-host tier orders
-# host-base before this role.
+# host-base before this role. Baseline-script-bootstrapped hosts have
+# tourmanager from install time too (via image-baseline.sh).
 - name: Assert break-glass user exists
-  ansible.builtin.command: id -u {{ ssh_hardening.password_breakglass_user }}
+  ansible.builtin.command: id -u {{ image_baseline_sshd.password_breakglass_user }}
   register: _breakglass_check
   changed_when: false
   failed_when: _breakglass_check.rc != 0
-  when: ssh_hardening.password_breakglass_user | length > 0
+  when: image_baseline_sshd.password_breakglass_user | length > 0
 
 - name: Ensure sshd_config.d exists
   ansible.builtin.file:
@@ -21,7 +22,7 @@
 - name: Render SSH hardening drop-in
   ansible.builtin.template:
     src: 10-hardening.conf.j2
-    dest: /etc/ssh/sshd_config.d/10-hardening.conf
+    dest: "{{ image_baseline_sshd.drop_in_path }}"
     mode: "0644"
     owner: root
     group: root

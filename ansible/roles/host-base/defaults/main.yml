@@ -1,29 +1,22 @@
 ---
-# Default user policy applied to every baremetal Linux host.
-# Override per-group / per-host by setting `host_base_users` in
+# User policy applied to every baremetal Linux host. Composed from two
+# sources:
+#
+#   1. image_baseline_users (group_vars/all/image-baseline.yml) — the
+#      canonical pre-bake users (ansible, tourmanager) that EVERY host
+#      gets, including VMs/LXCs/PVE installs that the bake-time
+#      baseline script already created. Re-running create-user against
+#      a baked host is a no-op because the on-disk state already
+#      matches.
+#
+#   2. host_base_extra_users — the operator-only accounts that should
+#      ONLY exist on physical hosts (added on top, not pre-baked).
+#      Today: pani.
+#
+# Override either list per-group / per-host by setting the same var in
 # group_vars/<group>.yml or host_vars/<host>.yml.
-#
-# Account policy (decided 2026-05-23):
-#   - ansible      → automation; key-only, NOPASSWD sudo, bash
-#   - pani         → operator; key-only, NOPASSWD sudo, zsh
-#   - tourmanager  → break-glass; PASSWORD-ONLY, NOPASSWD sudo, bash
-#
-# `ssh_key` references files on the CONTROL NODE (the ansible role
-# `create-user` does `lookup('file', ssh_key)`). The ansible automation
-# pubkey (~/.ssh/ansible.pub) is the single key used for ALL key-based
-# accounts: one key reaches everywhere from the controller. The
-# tourmanager break-glass user intentionally has NO ssh_key — its only
-# auth path is the password (and SSH is configured to honour that via
-# the ssh-hardening role's `Match User tourmanager` block).
-host_base_users:
-  - name: ansible
-    groups: [ansible, sudo]
-    shell: /bin/bash
-    ssh_key: "~/.ssh/ansible.pub"
-    password: "{{ ansible_user_pass }}"
-    sudoers:
-      commands: ALL
-      nopassword: true
+
+host_base_extra_users:
   - name: pani
     groups: [sudo, promoter, talent, docker]
     shell: /usr/bin/zsh
@@ -32,11 +25,5 @@ host_base_users:
     sudoers:
       commands: ALL
       nopassword: true
-  - name: tourmanager
-    groups: [sudo]
-    shell: /bin/bash
-    # No `ssh_key:` on purpose — password-only is the entire point.
-    password: "{{ tourmanager_user_pass }}"
-    sudoers:
-      commands: ALL
-      nopassword: true
+
+host_base_users: "{{ image_baseline_users + host_base_extra_users }}"

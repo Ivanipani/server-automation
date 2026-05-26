@@ -21,10 +21,12 @@
 #     pve-storage-register have run on the foundation node (the `vms`
 #     LVM-thin storage exists on local).
 #
-# What gets baked: identical to the VM template's customize contract —
-# ansible user (sudo + key from controller's ~/.ssh/ansible.pub), apt
-# packages, SSH hardening, machine-id + sshd hostkey reset so every
-# clone gets a unique DHCP client-id and host identity.
+# What gets baked: the canonical pre-bake baseline (ansible user with
+# key, tourmanager break-glass user, sshd hardening, apt-no-auto-upgrades,
+# root locked) — applied by image-baseline.sh, shared with the netboot
+# preseed, VM bake, and PVE first-boot. Plus LXC-specific bits: apt
+# packages, sshd-keygen first-boot drop-in, machine-id + sshd-hostkey
+# reset for clone uniqueness.
 
 - name: Bootstrap LXC template on foundation (local-only, pre-bootserv)
   hosts: "{{ target_hosts | default('foundation') }}"
@@ -33,7 +35,6 @@
   vars_files:
     - ../vars/templates.yml
   vars:
-    ansible_pubkey: "{{ lookup('file', '~/.ssh/ansible.pub') }}"
     lxc_packages: openssh-server curl wget sudo rsync htop
 
   pre_tasks:
@@ -44,6 +45,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+
+    - name: Render image-baseline.sh to the foundation node
+      ansible.builtin.include_tasks: ../tasks/render-image-baseline.yml
 
     - name: Derive this node's LXC template list (anchor + index)
       ansible.builtin.set_fact:
@@ -75,3 +79,10 @@
       loop: "{{ lxc_templates }}"
       loop_control:
         loop_var: lxc_template
+
+  post_tasks:
+    - name: Remove rendered baseline script from foundation node (contains vault hash)
+      ansible.builtin.file:
+        path: "{{ image_baseline_rendered_path }}"
+        state: absent
+      when: image_baseline_rendered_path is defined

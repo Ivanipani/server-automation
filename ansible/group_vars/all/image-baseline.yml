@@ -1,0 +1,87 @@
+---
+# Single source of truth for the canonical pre-bake baseline applied
+# to EVERY freshly-installed or cloned host across all four provisioning
+# mediums (netboot Debian preseed, VM qcow2 bake, LXC bake, PVE
+# auto-install). Consumed by:
+#
+#   - files/image-baseline.sh.j2  (the rendered baseline script)
+#   - roles/host-base             (post-boot reconcile of users)
+#   - roles/ssh-hardening         (post-boot reconcile of sshd drop-in)
+#   - roles/apt-no-auto-upgrades  (post-boot reconcile of apt periodic
+#                                  + masked units)
+#
+# The post-boot roles MUST produce byte-identical output to the bash
+# script so a 17-host run against a baked host stays no-op (changed=0).
+# When changing the baseline, update this file ONCE — all consumers
+# follow.
+
+# Users baked into every image. Schema matches roles/create-user's
+# expected per-user dict (name/groups/shell/ssh_key/password/sudoers)
+# so host-base can concatenate this list with host_base_extra_users
+# (pani) and hand the result to create-user unchanged. The same schema
+# is consumed by files/image-baseline.sh.j2 at bake time.
+#
+# `pani` is intentionally NOT here — it's an operator account only
+# relevant on `physical` hosts; added on top via host_base_extra_users.
+#
+# Hash strategy: passwords are hashed with `password_hash('sha512',
+# item.name)` — username-salted SHA512, matching create-user's idiom
+# at roles/create-user/tasks/main.yml:29 so re-running 17-host against
+# a baked host doesn't rewrite /etc/shadow.
+image_baseline_users:
+  - name: ansible
+    groups: [ansible, sudo]
+    shell: /bin/bash
+    ssh_key: "~/.ssh/ansible.pub"
+    # No `password:` — key-only automation account.
+    sudoers:
+      commands: ALL
+      nopassword: true
+  - name: tourmanager
+    groups: [sudo]
+    shell: /bin/bash
+    # No `ssh_key:` — password-only break-glass by design.
+    password: "{{ tourmanager_user_pass }}"
+    sudoers:
+      commands: ALL
+      nopassword: true
+
+# Root account policy. Locked everywhere — tourmanager is the sole
+# break-glass account. Any pre-existing /root/.ssh/authorized_keys
+# (PVE installer + old LXC bake plant one) is removed.
+image_baseline_root:
+  lock: true
+
+# sshd hardening drop-in. Same keys the existing ssh-hardening role
+# template consumes; renamed from `ssh_hardening` to `image_baseline_sshd`
+# so the role template can be switched to this source unchanged.
+image_baseline_sshd:
+  drop_in_path: /etc/ssh/sshd_config.d/10-hardening.conf
+  password_authentication: false
+  permit_root_login: false
+  kbd_interactive_authentication: false
+  challenge_response_authentication: false
+  pubkey_authentication: true
+  permit_empty_passwords: false
+  # Account that retains password access. Empty string disables the
+  # Match block entirely.
+  password_breakglass_user: tourmanager
+
+# Apt auto-upgrades kill-switch. File path + body must match what
+# roles/apt-no-auto-upgrades writes today so that role stays no-op
+# after the baseline script has run.
+image_baseline_apt:
+  auto_upgrades_path: /etc/apt/apt.conf.d/20auto-upgrades
+  masked_units:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+    - apt-daily.service
+    - apt-daily-upgrade.service
+
+# Obsolete files actively scrubbed by the script so already-installed
+# hosts (worker-home-02) converge cleanly when baseline.sh re-runs over
+# them. These are the file paths used by the OLD per-medium logic that
+# the unified script replaces.
+image_baseline_obsolete_paths:
+  - /etc/ssh/sshd_config.d/00-no-root.conf    # old preseed partial sshd drop-in
+  - /etc/apt/apt.conf.d/99-no-auto-upgrades   # old preseed apt-conf filename variant

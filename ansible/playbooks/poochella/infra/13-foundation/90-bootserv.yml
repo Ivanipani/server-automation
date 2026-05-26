@@ -26,23 +26,18 @@
 #     reconcile the same LXC as a no-op.
 #   - 10-router/20-dnsmasq.yml has run at least once (dnsmasq's
 #     `regdhcp: true` is on so dynamic leases register in DNS).
-#   - `vault_tourmanager_user_pass` exists in vault. Root is LOCKED on
-#     every netbooted Debian host (preseed sets `passwd/root-login false`
-#     and drops a `PermitRootLogin no` sshd config), so `tourmanager` is
-#     the SINGLE break-glass: the preseed's late_command useradd's
-#     tourmanager with a per-host-salted crypt hash of this value so
-#     every netbooted Debian host has the same break-glass account that
-#     host-base + ssh-hardening's Match block expect.
+#   - `vault_tourmanager_user_pass` exists in vault. Root is LOCKED
+#     on every freshly-installed/cloned Debian/PVE host by the canonical
+#     image-baseline.sh (rendered into /srv/http/scripts/ by the
+#     bootserv role; wget+exec'd in the preseed late_command). The
+#     same script creates the `tourmanager` break-glass account with
+#     the vault password — single hash strategy across all four
+#     provisioning mediums.
 
 - name: Configure bootserv01 (TFTP + Caddy + iPXE + Debian netboot)
   hosts: bootserv01
   become: true
   gather_facts: true
-  vars:
-    # Read the canonical bootstrap SSH key off the controller laptop.
-    # Same key the existing automation expects everywhere
-    # (~/.ssh/ansible.pub).
-    bootserv_ansible_pubkey: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/ansible.pub') }}"
   roles:
     - role: apt-no-auto-upgrades
     - role: bootserv

@@ -1,18 +1,18 @@
 {{ ansible_managed | comment }}
 # Managed by ansible role `ssh-hardening`. Edit
-# group_vars/physical.yml's `ssh_hardening` block, not this file.
+# group_vars/all/image-baseline.yml's `image_baseline_sshd` block, not this file.
 
 # ── Global policy ─────────────────────────────────────────────────
-PasswordAuthentication {{ 'yes' if ssh_hardening.password_authentication else 'no' }}
-PermitRootLogin {{ 'yes' if ssh_hardening.permit_root_login else 'no' }}
-KbdInteractiveAuthentication {{ 'yes' if ssh_hardening.kbd_interactive_authentication else 'no' }}
-ChallengeResponseAuthentication {{ 'yes' if ssh_hardening.challenge_response_authentication else 'no' }}
-PubkeyAuthentication {{ 'yes' if ssh_hardening.pubkey_authentication else 'no' }}
-PermitEmptyPasswords {{ 'yes' if ssh_hardening.permit_empty_passwords else 'no' }}
-{% if ssh_hardening.password_breakglass_user %}
+PasswordAuthentication {{ 'yes' if image_baseline_sshd.password_authentication else 'no' }}
+PermitRootLogin {{ 'yes' if image_baseline_sshd.permit_root_login else 'no' }}
+KbdInteractiveAuthentication {{ 'yes' if image_baseline_sshd.kbd_interactive_authentication else 'no' }}
+ChallengeResponseAuthentication {{ 'yes' if image_baseline_sshd.challenge_response_authentication else 'no' }}
+PubkeyAuthentication {{ 'yes' if image_baseline_sshd.pubkey_authentication else 'no' }}
+PermitEmptyPasswords {{ 'yes' if image_baseline_sshd.permit_empty_passwords else 'no' }}
+{% if image_baseline_sshd.password_breakglass_user %}
 
 # ── Break-glass: this user keeps password auth ───────────────────
-Match User {{ ssh_hardening.password_breakglass_user }}
+Match User {{ image_baseline_sshd.password_breakglass_user }}
     PasswordAuthentication yes
     PubkeyAuthentication no
 {% endif %}

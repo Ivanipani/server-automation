@@ -1,6 +1,12 @@
 #!/bin/sh
 # Proxmox auto-install first-boot hook (ordering = before-network).
 #
+# This file holds the PVE-SPECIFIC first-boot logic. The canonical
+# image-baseline.sh (users, sshd hardening, apt-no-auto-upgrades,
+# root-lock) is appended AFTER this script by img/proxmox/build.sh
+# and the combined result is what proxmox-auto-install-assistant
+# bundles via `--on-first-boot`.
+#
 # The Proxmox installer always writes a static /etc/network/interfaces, even
 # with `[network] source = "from-dhcp"` (it captures the install-time DHCP
 # lease and freezes it as static). This hook flips vmbr0 to runtime DHCP and

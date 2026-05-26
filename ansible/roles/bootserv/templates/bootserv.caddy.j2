@@ -11,10 +11,11 @@
     # Don't leak server identity on errors / responses.
     header -Server
 
-    # Per-host preseed + authorized_keys: LAN-only. Both contain
-    # break-glass material (preseed has root pw hash via d-i,
-    # authorized_keys is the canonical SSH key).
-    @sensitive path /preseed/* /keys/*
+    # LAN-only paths. Each contains break-glass material:
+    #   /preseed/  – per-host preseed (root pw hash via d-i)
+    #   /scripts/  – rendered image-baseline.sh, embeds the
+    #                tourmanager vault password hash
+    @sensitive path /preseed/* /scripts/*
     handle @sensitive {
         @off_lan not remote_ip {{ bootserv_lan_cidr }}
         respond @off_lan "Forbidden" 403
