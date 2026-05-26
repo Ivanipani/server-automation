@@ -75,7 +75,7 @@
 - import_playbook: ../17-host/15-storage.yml
   vars:
     target_hosts: foundation
-    host_disks_action: overwrite
+    host_disks_action: info
 
 - import_playbook: ../17-host/30-firewall.yml
   vars: { target_hosts: foundation }

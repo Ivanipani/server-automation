@@ -1,0 +1,33 @@
+---
+# DESTRUCTIVE: nuke a k3s agent's cached state so it re-bootstraps against
+# the current cluster CA on next start. Idempotent (file: state=absent).
+#
+# k3s caches the cluster CA in /var/lib/rancher/k3s/agent/server-ca.crt at
+# first join and validates every subsequent connection against it. If the
+# CP has since been re-initialized (new CA), the agent stays wedged with
+# `x509: certificate signed by unknown authority` forever — there is no
+# automatic refresh. Wiping the cache forces token-pinned re-bootstrap.
+#
+# Invoked from 40-kube/20-k3s.yml's cluster-CA gate when
+# `k3s_reset_stale_agents=true` is passed at run time. The systemd unit's
+# EnvironmentFile (K3S_URL + K3S_TOKEN) is preserved, so the agent rejoins
+# automatically — no re-install needed.
+
+- name: Stop k3s-agent
+  ansible.builtin.systemd:
+    name: k3s-agent
+    state: stopped
+  failed_when: false
+
+- name: Wipe cached agent + kubelet state
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /var/lib/rancher/k3s/agent
+    - /var/lib/kubelet/pki
+    - /var/lib/rancher/k3s/data/.lock
+
+- name: Start k3s-agent (non-blocking; re-bootstraps via K3S_URL+K3S_TOKEN)
+  ansible.builtin.command: systemctl start --no-block k3s-agent
+  changed_when: true

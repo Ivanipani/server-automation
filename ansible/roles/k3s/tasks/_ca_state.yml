@@ -1,0 +1,42 @@
+---
+# Read-only probe of cached k3s CA material on this host. Sets:
+#   k3s_server_ca_fp     — fp of /var/lib/rancher/k3s/server/tls/server-ca.crt
+#                          (present on CPs; empty on agents and on a wiped CP)
+#   k3s_agent_ca_fp      — fp of /var/lib/rancher/k3s/agent/server-ca.crt
+#                          (present on agents and on CPs after init)
+#   k3s_effective_ca_fp  — server fp if set, else agent fp
+#
+# Fingerprint = SHA-256 of the DER body, lowercase hex, colon-stripped.
+# Both files absent → all three facts are "" (a fresh host).
+#
+# Used by the cluster-CA gate at the top of 40-kube/20-k3s.yml to detect
+# CA divergence between a re-initialized CP and stale agent caches.
+
+- name: Probe k3s CA fingerprints on this host
+  ansible.builtin.shell: |
+    set -eu
+    fp() {
+      [ -r "$1" ] || { echo ""; return 0; }
+      openssl x509 -in "$1" -noout -fingerprint -sha256 2>/dev/null \
+        | awk -F= '{print tolower($2)}' | tr -d ':'
+    }
+    echo "server=$(fp /var/lib/rancher/k3s/server/tls/server-ca.crt)"
+    echo "agent=$(fp  /var/lib/rancher/k3s/agent/server-ca.crt)"
+  args:
+    executable: /bin/bash
+  register: k3s_ca_probe
+  changed_when: false
+  check_mode: false
+
+- name: Parse CA fingerprints
+  ansible.builtin.set_fact:
+    k3s_server_ca_fp: >-
+      {{ (k3s_ca_probe.stdout_lines | select('match','^server=') | list | first
+          | default('server=')) | regex_replace('^server=','') }}
+    k3s_agent_ca_fp: >-
+      {{ (k3s_ca_probe.stdout_lines | select('match','^agent=') | list | first
+          | default('agent=')) | regex_replace('^agent=','') }}
+
+- name: Derive effective CA (server CA wins when present)
+  ansible.builtin.set_fact:
+    k3s_effective_ca_fp: "{{ k3s_server_ca_fp if k3s_server_ca_fp else k3s_agent_ca_fp }}"

@@ -43,6 +43,96 @@
 #   Rule of thumb for piecemeal dev: bring the cluster up once without
 #   --limit (or `--limit <first-CP>`), then iterate on any single other
 #   node freely — joins/agents are idempotent against a live cluster.
+#
+# CLUSTER-CA GATE (rebuild idempotency):
+#
+#   k3s agents cache the cluster's server CA at first join and validate
+#   every subsequent connection against it; k3s does NOT auto-refresh
+#   that cache. If a CP gets re-bootstrapped (data dir wiped → fresh
+#   --cluster-init → new CA), existing agents stay permanently wedged
+#   with `x509: certificate signed by unknown authority`. The first three
+#   plays below catch that ahead of time by probing every kubernetes
+#   host's cached CA fingerprint, comparing to the first CP's canonical
+#   one, and FAILING FAST with a remediation hint when they differ.
+#
+#   Opt-in auto-heal: pass `-e k3s_reset_stale_agents=true` to instead
+#   wipe each stale agent's /var/lib/rancher/k3s/agent + /var/lib/kubelet
+#   /pki and restart k3s-agent so it re-bootstraps token-pinned against
+#   the CURRENT CA. Per-host: only flagged stale agents are touched.
+#
+#   The gate runs against the FULL `kubernetes` group regardless of any
+#   --limit on the run — a --limit'd run that excludes some agents can't
+#   see their CA state and would otherwise silently skip the check; the
+#   probe re-asserts the full inventory so the gate's verdict is always
+#   complete.
+
+- name: Probe cached k3s CA state on every kube node (idempotency gate)
+  hosts: kubernetes
+  become: true
+  gather_facts: false
+  tasks:
+    - ansible.builtin.import_role:
+        name: k3s
+        tasks_from: _ca_state.yml
+
+- name: Detect CA divergence and gate or auto-reset
+  hosts: "{{ groups['kube_control_plane'][0] }}"
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Determine canonical cluster CA (first CP's on-disk server CA)
+      ansible.builtin.set_fact:
+        k3s_canonical_ca_fp: "{{ hostvars[groups['kube_control_plane'][0]].k3s_server_ca_fp | default('') }}"
+
+    - name: Identify hosts whose cached CA does not match the canonical CA
+      # Stale = host has any cached CA on disk AND that fp != canonical.
+      # When canonical is empty (first CP wiped / pre-init), ANY agent
+      # with a cached CA is stale: a fresh --cluster-init would orphan it.
+      ansible.builtin.set_fact:
+        k3s_stale_hosts: >-
+          {{ groups['kubernetes']
+             | map('extract', hostvars)
+             | selectattr('k3s_effective_ca_fp', 'defined')
+             | selectattr('k3s_effective_ca_fp', 'truthy')
+             | rejectattr('k3s_effective_ca_fp', 'equalto', k3s_canonical_ca_fp)
+             | map(attribute='inventory_hostname')
+             | list }}
+
+    - name: Report CA-state probe results (for run logs)
+      ansible.builtin.debug:
+        msg: >-
+          k3s CA state — canonical (first CP server CA):
+          {{ k3s_canonical_ca_fp if k3s_canonical_ca_fp else '<absent — fresh init>' }};
+          stale hosts: {{ k3s_stale_hosts | default([]) | join(', ') if k3s_stale_hosts else '<none>' }}
+
+    - name: Refuse to proceed when stale agents would be orphaned
+      # k3s_reset_stale_agents=true is the consent for the destructive
+      # auto-heal path; without it, the safe answer is to stop and let
+      # the operator decide.
+      ansible.builtin.assert:
+        that:
+          - (k3s_stale_hosts | length) == 0
+            or (k3s_reset_stale_agents | default(false) | bool)
+        fail_msg: |
+          The following node(s) hold a k3s CA that does NOT match the first
+          control plane's current CA: {{ k3s_stale_hosts | join(', ') }}.
+
+          Canonical CA on {{ groups['kube_control_plane'][0] }}:
+            {{ k3s_canonical_ca_fp if k3s_canonical_ca_fp else '<absent — first CP has no server-ca.crt on disk>' }}
+
+          Proceeding would leave these agents wedged with
+          `x509: certificate signed by unknown authority` against the
+          cluster's current apiserver cert chain.
+
+          Two ways forward:
+            1) Re-run this playbook with `-e k3s_reset_stale_agents=true`
+               to auto-wipe the stale agents' cached state and let them
+               re-bootstrap against the current CA.
+            2) Reset by hand on each stale host:
+                 systemctl stop k3s-agent
+                 rm -rf /var/lib/rancher/k3s/agent /var/lib/kubelet/pki
+                 systemctl start k3s-agent
+        quiet: true
 
 - name: Initialize k3s on first control plane
   hosts: kube_control_plane
@@ -73,6 +163,24 @@
         name: k3s
         tasks_from: server_join.yml
       when: inventory_hostname != groups['kube_control_plane'][0]
+
+# Auto-heal stale agents BEFORE the agent-install play runs. Only fires
+# for hosts the CA-state gate flagged AND only when the operator passed
+# `-e k3s_reset_stale_agents=true` (the assertion above would have failed
+# the run otherwise). Runs after server_init/kube-vip/server_join so the
+# CP is up and the reset agents can immediately re-bootstrap against the
+# now-current CA. _reset_agent.yml is idempotent: wipe + restart.
+- name: Auto-heal stale k3s agents against the current cluster CA
+  hosts: kubernetes:!kube_control_plane
+  become: true
+  tasks:
+    - ansible.builtin.import_role:
+        name: k3s
+        tasks_from: _reset_agent.yml
+      when:
+        - k3s_reset_stale_agents | default(false) | bool
+        - inventory_hostname in
+          (hostvars[groups['kube_control_plane'][0]].k3s_stale_hosts | default([]))
 
 # Every non-control-plane kube node is a k3s agent. Scoped by ROLE
 # (kubernetes minus the control planes), NOT by the `kube_workers`

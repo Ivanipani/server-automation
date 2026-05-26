@@ -70,3 +70,16 @@ k3s_kubeconfig_local_path: ""
 # /etc/rancher/k3s/k3s.yaml; this only affects the local copy written to
 # k3s_kubeconfig_local_path.
 k3s_cluster_name: "default"
+
+# DESTRUCTIVE OPT-IN: when the cluster-CA gate at the top of
+# 40-kube/20-k3s.yml detects an agent whose cached server-ca.crt fingerprint
+# does NOT match the first CP's current server CA (typical cause: the CP
+# was --cluster-init'd again while the agent kept its old cache), the
+# default behaviour is FAIL-FAST with a remediation hint. Pass
+# `-e k3s_reset_stale_agents=true` at run time to instead wipe each stale
+# agent's /var/lib/rancher/k3s/agent + /var/lib/kubelet/pki and restart
+# k3s-agent — which forces token-pinned re-bootstrap against the current
+# CA. Mirrors the `host_disks_action: overwrite` opt-in pattern: the flag
+# IS the consent. Per-host: only hosts the probe flagged as stale are
+# touched; healthy agents are left alone.
+k3s_reset_stale_agents: false
