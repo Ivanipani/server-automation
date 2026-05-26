@@ -18,20 +18,26 @@
 # import. Pragmatism wins; documented here so the choice isn't
 # mysterious.
 #
-# Design: pure NFS server. We do NOT manage SSH access into the NAS —
-# all data paths (Longhorn backups, VM /home, PXE artifacts, qcow2
-# image publish) ride NFS. Operator interactive access, if needed, is
-# via DSM UI or by NFS-mounting from the laptop. Removing SSH from
-# scope kills a whole class of complexity (DSM users, home dirs,
-# User Home Service, 3327 errors, post-rebuild key restoration).
+# Design: primarily an NFS server. NFS rides every data path (Longhorn
+# backups, VM /home, PXE artifacts, qcow2 image publish), but pani's
+# SSH-as-user is ALSO managed here — the rsync-over-SSH workflows
+# (e.g. bootserv01 → build-artifacts mirror) need it, and pinning
+# pani's authorized_keys in code keeps key auth working through DSM
+# upgrades / pool rebuilds.
 #
 # Critical path (hard deps):
-#   20-baseline → 30-storage
+#   20-baseline → 30-storage → 40-ssh-access
+#     20-baseline enables User Home Service (pani's $HOME) + SSH;
+#     40-ssh-access drops the controller's pubkey into
+#     /volume1/homes/pani/.ssh/authorized_keys.
 #
 # Diagnostic-only playbooks NOT imported here (they write nothing and
 # only make sense on operator demand):
 #   10-smoke-test.yml   — auth/TLS smoke test for the synology-dsm role
 #   15-show-state.yml   — read-only dump of every DSM setting we manage
 #   25-storage-plan.yml — read-only dump of every storage/share state
+#   26-show-nfs-rules.yml — read-only dump of stored NFS rules
+#   27-show-rsync-api.yml — read-only probe of the rsync API
 - import_playbook: 20-baseline.yml
 - import_playbook: 30-storage.yml
+- import_playbook: 40-ssh-access.yml

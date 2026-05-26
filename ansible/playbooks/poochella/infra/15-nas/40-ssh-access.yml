@@ -1,0 +1,77 @@
+---
+# Ensure the controller's ansible public key is installed in pani's
+# authorized_keys on nas01, so subsequent Ansible plays + rsync-over-SSH
+# workflows can connect as pani@nas01.lan without a password.
+#
+# Connection model: SSH as pani with password auth on every run
+# (vault-backed `synology_dsm_password`). Key auth would be a chicken-
+# and-egg on a freshly-baselined NAS; password auth bootstraps it. The
+# task itself is idempotent — once the key is present, the lookup-then-
+# append pattern is a no-op (changed=0).
+#
+# Pre-conditions:
+#   - 20-baseline.yml has run with `synology_dsm_manage_user_home_service: true`
+#     so /volume1/homes/pani exists.
+#   - DSM SSH service is on (also handled by 20-baseline.yml).
+#   - The controller has ~/.ssh/ansible.pub (the fleet-wide public key).
+#
+# Why not ansible.posix.authorized_key:
+#   Synology DSM doesn't have a system Python interpreter at /usr/bin/
+#   /python3 by default — it lives under /var/packages/Python3/target/…
+#   and isn't always present. `raw` shells out to whatever sh+grep DSM
+#   ships, which is unconditional, and the manual idempotency pattern
+#   keeps `changed` honest.
+
+- name: Install controller's SSH key in pani's authorized_keys on nas01
+  hosts: nas01
+  gather_facts: false
+  become: false
+  vars:
+    # The fleet-wide controller public key. Same key the `ansible` user
+    # uses everywhere else; we authorize it for `pani` on nas01 too so
+    # one private key opens both accounts.
+    controller_ssh_pubkey: "{{ lookup('ansible.builtin.file', '~/.ssh/ansible.pub') | trim }}"
+
+    # Override the play-level connection to SSH-as-pani with the DSM
+    # password from vault. Other plays in this tier use connection: local
+    # (DSM HTTP API only) — this one is the exception.
+    ansible_connection: ssh
+    ansible_user: pani
+    ansible_password: "{{ synology_dsm_password }}"
+    # The DSM Python3 package is not at /usr/bin/python3, and `raw`
+    # doesn't need any interpreter on the target — explicitly set to
+    # /bin/sh-equivalent so any accidental module call fails loud
+    # instead of running under whatever Python ansible auto-discovers.
+    ansible_python_interpreter: /bin/false
+
+  tasks:
+    - name: Assert the controller pubkey lookup found something
+      ansible.builtin.assert:
+        that:
+          - controller_ssh_pubkey | length > 0
+          - controller_ssh_pubkey is search('^(ssh-|ecdsa-|sk-)')
+        fail_msg: >-
+          ~/.ssh/ansible.pub is empty or doesn't look like a public key.
+          Generate the keypair with `ssh-keygen -t ed25519 -f ~/.ssh/ansible`
+          (or whatever the fleet convention is) before re-running.
+        quiet: true
+
+    - name: Check whether pani's authorized_keys already contains the controller key
+      # grep -qxF: silent, exact-line match, fixed string (no regex meta).
+      # 2>/dev/null swallows the "no such file" message on a clean home dir.
+      ansible.builtin.raw: >-
+        grep -qxF {{ controller_ssh_pubkey | quote }} ~/.ssh/authorized_keys 2>/dev/null
+      register: _authkeys_check
+      failed_when: false
+      changed_when: false
+      check_mode: false
+
+    - name: Ensure ~/.ssh exists with the right perms + install the key
+      ansible.builtin.raw: |
+        set -e
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        touch ~/.ssh/authorized_keys
+        chmod 600 ~/.ssh/authorized_keys
+        printf '%s\n' {{ controller_ssh_pubkey | quote }} >> ~/.ssh/authorized_keys
+      when: _authkeys_check.rc != 0

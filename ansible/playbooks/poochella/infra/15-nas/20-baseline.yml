@@ -84,13 +84,17 @@
     synology_dsm_rsync_sshd_port: "22"
 
     # --- User Home Service ---------------------------------------------------
-    # NOT MANAGED. The synology-dsm role's users.yml is gated behind
-    # `synology_dsm_manage_user_home_service` (default false in the
-    # role) so this block is skipped entirely. The NFS-only design
-    # doesn't need user homes (no SSH-key authorized_keys to drop).
-    # If you ever need to manage it, set
-    #   synology_dsm_manage_user_home_service: true
-    # here AND fill in the user_home_* values below.
+    # MANAGED — enabled so DSM creates /volume1/homes/<user> for every
+    # DSM user. `pani` needs a real $HOME on /volume1 for
+    # ~/.ssh/authorized_keys (consumed by 40-ssh-access.yml + every
+    # rsync-over-SSH workflow that uses pani@nas01.lan).
+    # The role's users.yml does diff-before-write, so re-running this
+    # play after the desired state is reached reports `changed=0` and
+    # avoids DSM 7.3's spurious 3327 error on idempotent /set calls.
+    synology_dsm_manage_user_home_service: true
+    synology_dsm_user_home_service_enable: true
+    synology_dsm_user_home_location: /volume1
+    synology_dsm_user_home_enable_recycle_bin: false
 
     # --- Package sources -----------------------------------------------------
     # Empty today. Add SynoCommunity / other feeds here as needed;
