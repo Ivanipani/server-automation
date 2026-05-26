@@ -111,6 +111,7 @@ secret-decrypt name="":
     #!/usr/bin/env bash
     set -euo pipefail
     name="{{name}}"
+    cd ansible
     if [ -z "$name" ]; then
         name=$(grep -oE '^vault_[A-Za-z0-9_]+' group_vars/all/vault.yml | fzf)
     fi

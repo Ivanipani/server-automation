@@ -28,7 +28,9 @@ argument_specs:
         default: []
         description:
           - "List of inbound ports to allow."
-          - "Each item must have 'port' (int or range string) and 'proto' (tcp/udp)."
+          - "Each item: 'port' (int or range string), 'proto' (tcp/udp)."
+          - "Optional 'from_ip' scopes the rule to a source CIDR or /32 host (typical for inbound)."
+          - "Optional 'to_ip' scopes by destination — rarely useful inbound."
       outbound_allow:
         type: list
         elements: dict
@@ -36,6 +38,7 @@ argument_specs:
         description:
           - "List of outbound ports to explicitly allow."
           - "Useful when firewall_outbound_policy is 'deny'."
+          - "Each item: 'port', 'proto'; optional 'to_ip' scopes to a destination CIDR or /32 host (typical for outbound); optional 'from_ip' scopes by source."
       outbound_deny:
         type: list
         elements: dict
@@ -43,3 +46,4 @@ argument_specs:
         description:
           - "List of outbound ports to explicitly deny."
           - "Applied regardless of firewall_outbound_policy."
+          - "Each item: 'port', 'proto'; optional 'to_ip' scopes to a destination CIDR or /32 host (typical for outbound); optional 'from_ip' scopes by source."

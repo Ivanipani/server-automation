@@ -5,6 +5,9 @@
 # worker-home-02, which is in both `physical` and `kube_workers`) pass
 # distinct `firewall_basic_scope` values so each play tracks only its own
 # rules — see defaults/main.yml + files/ufw_reconcile.py.
+#
+# Per-rule optional scoping: `from_ip` restricts source (typical inbound),
+# `to_ip` restricts destination (typical outbound). Both default to "any".
 
 - name: Install ufw
   ansible.builtin.apt:
@@ -23,8 +26,9 @@
     direction: outgoing
 
 # SSH-in is hardcoded so the role can never lock itself out; everything
-# else comes from the caller's lists. Each item is normalized to a
-# canonical {rule, direction, port, proto} dict the reconciler matches on.
+# else comes from the caller's lists. Each item carries optional from_ip
+# and/or to_ip — passed through verbatim to community.general.ufw and
+# encoded in the tagged comment so the reconciler can diff scoped rules.
 - name: Build desired rule set for this scope
   ansible.builtin.set_fact:
     _firewall_basic_desired: >-
@@ -35,19 +39,29 @@
         + (outbound_deny  | map('combine', {'rule': 'deny',  'direction': 'out'}) | list)
       }}
 
-# Delete any role-owned rule (tagged with our scope, OR matching the
-# pre-reconciliation legacy comments) that isn't in this run's desired
-# set. The legacy match is a one-time migration: once the role has run
-# everywhere no legacy comments remain. On multi-scope hosts whichever
-# scope runs first claims and partially purges legacy rules; subsequent
-# scopes re-add their own rules via the apply step below.
-- name: Reconcile role-managed ufw rules
+# Identify role-owned ufw rules (tagged with our scope OR matching the
+# pre-reconciliation legacy comments) that aren't in this run's desired
+# set. The script just observes — actual deletion happens via the
+# community.general.ufw module below so it handles ufw's quirky
+# delete-syntax for scoped rules.
+- name: Identify orphan ufw rules
   ansible.builtin.script: >-
     ufw_reconcile.py
     {{ firewall_basic_scope | quote }}
     {{ _firewall_basic_desired | to_json | quote }}
   register: _firewall_basic_reconcile
-  changed_when: (_firewall_basic_reconcile.stdout | from_json).deleted | length > 0
+  changed_when: false
+
+- name: Delete orphan ufw rules
+  community.general.ufw:
+    rule: "{{ item.rule }}"
+    direction: "{{ item.direction }}"
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+    from_ip: "{{ item.from_ip | default(omit) }}"
+    to_ip: "{{ item.to_ip | default(omit) }}"
+    delete: true
+  loop: "{{ (_firewall_basic_reconcile.stdout | from_json).orphans }}"
 
 - name: Apply desired ufw rules
   community.general.ufw:
@@ -55,5 +69,7 @@
     direction: "{{ item.direction }}"
     port: "{{ item.port | string }}"
     proto: "{{ item.proto }}"
-    comment: "firewall-basic[{{ firewall_basic_scope }}]: {{ item.rule }} {{ item.direction }} {{ item.port }}/{{ item.proto }}"
+    from_ip: "{{ item.from_ip | default(omit) }}"
+    to_ip: "{{ item.to_ip | default(omit) }}"
+    comment: "firewall-basic[{{ firewall_basic_scope }}]: {{ item.rule }} {{ item.direction }} {{ item.port }}/{{ item.proto }}{% if item.from_ip is defined %} from {{ item.from_ip }}{% endif %}{% if item.to_ip is defined %} to {{ item.to_ip }}{% endif %}"
   loop: "{{ _firewall_basic_desired }}"

@@ -1,30 +1,34 @@
 #!/usr/bin/env python3
-"""Reconcile ufw rules for one firewall-basic invocation scope.
+"""Identify role-managed ufw rules that should be deleted.
 
-Each role invocation passes its scope label and the desired rule set this
-run wants enforced. The reconciler identifies role-owned rules in the
-live ufw state via two signals:
+Reads ``ufw show added``, extracts the comment from each line, and
+identifies role-owned rules by:
 
-  * the current tagged comment ``firewall-basic[<scope>]:`` — claimed by
-    THIS scope; or
+  * the current tagged format ``firewall-basic[<scope>]: <rule> <dir>
+    <port>/<proto>[ from <ip>][ to <ip>]`` (only when ``<scope>`` matches
+    this invocation), or
   * one of the legacy comment patterns this role used before
     reconciliation existed (``Allow SSH``, ``Allow inbound N/proto``,
-    ``Allow outbound N/proto``, ``Deny outbound N/proto``) — claimed by
-    whichever scope runs first on a host with pre-rewrite ufw state. A
-    one-time migration: once the role has run, all role-managed rules
-    carry the new tag and the legacy regex matches nothing further.
+    ``Allow outbound N/proto``, ``Deny outbound N/proto``). Claimed by
+    whichever scope runs first — a one-time migration.
 
-Any role-owned rule whose canonical key ``(rule, direction, port, proto)``
-is NOT in the desired set is deleted. Rules tagged with a different
-scope's prefix are left untouched, so plays managing overlapping hosts
-don't fight.
+For each role-owned rule whose canonical
+``(rule, direction, port, proto, from_ip, to_ip)`` tuple is NOT in the
+desired set, emit it to the orphans list.
+
+Comments are the source of truth for rule spec (the role writes them on
+add, so they're a deterministic encoding of what we asked ufw to
+enforce). The reconciler never tries to parse ufw's free-form rule
+display — that varies across ufw versions and scoping forms.
 
 Usage::
 
     ufw_reconcile.py <scope> <desired-json-string>
 
-Output (stdout): ``{"deleted": [<rule>, ...]}`` for the calling task's
-``changed_when``.
+Output (stdout): ``{"orphans": [<rule>, ...]}``. The calling ansible
+task feeds each orphan back through ``community.general.ufw`` with
+``delete=true`` so the module handles ufw's quirky delete-syntax for
+scoped rules.
 """
 from __future__ import annotations
 
@@ -33,50 +37,78 @@ import re
 import subprocess
 import sys
 
-# `ufw show added` emits one user rule per line as a re-invocable command:
-#   ufw allow 22/tcp comment 'Allow SSH'
-#   ufw deny out 22/tcp comment 'Deny outbound 22/tcp'
-# Inbound is implicit (no ``in`` keyword); outbound is explicit ``out``.
-RULE_LINE = re.compile(
-    r"^ufw\s+(?P<rule>allow|deny)(?:\s+(?P<direction>in|out))?\s+"
-    r"(?P<port>\d+)/(?P<proto>tcp|udp)\s+comment\s+'(?P<comment>.+)'\s*$"
+TAGGED_COMMENT = re.compile(
+    r"^firewall-basic\[(?P<scope>[^\]]+)\]:\s+"
+    r"(?P<rule>allow|deny)\s+(?P<direction>in|out)\s+"
+    r"(?P<port>\d+)/(?P<proto>tcp|udp)"
+    r"(?:\s+from\s+(?P<from_ip>\S+))?"
+    r"(?:\s+to\s+(?P<to_ip>\S+))?\s*$"
 )
 
-LEGACY_COMMENT = re.compile(
-    r"^(Allow SSH"
-    r"|Allow (?:inbound|outbound) \d+/(?:tcp|udp)"
-    r"|Deny outbound \d+/(?:tcp|udp))$"
-)
+LEGACY_SSH = re.compile(r"^Allow SSH$")
+LEGACY_INBOUND = re.compile(r"^Allow inbound (?P<port>\d+)/(?P<proto>tcp|udp)$")
+LEGACY_OUT_ALLOW = re.compile(r"^Allow outbound (?P<port>\d+)/(?P<proto>tcp|udp)$")
+LEGACY_OUT_DENY = re.compile(r"^Deny outbound (?P<port>\d+)/(?P<proto>tcp|udp)$")
+
+COMMENT_EXTRACT = re.compile(r"comment\s+'(?P<comment>.+)'\s*$")
+
+
+def parse_comment(comment: str, scope: str) -> dict | None:
+    """Return canonical rule dict if comment is owned by THIS scope or matches
+    a legacy pattern (claimed regardless of scope). Otherwise None.
+    """
+    match = TAGGED_COMMENT.match(comment)
+    if match and match.group("scope") == scope:
+        rule = {
+            "rule": match.group("rule"),
+            "direction": match.group("direction"),
+            "port": match.group("port"),
+            "proto": match.group("proto"),
+        }
+        if match.group("from_ip"):
+            rule["from_ip"] = match.group("from_ip")
+        if match.group("to_ip"):
+            rule["to_ip"] = match.group("to_ip")
+        return rule
+
+    if LEGACY_SSH.match(comment):
+        return {"rule": "allow", "direction": "in", "port": "22", "proto": "tcp"}
+    match = LEGACY_INBOUND.match(comment)
+    if match:
+        return {
+            "rule": "allow",
+            "direction": "in",
+            "port": match.group("port"),
+            "proto": match.group("proto"),
+        }
+    match = LEGACY_OUT_ALLOW.match(comment)
+    if match:
+        return {
+            "rule": "allow",
+            "direction": "out",
+            "port": match.group("port"),
+            "proto": match.group("proto"),
+        }
+    match = LEGACY_OUT_DENY.match(comment)
+    if match:
+        return {
+            "rule": "deny",
+            "direction": "out",
+            "port": match.group("port"),
+            "proto": match.group("proto"),
+        }
+    return None
 
 
 def canonical(rule: dict) -> tuple:
-    return (rule["rule"], rule["direction"], int(rule["port"]), rule["proto"])
-
-
-def ufw_delete(rule: dict) -> None:
-    args = ["ufw", "delete", rule["rule"]]
-    if rule["direction"] == "out":
-        args.append("out")
-    args.append(f"{rule['port']}/{rule['proto']}")
-    # No ``check=True``: ufw returns rc=1 with "Could not delete non-existent
-    # rule" if the rule was already removed out-of-band. That's the desired
-    # end-state, not an error.
-    subprocess.run(args, capture_output=True, text=True)
-
-
-def list_added_rules() -> list[dict]:
-    result = subprocess.run(
-        ["ufw", "show", "added"], check=True, capture_output=True, text=True
+    return (
+        rule["rule"],
+        rule["direction"],
+        str(rule["port"]),
+        rule["proto"],
+        rule.get("from_ip") or "",
+        rule.get("to_ip") or "",
     )
-    rules: list[dict] = []
-    for line in result.stdout.splitlines():
-        match = RULE_LINE.match(line)
-        if not match:
-            continue
-        parsed = match.groupdict()
-        parsed["direction"] = parsed["direction"] or "in"
-        rules.append(parsed)
-    return rules
 
 
 def main() -> None:
@@ -86,21 +118,25 @@ def main() -> None:
 
     scope = sys.argv[1]
     desired = json.loads(sys.argv[2])
-    own_tag = f"firewall-basic[{scope}]:"
     desired_keys = {canonical(r) for r in desired}
 
-    deleted: list[dict] = []
-    for rule in list_added_rules():
-        comment = rule["comment"]
-        owned = comment.startswith(own_tag) or bool(LEGACY_COMMENT.match(comment))
-        if not owned:
+    result = subprocess.run(
+        ["ufw", "show", "added"], check=True, capture_output=True, text=True
+    )
+
+    orphans: list[dict] = []
+    for line in result.stdout.splitlines():
+        match = COMMENT_EXTRACT.search(line)
+        if not match:
+            continue
+        rule = parse_comment(match.group("comment"), scope)
+        if rule is None:
             continue
         if canonical(rule) in desired_keys:
             continue
-        ufw_delete(rule)
-        deleted.append(rule)
+        orphans.append(rule)
 
-    json.dump({"deleted": deleted}, sys.stdout)
+    json.dump({"orphans": orphans}, sys.stdout)
 
 
 if __name__ == "__main__":
