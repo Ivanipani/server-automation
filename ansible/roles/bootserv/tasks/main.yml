@@ -7,7 +7,8 @@
 #   TFTP (port 69, dnsmasq):
 #     /srv/tftp/ipxe.efi          chainloaded by UEFI PXE clients
 #     /srv/tftp/undionly.kpxe     chainloaded by legacy BIOS PXE clients
-#   HTTP (port 80, nginx):
+#   HTTP (port 80, caddy — installed by the `caddy` role applied ahead
+#                          of this one in the calling playbook):
 #     /                            (autoindex on, for ops sanity-checks)
 #     /boot.ipxe                   the script iPXE clients fetch after chainload
 #     /hosts/<host>.ipxe           per-host dispatch (kernel/initrd/preseed URL)
@@ -46,11 +47,10 @@
     line: "127.0.1.1 {{ inventory_hostname }}.{{ domain | default('lan') }} {{ inventory_hostname }}"
     state: present
 
-- name: Install dnsmasq, nginx, ipxe
+- name: Install dnsmasq, ipxe
   ansible.builtin.apt:
     name:
       - dnsmasq        # TFTP only (port=0 disables its DNS)
-      - nginx          # HTTP static-file server
       - ipxe           # ships /usr/lib/ipxe/{ipxe.efi,undionly.kpxe}
     state: present
     update_cache: true
@@ -223,34 +223,22 @@
     mode: "0644"
   notify: Restart dnsmasq
 
-# --- nginx -----------------------------------------------------------
-- name: Configure nginx site
+# --- caddy site config -----------------------------------------------
+# Caddy itself (binary, /etc/caddy/Caddyfile, systemd unit) is set up
+# by the `caddy` role applied ahead of this one in the calling
+# playbook. We only drop a site file into /etc/caddy/sites-enabled/
+# and notify the caddy reload handler exposed by that role.
+- name: Deploy bootserv Caddy site config
   ansible.builtin.template:
-    src: nginx-bootserv.conf.j2
-    dest: /etc/nginx/sites-available/bootserv.conf
-    owner: root
-    group: root
+    src: bootserv.caddy.j2
+    dest: /etc/caddy/sites-enabled/bootserv.caddy
+    owner: caddy
+    group: caddy
     mode: "0644"
-  notify: Reload nginx
+  notify: "reload caddy"
 
-- name: Enable bootserv nginx site
-  ansible.builtin.file:
-    src: /etc/nginx/sites-available/bootserv.conf
-    dest: /etc/nginx/sites-enabled/bootserv.conf
-    state: link
-  notify: Reload nginx
-
-- name: Remove stock nginx default site
-  ansible.builtin.file:
-    path: /etc/nginx/sites-enabled/default
-    state: absent
-  notify: Reload nginx
-
-- name: Ensure dnsmasq + nginx are enabled and running
+- name: Ensure dnsmasq is enabled and running
   ansible.builtin.systemd:
-    name: "{{ item }}"
+    name: dnsmasq
     enabled: true
     state: started
-  loop:
-    - dnsmasq
-    - nginx

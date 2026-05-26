@@ -3,8 +3,3 @@
   ansible.builtin.systemd:
     name: dnsmasq
     state: restarted
-
-- name: Reload nginx
-  ansible.builtin.systemd:
-    name: nginx
-    state: reloaded

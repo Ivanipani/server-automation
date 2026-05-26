@@ -50,15 +50,6 @@
     mode: '0644'
   notify: "reload caddy"
 
-- name: Deploy poochella.club site config
-  ansible.builtin.template:
-    src: poochella.club.caddy.j2
-    dest: /etc/caddy/sites-enabled/poochella.club.caddy
-    owner: caddy
-    group: caddy
-    mode: '0644'
-  notify: "reload caddy"
-
 # Restarts server, causes downtime
 - name: Deploy caddy systemd service
   ansible.builtin.template:

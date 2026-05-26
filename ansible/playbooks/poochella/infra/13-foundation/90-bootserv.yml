@@ -31,7 +31,7 @@
 #     every netbooted Debian host has the same break-glass account that
 #     host-base + ssh-hardening's Match block expect.
 
-- name: Configure bootserv01 (TFTP + nginx + iPXE + Debian netboot)
+- name: Configure bootserv01 (TFTP + Caddy + iPXE + Debian netboot)
   hosts: bootserv01
   become: true
   gather_facts: true
@@ -42,4 +42,8 @@
     bootserv_ansible_pubkey: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/ansible.pub') }}"
   roles:
     - role: apt-no-auto-upgrades
+    # caddy must come before bootserv: bootserv drops a site file into
+    # /etc/caddy/sites-enabled and notifies the `reload caddy` handler
+    # exposed by the caddy role.
+    - role: caddy
     - role: bootserv

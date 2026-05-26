@@ -1,0 +1,33 @@
+# {{ ansible_managed }}
+# bootserv01 HTTP service: serves iPXE scripts, Debian netboot
+# kernel+initrd, per-host preseeds, and per-host authorized_keys.
+# Listening socket comes from bootserv_http_listen; LAN-only ACL
+# guards the sensitive paths.
+
+{{ bootserv_http_listen }} {
+    root * {{ bootserv_http_root }}
+    encode gzip
+
+    # Don't leak server identity on errors / responses.
+    header -Server
+
+    # Per-host preseed + authorized_keys: LAN-only. Both contain
+    # break-glass material (preseed has root pw hash via d-i,
+    # authorized_keys is the canonical SSH key).
+    @sensitive path /preseed/* /keys/*
+    handle @sensitive {
+        @off_lan not remote_ip {{ bootserv_lan_cidr }}
+        respond @off_lan "Forbidden" 403
+        file_server
+    }
+
+    # Everything else (iPXE scripts, Debian netboot kernel/initrd,
+    # the doc root index) is open to the listening interface. The
+    # booting initrd may not have DNS yet; restricting these would
+    # brick the boot. They contain no secrets — pubkeys + preseed
+    # URLs. `browse` enables the directory listing UI for ops
+    # sanity-checks.
+    handle {
+        file_server browse
+    }
+}

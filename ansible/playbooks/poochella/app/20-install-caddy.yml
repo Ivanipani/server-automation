@@ -1,6 +1,15 @@
 ---
-- name: Install caddy on LXC
+- name: Install caddy on LXC and deploy poochella.club site
   hosts: webservers
   become: true
   roles:
     - caddy
+  tasks:
+    - name: Deploy poochella.club Caddy site config
+      ansible.builtin.template:
+        src: templates/poochella.club.caddy.j2
+        dest: /etc/caddy/sites-enabled/poochella.club.caddy
+        owner: caddy
+        group: caddy
+        mode: '0644'
+      notify: "reload caddy"
