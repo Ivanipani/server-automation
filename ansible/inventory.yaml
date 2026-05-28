@@ -372,8 +372,9 @@ workers:
             # host-disks role's preflight asserts that findmnt-/
             # resolves to this same disk.
             # The boot NVMe (~2 TB) — preseed caps the OS LVM PV at
-            # ~120 GiB root + RAM*2 swap; this claims the remaining
-            # ~1.7 TiB tail. sgdisk appends a new GPT entry (the table
+            # 130 GB (4 GiB swap + ~120 GiB root + ~6 GiB LVM
+            # overhead); this claims the remaining ~1.7 TiB tail.
+            # sgdisk appends a new GPT entry (the table
             # is rewritten with one extra entry; the existing EFI + LVM
             # PV entries and their data are not modified).
             hw:
@@ -391,6 +392,15 @@ workers:
                 thinpool: longhornthin
                 size: "0"
           - select: { model: "WDC WD10EZEX-08WN4A0", serial: "WD-WCC6Y1LPLUY3" }
+            # `wipe: force`: this disk holds stale signatures from the
+            # previous worker-home-02 carve (`longhorn-hdd` partlabel
+            # + an LVM PV in an old `longhorndata` VG whose other PV
+            # was on the now-replaced Samsung NVMe). The renamed
+            # `part-gamma` partlabel doesn't match the stale one, so
+            # host-disks would refuse without explicit consent. Safe
+            # to leave at `force` until the next re-image of this
+            # host; drop back to `refuse` (default) once stable.
+            wipe: force
             partitions:
               - label: part-gamma
                 vg: longhorndata

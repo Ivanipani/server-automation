@@ -1,0 +1,143 @@
+#!/bin/sh
+# Rendered by roles/bootserv from ansible/inventory.yaml — do not edit by hand.
+#
+# Per-host install-disk resolver for {{ item }}, fetched + executed by the
+# `partman/early_command` line in /preseed/{{ item }}.cfg. Lives at:
+#   http://bootserv01.lan/scripts/{{ item }}-resolve-install-disk.sh
+#
+# What it does
+# ------------
+#   1. Walks /sys/block (NOT lsblk — d-i's stripped util-linux may lack
+#      the PATH column, and sysfs is the canonical kernel source).
+#   2. Matches one disk against the inventory hw pin (model + serial)
+#      from storage.disks[?select == 'boot'].hw.{model, serial}.
+#   3. Writes the resolved /dev path into partman-auto/disk and
+#      grub-installer/bootdev via debconf, so the partitioner + grub
+#      installer pick it up moments later.
+#
+# Logging
+# -------
+#   * Full log → /tmp/install-resolver.log (survives until reboot).
+#   * Progress + critical messages also tee'd to /dev/tty4 — that's
+#     d-i's syslog console (Alt+F4 from the main install screen).
+#   * Critical failure banners also tee'd to /dev/kmsg so they show
+#     in dmesg too (also Alt+F4).
+#
+# On failure
+# ----------
+#   The installer is left running (`sleep 3600`) instead of dying
+#   silently. You have an hour to:
+#     - Alt+F4: read the resolver log on the d-i syslog console.
+#     - Alt+F2: get a busybox shell. `cat /tmp/install-resolver.log`.
+#   Then power-cycle to retry once inventory or hardware is fixed.
+
+set -e
+
+# These come from inventory: storage.disks[?select == 'boot'].hw
+EXPECTED_MODEL='{{ _hw.model }}'
+EXPECTED_SERIAL='{{ _hw.serial }}'
+LOG=/tmp/install-resolver.log
+
+# All our output goes to the log; `say` ALSO mirrors to tty4 so the
+# operator can watch progress on Alt+F4 in real time.
+: > "$LOG"
+exec >>"$LOG" 2>&1
+say() { printf '%s\n' "$*" >>"$LOG"; printf '%s\n' "$*" >/dev/tty4 2>/dev/null || true; }
+
+say "===== $(date) resolve-install-disk for {{ item }} ====="
+say "expected: model='$EXPECTED_MODEL' serial='$EXPECTED_SERIAL'"
+say "log: $LOG"
+say ""
+
+say "--- /proc/partitions ---"
+cat /proc/partitions >>"$LOG" 2>&1 || true
+cat /proc/partitions >/dev/tty4 2>/dev/null || true
+
+say "--- lsblk -do NAME,MODEL,SERIAL (best effort) ---"
+{
+    lsblk -do NAME,MODEL,SERIAL 2>&1 || echo "(lsblk failed: $?)"
+} >>"$LOG"
+{
+    lsblk -do NAME,MODEL,SERIAL 2>&1 || echo "(lsblk failed: $?)"
+} >/dev/tty4 2>/dev/null || true
+say ""
+
+# Walk /sys/block — every block device the kernel exposes has a
+# directory here, with `device/model` + `device/serial` populated for
+# real disks (SATA / NVMe / SAS / USB). Loop / ramdisk / device-mapper
+# / RAID / CD aren't candidates.
+say "--- sysfs candidates ---"
+install_disk=""
+for d in /sys/block/*; do
+    bn=${d##*/}
+    case "$bn" in
+        loop*|ram*|sr*|fd*|dm-*|md*) continue ;;
+    esac
+    if [ ! -r "$d/device/model" ]; then
+        say "  skip /dev/$bn  (no /sys/block/$bn/device/model)"
+        continue
+    fi
+    m=$(tr -d ' \t\r\n' < "$d/device/model")
+    s=""
+    [ -r "$d/device/serial" ] && s=$(tr -d ' \t\r\n' < "$d/device/serial")
+    say "  candidate: /dev/$bn  model='$m'  serial='$s'"
+    if [ "$m" = "$EXPECTED_MODEL" ] && [ "$s" = "$EXPECTED_SERIAL" ]; then
+        install_disk="/dev/$bn"
+        break
+    fi
+done
+
+if [ -z "$install_disk" ]; then
+    say ""
+    say "FATAL: no /sys/block disk matches inventory hw pin"
+    BANNER="
+================================================================
+  INSTALL HALTED on {{ item }}
+
+  resolver could not find a disk matching the inventory hw pin:
+    expected model='$EXPECTED_MODEL'
+    expected serial='$EXPECTED_SERIAL'
+
+  full log: $LOG  (Alt+F2 for a shell)
+  d-i syslog: Alt+F4
+
+  Sleeping 1 hour so you can investigate before the box reboots.
+================================================================
+"
+    printf '%s' "$BANNER" >>"$LOG"
+    printf '%s' "$BANNER" >/dev/tty4 2>/dev/null || true
+    printf '%s' "$BANNER" >/dev/kmsg 2>/dev/null || true
+    sleep 3600
+    exit 1
+fi
+
+say ""
+say "RESOLVED install_disk=$install_disk"
+
+# Prefer the canonical d-i confmodule API (`db_set` via
+# debconf-communicate); fall back to the `debconf-set` shell wrapper
+# if confmodule isn't on disk. One of these is always present in d-i.
+if [ -r /usr/share/debconf/confmodule ]; then
+    # shellcheck disable=SC1091
+    . /usr/share/debconf/confmodule
+    db_set partman-auto/disk "$install_disk"
+    db_set grub-installer/bootdev "$install_disk"
+    say "  set via db_set (confmodule)"
+elif command -v debconf-set >/dev/null 2>&1; then
+    debconf-set partman-auto/disk "$install_disk"
+    debconf-set grub-installer/bootdev "$install_disk"
+    say "  set via debconf-set wrapper"
+else
+    say "FATAL: no debconf write path available (no confmodule, no debconf-set)"
+    sleep 3600
+    exit 1
+fi
+
+# Sanity-verify the value actually landed in debconf.
+if command -v debconf-get >/dev/null 2>&1; then
+    say "  verify: partman-auto/disk=$(debconf-get partman-auto/disk 2>/dev/null || echo '?')"
+    say "  verify: grub-installer/bootdev=$(debconf-get grub-installer/bootdev 2>/dev/null || echo '?')"
+fi
+
+say "===== resolver done at $(date) ====="
+exit 0

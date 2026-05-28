@@ -56,32 +56,47 @@ d-i clock-setup/ntp boolean true
 # Install target resolution: the boot disk is pinned in inventory by
 # `storage.disks[?select == 'boot'].hw.{model, serial}` (single source
 # of truth — no parallel `debian_install.disk` field). The
-# `preseed/early_command` below walks lsblk at install time and writes
+# `partman/early_command` below walks lsblk at install time and writes
 # the matching /dev path into the partman-auto/disk and
 # grub-installer/bootdev debconf settings, identical to the bootserv
-# netboot preseed.
+# netboot preseed. Hook choice matters: per the Debian preseed manual,
+# `preseed/early_command` runs before partman's disk discovery (lsblk
+# can return nothing), while `partman/early_command` is the documented
+# hook for "dynamic partitioner preseeding that depends on the state
+# of the disks".
 {% set _boot_entry = (host.storage.disks | selectattr('select', 'eq', 'boot') | list | first) %}
 {% set _hw = _boot_entry.hw %}
 
-d-i preseed/early_command string \
-    set -eu; \
+d-i partman/early_command string \
+    set -e; \
     M='{{ _hw.model }}'; S='{{ _hw.serial }}'; \
+    LOG=/tmp/install-resolver.log; \
+    : > "$LOG"; exec >>"$LOG" 2>&1; \
     install_disk=""; \
-    for p in $(lsblk -ndo PATH); do \
-        cur_m=$(lsblk -ndo MODEL "$p"); \
-        cur_s=$(lsblk -ndo SERIAL "$p"); \
-        if [ "$cur_m" = "$M" ] && [ "$cur_s" = "$S" ]; then \
-            install_disk="$p"; break; \
-        fi; \
+    for d in /sys/block/*; do \
+        bn=${d##*/}; \
+        case "$bn" in loop*|ram*|sr*|fd*|dm-*|md*) continue;; esac; \
+        [ -r "$d/device/model" ] || { echo "skip /dev/$bn (no model)"; continue; }; \
+        m=$(tr -d ' \t\r\n' < "$d/device/model"); \
+        s=""; \
+        [ -r "$d/device/serial" ] && s=$(tr -d ' \t\r\n' < "$d/device/serial"); \
+        echo "candidate: /dev/$bn model='$m' serial='$s'"; \
+        if [ "$m" = "$M" ] && [ "$s" = "$S" ]; then install_disk="/dev/$bn"; break; fi; \
     done; \
+    cat "$LOG" >/dev/tty4 2>/dev/null || true; \
     if [ -z "$install_disk" ]; then \
-        echo "FATAL preseed/early_command: no disk matches model='$M' serial='$S' on {{ target_host }}" >&2; \
-        lsblk -do PATH,MODEL,SERIAL >&2 || true; \
-        sleep 60; exit 1; \
+        { echo; echo "================================================================"; echo "  INSTALL HALTED on {{ target_host }}: no disk matches inventory hw pin"; echo "    expected model='$M' serial='$S'"; echo "  log: $LOG  (Alt+F2 for shell, Alt+F4 for syslog)"; echo "  Sleeping 1h."; echo "================================================================"; } | tee -a "$LOG" >/dev/tty4 2>/dev/null || true; \
+        sleep 3600; exit 1; \
     fi; \
-    echo "preseed/early_command: resolved install_disk=$install_disk (model='$M' serial='$S')"; \
-    debconf-set partman-auto/disk "$install_disk"; \
-    debconf-set grub-installer/bootdev "$install_disk"
+    echo "RESOLVED install_disk=$install_disk" | tee -a "$LOG" >/dev/tty4 2>/dev/null || true; \
+    if [ -r /usr/share/debconf/confmodule ]; then \
+        . /usr/share/debconf/confmodule; \
+        db_set partman-auto/disk "$install_disk"; \
+        db_set grub-installer/bootdev "$install_disk"; \
+    else \
+        debconf-set partman-auto/disk "$install_disk"; \
+        debconf-set grub-installer/bootdev "$install_disk"; \
+    fi
 
 # The two debconf values below are placeholders — the early_command
 # above rewrites them at install time. Still preseeded so that on

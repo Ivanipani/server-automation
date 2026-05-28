@@ -55,13 +55,18 @@ d-i clock-setup/ntp boolean true
 ### Install target resolution: the boot disk is pinned in inventory by
 ### `storage.disks[?select == 'boot'].hw.{model, serial}` (single
 ### source of truth — no parallel `install_disk` field). The
-### `preseed/early_command` below walks lsblk at install time and
+### `partman/early_command` below walks lsblk at install time and
 ### writes the matching /dev path into the partman-auto/disk and
 ### grub-installer/bootdev debconf settings, which the partitioner +
 ### grub installer pick up moments later. Resolving at install time
 ### (instead of templating a kernel name like `/dev/nvme0n1`) is
 ### robust against re-cabling, NVMe slot order, and the SATA/NVMe
-### mix that varies host-to-host.
+### mix that varies host-to-host. Hook choice matters: per the
+### Debian preseed manual, `preseed/early_command` runs before
+### partman's disk discovery (lsblk may return nothing), while
+### `partman/early_command` is "run just before the partitioner
+### starts" and is the documented hook for dynamic partitioner
+### preseeding that depends on disk state.
 ###
 ### ASSUMPTION: the install disk is BLANK at install time. We assume
 ### the operator has wiped it out-of-band — either via the host's BIOS
@@ -74,28 +79,15 @@ d-i clock-setup/ntp boolean true
 ### removes the partman "refuses to overwrite" gate cleanly. If you
 ### need to install on a dirty disk in the future, restore the wipe
 ### block from git history.
-{% set _boot_entry = (hostvars[item].storage.disks | selectattr('select', 'eq', 'boot') | list | first) %}
-{% set _hw = _boot_entry.hw %}
-
-d-i preseed/early_command string \
-    set -eu; \
-    M='{{ _hw.model }}'; S='{{ _hw.serial }}'; \
-    install_disk=""; \
-    for p in $(lsblk -ndo PATH); do \
-        cur_m=$(lsblk -ndo MODEL "$p"); \
-        cur_s=$(lsblk -ndo SERIAL "$p"); \
-        if [ "$cur_m" = "$M" ] && [ "$cur_s" = "$S" ]; then \
-            install_disk="$p"; break; \
-        fi; \
-    done; \
-    if [ -z "$install_disk" ]; then \
-        echo "FATAL preseed/early_command: no disk matches model='$M' serial='$S' on {{ item }}" >&2; \
-        lsblk -do PATH,MODEL,SERIAL >&2 || true; \
-        sleep 60; exit 1; \
+d-i partman/early_command string \
+    set -e; \
+    URL=http://bootserv01.lan/scripts/{{ item }}-resolve-install-disk.sh; \
+    SCRIPT=/tmp/resolve-install-disk.sh; \
+    if ! wget -q -O "$SCRIPT" "$URL"; then \
+        echo "FATAL: could not fetch $URL" >/dev/tty4; \
+        sleep 3600; exit 1; \
     fi; \
-    echo "preseed/early_command: resolved install_disk=$install_disk (model='$M' serial='$S')"; \
-    debconf-set partman-auto/disk "$install_disk"; \
-    debconf-set grub-installer/bootdev "$install_disk"
+    sh "$SCRIPT" || { sleep 3600; exit 1; }
 
 # The two debconf values below are placeholders — the early_command
 # above rewrites them at install time. They are still preseeded so
@@ -108,7 +100,18 @@ d-i partman-md/device_remove_md boolean true
 d-i partman-lvm/confirm boolean true
 d-i partman-lvm/confirm_nooverwrite boolean true
 d-i partman-auto-lvm/new_vg_name string system
-d-i partman-auto-lvm/guided_size string max
+# guided_size caps the LVM PV partition size — and THIS is what
+# actually limits root, NOT the recipe `max` field below. partman's
+# LVM mode grows the last $lvmok LV to fill the VG regardless of its
+# recipe max, so the only reliable way to bound root is to bound the
+# VG itself. 130GB = swap (4 GiB) + root (120 GiB) + ~6 GiB LVM
+# metadata/PE-rounding overhead (partman empirically demands ≥127GB
+# for this recipe; 125GB was rejected at install time with "not
+# enough for the partitioning scheme requested, which requires
+# 127GB"). The 3 GiB margin above that floor avoids tripping on
+# rounding edge cases. The rest of the disk stays unallocated at
+# the partition layer for host-disks to claim via `select: boot`.
+d-i partman-auto-lvm/guided_size string 130GB
 # Suppress the legacy "no separate /boot with LVM" warning. The
 # concern dates from grub-pc not being able to read LVM, so /boot
 # had to be plain ext4 outside LVM. grub-efi-amd64 (what UEFI
@@ -125,17 +128,26 @@ d-i partman-auto-lvm/no_boot boolean true
 #
 # Recipe format per partition: `min priority max fs_type` then options.
 #   - ESP:   538/538/1075 MiB FAT32, `method{ efi }`, NOT in LVM
-#   - swap:  1-4 GiB inside LVM, sized at 200% of RAM via priority
+#   - swap:  exactly 4 GiB inside LVM (min=priority=max=4096 MiB).
+#           Fixed (not 200% of RAM) for predictable sizing — modern
+#           server workloads don't need RAM-proportional swap.
 #   - root:  exactly 120 GiB inside LVM (min=priority=max=122880 MiB)
 #
 # Root is capped (not -1) so the LVM PV partition does NOT consume
-# the whole disk. The free tail is then claimed by the host-disks
-# role via `select: boot` + a tail partition in inventory's
-# `storage.disks` (e.g. metal-home-01: `part-alpha` joining
-# longhorndata/longhornthin). On hosts whose `storage:` block does
-# NOT declare a boot-tail partition, the tail simply sits unused —
-# safe default. 120 GiB is generous for a worker OS + k3s + logs;
-# raise it deliberately (re-image required) if needed.
+# the whole disk. NOTE: the recipe `max` field alone is NOT enough —
+# partman's LVM mode grows the last $lvmok LV to fill the VG. The
+# REAL cap is `partman-auto-lvm/guided_size` above (130GB); the
+# recipe `max` is belt-and-suspenders. With guided_size at 130GB
+# and swap fixed at 4 GiB, root lands at ~123 GiB if partman ignores
+# recipe max (last-LV-grows-to-fill behaviour) or exactly 120 GiB if
+# honored. Either way root is bounded; close enough to the "120 GB
+# max" target. The free tail of the disk is then claimed by host-disks via
+# `select: boot` + a tail partition in inventory's `storage.disks`
+# (e.g. metal-home-01: `part-alpha` joining longhorndata/
+# longhornthin). On hosts whose `storage:` block does NOT declare a
+# boot-tail partition, the tail simply sits unused — safe default.
+# 120 GiB is generous for a worker OS + k3s + logs; raise it
+# deliberately (re-image required) if needed.
 #
 # `$iflabel{ gpt }` ensures the ESP entry only fires on GPT disks
 # (which our preseed/early_command guarantees via parted mklabel gpt).
@@ -151,7 +163,7 @@ d-i partman-auto/expert_recipe string                                       \
               method{ efi }                                                  \
               format{ }                                                      \
           .                                                                  \
-          1024 4096 200% linux-swap                                          \
+          4096 4096 4096 linux-swap                                          \
               $defaultignore{ }                                              \
               $lvmok{ }                                                      \
               lv_name{ swap }                                                \

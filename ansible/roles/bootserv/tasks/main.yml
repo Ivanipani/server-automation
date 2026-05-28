@@ -185,6 +185,29 @@
   loop_control:
     label: "{{ item }}"
 
+# Per-host install-disk resolver. The preseed's `partman/early_command`
+# wgets this and `sh`'s it; the resolver walks /sys/block, matches the
+# inventory hw pin (model + serial), and debconf-sets partman-auto/disk +
+# grub-installer/bootdev. Hosted under /scripts/* so the Caddy site's
+# @sensitive ACL keeps it LAN-only (the script contains the host's
+# expected disk model + serial — not strictly secrets, but no reason
+# to leak them off-LAN either).
+- name: Render per-host install-disk resolver
+  ansible.builtin.template:
+    src: resolve-install-disk.sh.j2
+    dest: "{{ bootserv_http_root }}/scripts/{{ item }}-resolve-install-disk.sh"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0640"
+  loop: "{{ groups['all'] }}"
+  when: hostvars[item].debian_netboot is defined
+  loop_control:
+    label: "{{ item }}"
+  vars:
+    # Same lookup the preseed template uses, so the rendered script
+    # carries the expected model + serial baked in.
+    _hw: "{{ (hostvars[item].storage.disks | selectattr('select', 'eq', 'boot') | list | first).hw }}"
+
 # ── Canonical image-baseline.sh -----------------------------------
 # Single source of truth applied to every freshly-installed or
 # cloned Debian/PVE host (preseed late_command wgets + execs it).
