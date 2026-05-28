@@ -7,9 +7,11 @@ set base http://bootserv01.lan
 set host {{ item }}
 set domain {{ hostvars[item].domain | default(domain | default('lan')) }}
 
+{% set _boot_entry = (hostvars[item].storage.disks | selectattr('select', 'eq', 'boot') | list | first) %}
 echo
 echo Auto-installing Debian 13 on ${host}.${domain}
-echo  install_disk = {{ hostvars[item].debian_netboot.install_disk }}
+echo  install_disk = lsblk-resolved from inventory hw pin
+echo                 model='{{ _boot_entry.hw.model }}' serial='{{ _boot_entry.hw.serial }}'
 echo  preseed      = ${base}/preseed/${host}.cfg
 echo
 

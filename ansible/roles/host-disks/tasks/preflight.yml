@@ -221,6 +221,51 @@
       Could not detect the boot disk on {{ inventory_hostname }}
       (got '{{ boot_disk }}'). Check `findmnt /` and `lsblk`.
 
+# If the `select: boot` entry carries an `hw: {model, serial}` pin (used
+# by the netboot/img-debian preseeds to identify the install target), we
+# can also use it as a runtime sanity check: assert the disk currently
+# mounted at / matches the declared model+serial. Cheap insurance against
+# inventory/reality drift (e.g. boot NVMe physically swapped without an
+# inventory edit). Skipped silently when no boot entry declares `hw:`.
+- name: Find boot-disk entry that declares `hw:`
+  ansible.builtin.set_fact:
+    _hw_pinned_boot: >-
+      {{ ((storage.disks | default([]))
+          | selectattr('select', 'eq', 'boot')
+          | selectattr('hw', 'defined')
+          | list | first | default({})).hw | default({}) }}
+
+# Two separate lsblk calls because MODEL strings can contain internal
+# whitespace (e.g. "Samsung SSD 980 1TB"), so MODEL,SERIAL as one column
+# would be ambiguous to split.
+- name: Read live model of the detected boot disk
+  ansible.builtin.command: "lsblk -ndo MODEL /dev/{{ boot_disk }}"
+  register: _boot_model
+  changed_when: false
+  when: _hw_pinned_boot | length > 0
+
+- name: Read live serial of the detected boot disk
+  ansible.builtin.command: "lsblk -ndo SERIAL /dev/{{ boot_disk }}"
+  register: _boot_serial
+  changed_when: false
+  when: _hw_pinned_boot | length > 0
+
+- name: Assert declared boot-disk `hw:` matches the live boot disk
+  ansible.builtin.assert:
+    that:
+      - (_boot_model.stdout | trim) == _hw_pinned_boot.model
+      - (_boot_serial.stdout | trim) == _hw_pinned_boot.serial
+    fail_msg: >-
+      {{ inventory_hostname }}: inventory pins the boot disk to
+      model='{{ _hw_pinned_boot.model }}' serial='{{ _hw_pinned_boot.serial }}'
+      but the disk currently mounted at / (/dev/{{ boot_disk }})
+      reports model='{{ _boot_model.stdout | trim }}'
+      serial='{{ _boot_serial.stdout | trim }}'. Inventory and reality
+      have drifted — update the `hw:` block under `storage.disks` (the
+      entry marked `select: boot`) to match the new hardware, or move
+      the cabling back.
+  when: _hw_pinned_boot | length > 0
+
 - name: Reset resolved accumulators
   ansible.builtin.set_fact:
     host_disks_resolved: []      # one entry per PARTITION (carve order)

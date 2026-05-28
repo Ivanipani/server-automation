@@ -55,12 +55,14 @@
 #     LXCs (today: bootserv01) come up before any VM in the same
 #     `tofu apply` — the ground-up bootstrap invariant. Storage is
 #     `vms` (the only pve_storage with `rootdir` content).
-#   - `debian_netboot: { install_disk, boot_macs: [...] }` → host is a
-#     baremetal Debian target net-booted via iPXE (rendered + served by
+#   - `debian_netboot: { boot_macs: [...] }` → host is a baremetal
+#     Debian target net-booted via iPXE (rendered + served by
 #     `bootserv01`). `boot_macs` are the NIC MACs that may initiate PXE
 #     — all reserved to `ip_address` on OPNsense + dispatched in the
-#     rendered iPXE script. `install_disk` is the device the preseed
-#     wipes for the Debian install (every other disk untouched).
+#     rendered iPXE script. The install target is NOT declared here:
+#     the preseed resolves it at install time from the host's
+#     `storage.disks` entry marked `select: boot` (see `hw:` below),
+#     so there is no parallel `install_disk` to keep in sync.
 #   - VM MACs use the locally-administered prefix `02:` and a structured
 #     tail (02:00:00:<role>:<index>) so collisions are obvious at a glance.
 #   - `storage: {disks: [...]}` on a physical host → the disk layout the
@@ -71,6 +73,20 @@
 #       select: { model: "...", serial: "..." }       # one exact drive
 #       select: { min_size_gib: 900, rotational: false }  # attr match
 #       select: { size_gib: 1000, rotational: true }      #   "
+#       hw: { model: "...", serial: "..." } # OPTIONAL on a `select: boot`
+#                                          # entry; REQUIRED whenever the
+#                                          # host is installable via the
+#                                          # bootserv netboot preseed
+#                                          # (host has `debian_netboot:`)
+#                                          # OR the img/debian ISO path
+#                                          # (`just img-debian <host>`).
+#                                          # Both preseeds resolve the
+#                                          # install target by lsblk-
+#                                          # matching this block at install
+#                                          # time (single source of truth
+#                                          # for "which disk is the boot
+#                                          # disk"). host-disks runtime
+#                                          # asserts findmnt-/ matches.
 #       wipe: refuse|force                 # per-disk, default refuse;
 #                                          # `force` is DECLARED + scoped
 #                                          # (replaces the global -e flag)
@@ -110,11 +126,13 @@
 #   See group_vars/hypervisors.yml.
 #
 #   CONVENTION (worker side): plain Linux baremetal kube_workers
-#   combine their extra data disks (NVMe + HDD) into one
-#   `longhorndata`/`longhornthin` thin pool, mounted as ext4 at
-#   `/var/lib/longhorn` for Longhorn baremetal replica storage. The
-#   boot disk is owned by the Debian installer (`debian_install.disk`)
-#   and the worker does NOT declare `select: boot`.
+#   combine their data disks (boot-NVMe tail + extra NVMes + HDDs)
+#   into one `longhorndata`/`longhornthin` thin pool, mounted as ext4
+#   at `/var/lib/longhorn` for Longhorn baremetal replica storage.
+#   The worker DOES declare `select: boot` (with the `hw:` pin) so the
+#   preseed installs onto the right device AND host-disks can claim
+#   the disk's free tail post-install (preseed caps the OS LVM PV at
+#   ~120 GiB root + RAM*2 swap; the rest is host-disks' to claim).
 #
 # VMs always DHCP-boot. The static IP comes from the reservation tied to
 # the MAC declared here — not from cloud-init.
@@ -286,23 +304,18 @@ workers:
       ansible_host: metal-home-01.lan
       ip_address: 10.1.1.106
       mac_address: "3c:7c:3f:1f:96:af"
-      # Debian unattended install: the installer wipes ONLY this disk.
-      # The other disks (2 TB NVMe + WDC 1 TB HDD) are combined into a
-      # single longhorndata/longhornthin LVM-thin pool, ext4-mounted at
-      # /var/lib/longhorn for Longhorn baremetal replicas — see the
-      # `storage:` block below. The host-disks role realises it from
-      # 17-host/15-storage.yml; the Longhorn install (Flux repo) then
-      # places replicas into that mountpoint.
-      debian_install:
-        disk: /dev/nvme0n1
       # Baremetal Debian net-boot via iPXE from the Mellanox ConnectX-4
       # Lx 10GbE NIC. Both ports' MACs are reserved on OPNsense to this
       # host's `ip_address` and dispatched in the rendered iPXE script,
       # so PXE works regardless of which port is cabled / first in BIOS
       # boot order. The preseed (served by bootserv01 over HTTP) wipes
-      # ONLY `install_disk`.
+      # ONLY the boot disk — identified by `storage.disks` entry
+      # `select: boot` + its `hw: {model, serial}` pin (see below).
+      # Both Debian install paths (bootserv netboot + img/debian ISO)
+      # resolve the install target by lsblk-matching that hw block at
+      # install time, so adding/removing data disks never risks
+      # installing onto the wrong device.
       debian_netboot:
-        install_disk: /dev/nvme0n1
         boot_macs:
           - "e8:eb:d3:8c:86:bc"
           - "e8:eb:d3:8c:86:bd"
@@ -349,11 +362,23 @@ workers:
           # = first disk's tail partition, beta = second disk, …); they
           # carry no meaning across hosts.
           - select: boot
+            # `hw:` pins the boot disk by stable hardware attributes.
+            # Required for any host installable via the bootserv
+            # netboot preseed (this host's `debian_netboot:` above) or
+            # the img/debian ISO path (`just img-debian <host>`) —
+            # both preseeds resolve the install target by lsblk-
+            # matching this hw block at install time (single source of
+            # truth, no parallel `install_disk` field). At runtime, the
+            # host-disks role's preflight asserts that findmnt-/
+            # resolves to this same disk.
             # The boot NVMe (~2 TB) — preseed caps the OS LVM PV at
             # ~120 GiB root + RAM*2 swap; this claims the remaining
             # ~1.7 TiB tail. sgdisk appends a new GPT entry (the table
             # is rewritten with one extra entry; the existing EFI + LVM
             # PV entries and their data are not modified).
+            hw:
+              model: "CT2000P310SSD8"
+              serial: "254854AAD28F"
             partitions:
               - label: part-alpha
                 vg: longhorndata

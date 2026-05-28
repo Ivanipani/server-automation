@@ -110,7 +110,7 @@ Expected request sequence (from the host's IP `10.1.1.106`):
 - `GET /preseed/worker-home-02.cfg`
 - `GET /scripts/image-baseline.sh` (late_command)
 
-The preseed wipes ONLY `/dev/nvme0n1` (per `debian_netboot.install_disk` in `ansible/inventory.yaml`); the Samsung 980 1TB and WDC WD10EZEX HDD are untouched. The install finishes when the host responds on `worker-home-02.lan` again (a minute or two after the final iPXE/HTTP fetch).
+The preseed's `early_command` walks `lsblk` and resolves the install target by matching the `hw: {model, serial}` block on the inventory's `storage.disks` entry marked `select: boot` — every other disk is untouched. The install finishes when the host responds on `worker-home-02.lan` again (a minute or two after the final iPXE/HTTP fetch).
 
 Sanity-ping:
 ```bash
@@ -253,6 +253,6 @@ Once a second worker comes online (Phase 2), Longhorn rebuilds the replica from 
 - `docs/runbooks/longhorn-backup.md` — BackupTarget + RecurringJob wiring; this runbook hard-depends on it.
 - `docs/storage-disk-runbook.md` — single-disk swap on a live worker (different scenario; not a full re-image).
 - `docs/poochella-stability-runbook.md` — incident history for the box (formerly `pve-home-02`, hardware crash loop in 2026-05).
-- `ansible/inventory.yaml` — `worker-home-02` block (`debian_netboot.install_disk`, `boot_macs`, `storage.disks`).
+- `ansible/inventory.yaml` — `worker-home-02` block (`debian_netboot.boot_macs`, `storage.disks` — the `select: boot` entry's `hw: {model, serial}` block is what the preseed resolves at install time).
 - `ansible/group_vars/kube_workers.yml` — Longhorn-related node labels applied at k3s join.
 - `justfile` — `do-foundation`, `do-host-init`, `do-bootserv-config`, `do-router-dhcp`, `disk-plan`, `ssh-refresh`.

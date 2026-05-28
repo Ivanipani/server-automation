@@ -48,24 +48,60 @@ d-i clock-setup/utc boolean true
 d-i time/zone string {{ bootserv_timezone }}
 d-i clock-setup/ntp boolean true
 
-### Partitioning — whole-disk LVM on the inventory-declared install
-### disk. Every other disk on the host is left untouched (free for the
+### Partitioning — whole-disk LVM on the inventory-marked boot disk.
+### Every other disk on the host is left untouched (free for the
 ### post-install host-disks role to carve, if applicable).
+###
+### Install target resolution: the boot disk is pinned in inventory by
+### `storage.disks[?select == 'boot'].hw.{model, serial}` (single
+### source of truth — no parallel `install_disk` field). The
+### `preseed/early_command` below walks lsblk at install time and
+### writes the matching /dev path into the partman-auto/disk and
+### grub-installer/bootdev debconf settings, which the partitioner +
+### grub installer pick up moments later. Resolving at install time
+### (instead of templating a kernel name like `/dev/nvme0n1`) is
+### robust against re-cabling, NVMe slot order, and the SATA/NVMe
+### mix that varies host-to-host.
 ###
 ### ASSUMPTION: the install disk is BLANK at install time. We assume
 ### the operator has wiped it out-of-band — either via the host's BIOS
 ### secure-erase feature or `dd`/`blkdiscard` from a rescue env —
-### before triggering the PXE install. This preseed deliberately does
-### NOT include a `preseed/early_command` to zero the disk + write a
-### fresh GPT label. The earlier attempt to do so via d-i's stripped
-### initrd was unreliable (no `wipefs`/`sgdisk`, partman caching the
-### old layout before `partman/early_command` fires, etc.) and the
-### out-of-band wipe is faster, more thorough, and removes the partman
-### "refuses to overwrite" gate cleanly. If you need to install on a
-### dirty disk in the future, restore the early_command block from
-### git history.
+### before triggering the PXE install. The early_command below does
+### NOT zero the disk. An earlier attempt to do so from d-i's
+### stripped initrd was unreliable (no `wipefs`/`sgdisk`, partman
+### caching the old layout before `partman/early_command` fires,
+### etc.) and the out-of-band wipe is faster, more thorough, and
+### removes the partman "refuses to overwrite" gate cleanly. If you
+### need to install on a dirty disk in the future, restore the wipe
+### block from git history.
+{% set _boot_entry = (hostvars[item].storage.disks | selectattr('select', 'eq', 'boot') | list | first) %}
+{% set _hw = _boot_entry.hw %}
 
-d-i partman-auto/disk string {{ hostvars[item].debian_netboot.install_disk }}
+d-i preseed/early_command string \
+    set -eu; \
+    M='{{ _hw.model }}'; S='{{ _hw.serial }}'; \
+    install_disk=""; \
+    for p in $(lsblk -ndo PATH); do \
+        cur_m=$(lsblk -ndo MODEL "$p"); \
+        cur_s=$(lsblk -ndo SERIAL "$p"); \
+        if [ "$cur_m" = "$M" ] && [ "$cur_s" = "$S" ]; then \
+            install_disk="$p"; break; \
+        fi; \
+    done; \
+    if [ -z "$install_disk" ]; then \
+        echo "FATAL preseed/early_command: no disk matches model='$M' serial='$S' on {{ item }}" >&2; \
+        lsblk -do PATH,MODEL,SERIAL >&2 || true; \
+        sleep 60; exit 1; \
+    fi; \
+    echo "preseed/early_command: resolved install_disk=$install_disk (model='$M' serial='$S')"; \
+    debconf-set partman-auto/disk "$install_disk"; \
+    debconf-set grub-installer/bootdev "$install_disk"
+
+# The two debconf values below are placeholders — the early_command
+# above rewrites them at install time. They are still preseeded so
+# that if the early_command failed silently, partman would refuse
+# (no matching disk) rather than auto-picking one and wiping it.
+d-i partman-auto/disk string /dev/__resolved_by_early_command__
 d-i partman-auto/method string lvm
 d-i partman-lvm/device_remove_lvm boolean true
 d-i partman-md/device_remove_md boolean true
@@ -158,7 +194,7 @@ popularity-contest popularity-contest/participate boolean false
 ### Bootloader
 d-i grub-installer/only_debian boolean true
 d-i grub-installer/with_other_os boolean true
-d-i grub-installer/bootdev string {{ hostvars[item].debian_netboot.install_disk }}
+d-i grub-installer/bootdev string /dev/__resolved_by_early_command__
 
 ### Finish
 d-i finish-install/reboot_in_progress note

@@ -57,9 +57,11 @@ img/burn-to-disc.sh img/debian/output/debian-13-pve-home-01.iso sdb     # Linux
 
 Boot the target from the USB. The default boot entry (`Auto-install
 Debian 13 (<host>)`) selects itself after a 3-second timeout. The
-installer wipes the inventory-declared `debian_install.disk` only —
-**no other disk is touched**, leaving the data drives intact for the
-`host-disks` role to carve post-install.
+installer's `preseed/early_command` walks `lsblk` and resolves the
+install target by matching the `hw: {model, serial}` block on the
+inventory's `storage.disks` entry marked `select: boot` — **no other
+disk is touched**, leaving the data drives intact for the `host-disks`
+role to carve post-install.
 
 When the host comes back up, it'll DHCP onto its reserved IP, accept
 SSH from `ansible@<host>.lan` using `~/.ssh/ansible`, and is ready for
@@ -86,14 +88,17 @@ the existing Ansible playbooks. `just ssh-refresh` will re-seed
 
 Nothing here removes `img/proxmox/`. Both ISOs target the same hardware;
 flash whichever you want for the OS you want on that host. Inventory still
-lists each box under `pve_standalone`; the `debian_install:` block is
-opt-in metadata and the existing `pve-home-XX.toml` for the Proxmox
-auto-installer is untouched.
+lists each box under `pve_standalone`; the boot disk is identified by the
+`storage.disks[?select == 'boot'].hw.{model, serial}` pin (the same pin
+the bootserv netboot preseed uses), and the existing `pve-home-XX.toml`
+for the Proxmox auto-installer is untouched.
 
 ## Adding a third baremetal host
 
 1. Add the host to `ansible/inventory.yaml` with `mac_address` and a
-   `debian_install: { disk: /dev/<device> }` block.
+   `storage.disks` block whose boot entry is marked `select: boot` with
+   `hw: { model, serial }` (`just disk-plan` after a live boot from a
+   rescue medium prints model + serial per disk).
 2. Add its MAC to the OPNsense dnsmasq reservation (`just do-router-dhcp`).
 3. `just baremetal-iso <new-host>`.
 
@@ -115,6 +120,10 @@ alongside the ISO at
   is doing this, the preseed is probably not at `/cdrom/preseed.cfg`.
   Check that `build.sh`'s `xorriso -map` step printed no error and
   inspect the ISO with `xorriso -indev <iso> -find /preseed.cfg`.
-- **Wrong disk wiped** — `debian_install.disk` in inventory must be a
-  stable path (`/dev/sda`, `/dev/nvme0n1`). `just disk-plan` prints
-  current kernel names; cross-check before flashing.
+- **Wrong disk wiped** — the install target is the disk whose live
+  `lsblk` model + serial match the inventory's `storage.disks`
+  boot entry `hw:` pin. `just disk-plan` (or `lsblk -do PATH,MODEL,SERIAL`
+  from a rescue boot) prints what each physical disk reports; cross-check
+  the inventory pin against the actual hardware before flashing. The
+  preseed `early_command` echoes the resolved `/dev/...` path before
+  partitioning, and HARD-FAILS (sleeps 60s, exits 1) if no disk matches.

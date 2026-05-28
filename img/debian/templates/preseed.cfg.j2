@@ -49,10 +49,45 @@ d-i clock-setup/utc boolean true
 d-i time/zone string {{ timezone }}
 d-i clock-setup/ntp boolean true
 
-### Partitioning — whole-disk LVM on the inventory-declared install disk.
+### Partitioning — whole-disk LVM on the inventory-marked boot disk.
 # The host-disks role still owns the post-install `vms` / `longhorn-data`
 # carve on any additional disks; this preseed only owns the boot disk.
-d-i partman-auto/disk string {{ host.debian_install.disk }}
+#
+# Install target resolution: the boot disk is pinned in inventory by
+# `storage.disks[?select == 'boot'].hw.{model, serial}` (single source
+# of truth — no parallel `debian_install.disk` field). The
+# `preseed/early_command` below walks lsblk at install time and writes
+# the matching /dev path into the partman-auto/disk and
+# grub-installer/bootdev debconf settings, identical to the bootserv
+# netboot preseed.
+{% set _boot_entry = (host.storage.disks | selectattr('select', 'eq', 'boot') | list | first) %}
+{% set _hw = _boot_entry.hw %}
+
+d-i preseed/early_command string \
+    set -eu; \
+    M='{{ _hw.model }}'; S='{{ _hw.serial }}'; \
+    install_disk=""; \
+    for p in $(lsblk -ndo PATH); do \
+        cur_m=$(lsblk -ndo MODEL "$p"); \
+        cur_s=$(lsblk -ndo SERIAL "$p"); \
+        if [ "$cur_m" = "$M" ] && [ "$cur_s" = "$S" ]; then \
+            install_disk="$p"; break; \
+        fi; \
+    done; \
+    if [ -z "$install_disk" ]; then \
+        echo "FATAL preseed/early_command: no disk matches model='$M' serial='$S' on {{ target_host }}" >&2; \
+        lsblk -do PATH,MODEL,SERIAL >&2 || true; \
+        sleep 60; exit 1; \
+    fi; \
+    echo "preseed/early_command: resolved install_disk=$install_disk (model='$M' serial='$S')"; \
+    debconf-set partman-auto/disk "$install_disk"; \
+    debconf-set grub-installer/bootdev "$install_disk"
+
+# The two debconf values below are placeholders — the early_command
+# above rewrites them at install time. Still preseeded so that on
+# silent early_command failure, partman refuses rather than auto-
+# picking some disk.
+d-i partman-auto/disk string /dev/__resolved_by_early_command__
 d-i partman-auto/method string lvm
 d-i partman-lvm/device_remove_lvm boolean true
 d-i partman-md/device_remove_md boolean true
@@ -81,7 +116,7 @@ popularity-contest popularity-contest/participate boolean false
 ### Bootloader
 d-i grub-installer/only_debian boolean true
 d-i grub-installer/with_other_os boolean true
-d-i grub-installer/bootdev string {{ host.debian_install.disk }}
+d-i grub-installer/bootdev string /dev/__resolved_by_early_command__
 
 ### Finish
 d-i finish-install/reboot_in_progress note
