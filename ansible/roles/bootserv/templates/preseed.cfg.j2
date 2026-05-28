@@ -21,14 +21,26 @@ d-i mirror/http/hostname string deb.debian.org
 d-i mirror/http/directory string /debian
 d-i mirror/http/proxy string
 
-### Accounts — d-i creates NOTHING here. Root is left without a
-### password (`passwd/root-login false`); no human user is created
-### (`passwd/make-user false`). The late_command wgets + executes
-### the canonical image-baseline.sh from bootserv01, which creates
-### the `ansible` (key-only) + `tourmanager` (password-only break-
-### glass) accounts and explicitly locks root. Same script the VM
-### bake, LXC bake, and PVE first-boot run — single source of truth.
-d-i passwd/root-login boolean false
+### Accounts — d-i creates NOTHING durable here. The late_command
+### wgets + executes the canonical image-baseline.sh from bootserv01,
+### which creates the `ansible` (key-only) + `tourmanager` (password-
+### only break-glass) accounts and explicitly locks root. Same script
+### the VM bake, LXC bake, and PVE first-boot run — single source of
+### truth.
+###
+### Why a throwaway root password is preseeded: Trixie's user-setup
+### refuses to skip BOTH root login AND regular-user creation in the
+### same run (no usable login would remain), so setting both
+### `passwd/root-login false` + `passwd/make-user false` causes the
+### installer to fall back to interactive user-account prompts despite
+### `make-user=false`. Giving root a known temp password satisfies
+### user-setup non-interactively; image-baseline.sh's `usermod -L root`
+### locks the account before first boot completes (and also wipes any
+### root authorized_keys). Net effect on the running host is identical
+### to leaving root unset, with no install-time prompts.
+d-i passwd/root-login boolean true
+d-i passwd/root-password password install-temp-locked-by-late-command
+d-i passwd/root-password-again password install-temp-locked-by-late-command
 d-i passwd/make-user boolean false
 
 ### Clock
