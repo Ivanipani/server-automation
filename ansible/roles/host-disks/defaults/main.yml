@@ -102,15 +102,18 @@
 #       # ── Worker-side, multi-disk pool (NVMe + HDD → one larger pool) ─
 #       # Convention: the mount lives on EXACTLY ONE partition per pool;
 #       # the other partition just declares label/vg/thinpool/size.
-#       - select: { model: "Samsung SSD 980 1TB", serial: "..." }
+#       # Partlabels are opaque ordinals (alpha, beta, gamma, …) in
+#       # disk declaration order — they are GPT idempotency keys only,
+#       # not function names. Function names live on vg/thinpool/mount.
+#       - select: { model: "CT2000P310SSD8", serial: "..." }
 #         partitions:
-#           - label: longhorn-nvme       # bare pool member (no mount, no pve_storage)
+#           - label: part-alpha          # bare pool member (no mount, no pve_storage)
 #             vg: longhorndata
 #             thinpool: longhornthin
 #             size: "0"
 #       - select: { model: "WDC WD10EZEX-...", serial: "..." }
 #         partitions:
-#           - label: longhorn-hdd
+#           - label: part-beta
 #             vg: longhorndata
 #             thinpool: longhornthin
 #             size: "0"

@@ -287,8 +287,8 @@ workers:
       ip_address: 10.1.1.106
       mac_address: "3c:7c:3f:1f:96:af"
       # Debian unattended install: the installer wipes ONLY this disk.
-      # The other disks (1 TB NVMe + WDC HDD) are combined into a single
-      # longhorndata/longhornthin LVM-thin pool, ext4-mounted at
+      # The other disks (2 TB NVMe + WDC 1 TB HDD) are combined into a
+      # single longhorndata/longhornthin LVM-thin pool, ext4-mounted at
       # /var/lib/longhorn for Longhorn baremetal replicas — see the
       # `storage:` block below. The host-disks role realises it from
       # 17-host/15-storage.yml; the Longhorn install (Flux repo) then
@@ -306,14 +306,30 @@ workers:
         boot_macs:
           - "e8:eb:d3:8c:86:bc"
           - "e8:eb:d3:8c:86:bd"
-      # Baremetal kube_worker Longhorn data layout: combine the
-      # second NVMe + the WDC HDD into ONE LVM-thin pool, then put a
-      # single thin LV (`longhorn-data`) on top, ext4'd and mounted at
-      # /var/lib/longhorn. host-disks builds the substrate; Longhorn
-      # (Flux repo) places replicas into that mountpoint. The boot
-      # NVMe (nvme0n1) is owned by the Debian installer above and is
-      # NOT declared here — only data disks. Selectors are attribute-
-      # based: kernel renames + identical-or-larger swap need no edit.
+      # Baremetal kube_worker Longhorn data layout: combine the boot
+      # NVMe's tail + the second NVMe + the WDC HDD into ONE LVM-thin
+      # pool, then put a single thin LV (`longhorn-data`) on top, ext4'd
+      # and mounted at /var/lib/longhorn. host-disks builds the
+      # substrate; Longhorn (Flux repo) places replicas into that
+      # mountpoint. The boot NVMe is partly owned by the Debian
+      # installer — the preseed caps the OS LVM PV at ~120 GiB (root LV)
+      # + ~RAM*2 for swap, leaving the rest of the disk as free space.
+      # host-disks claims that tail via `select: boot` + the
+      # `part-alpha` partition. On the boot disk the role's wipe gate
+      # is bypassed and sgdisk only APPENDS a new GPT entry — existing
+      # partition entries (EFI, LVM PV) and their byte ranges are not
+      # modified. Note: the GPT table itself IS rewritten (header CRCs
+      # + one extra entry); partx -u is used instead of partprobe so
+      # the busy boot disk's kernel state can refresh without
+      # BLKRRPART refusal. The new tail partition is wipe=refuse by
+      # default → if old on-platter signatures bleed through, the
+      # carve HARD-FAILS rather than overwriting in place. Non-boot
+      # disk selectors are attribute-based:
+      # kernel renames + identical-or-larger swap need no edit. The two
+      # 2 TB NVMes have the same model so the data-NVMe selector MUST
+      # pin by serial (model-only would resolve to >1 disk and hard-fail
+      # preflight); the boot NVMe is selected via `select: boot` and so
+      # never participates in attribute matching.
       #
       # Disk signatures: run `just disk-plan` against metal-home-01 to
       # see actual signatures on each data disk. If either disk holds
@@ -323,15 +339,35 @@ workers:
       # otherwise so the role refuses to clobber unexpected data.
       storage:
         disks:
-          - select: { model: "Samsung SSD 980 1TB", serial: "S64ANG0R323366R" }
+          # Partition labels are ordinal (alpha, beta, gamma, …) NOT
+          # function-named. The label is just the GPT partlabel +
+          # idempotency key for host-disks; the consumer (Longhorn) is
+          # named through the vg/thinpool/mount instead. Decouples the
+          # partition layer from any particular consumer — if longhorn
+          # is replaced, only vg/thinpool/mount change, not labels.
+          # Ordinals follow disk declaration order on THIS host (alpha
+          # = first disk's tail partition, beta = second disk, …); they
+          # carry no meaning across hosts.
+          - select: boot
+            # The boot NVMe (~2 TB) — preseed caps the OS LVM PV at
+            # ~120 GiB root + RAM*2 swap; this claims the remaining
+            # ~1.7 TiB tail. sgdisk appends a new GPT entry (the table
+            # is rewritten with one extra entry; the existing EFI + LVM
+            # PV entries and their data are not modified).
             partitions:
-              - label: longhorn-nvme
+              - label: part-alpha
+                vg: longhorndata
+                thinpool: longhornthin
+                size: "0"
+          - select: { model: "CT2000P310SSD8", serial: "254854AC2A9A" }
+            partitions:
+              - label: part-beta
                 vg: longhorndata
                 thinpool: longhornthin
                 size: "0"
           - select: { model: "WDC WD10EZEX-08WN4A0", serial: "WD-WCC6Y1LPLUY3" }
             partitions:
-              - label: longhorn-hdd
+              - label: part-gamma
                 vg: longhorndata
                 thinpool: longhornthin
                 size: "0"

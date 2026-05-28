@@ -90,7 +90,16 @@ d-i partman-auto-lvm/no_boot boolean true
 # Recipe format per partition: `min priority max fs_type` then options.
 #   - ESP:   538/538/1075 MiB FAT32, `method{ efi }`, NOT in LVM
 #   - swap:  1-4 GiB inside LVM, sized at 200% of RAM via priority
-#   - root:  ≥4 GiB inside LVM, priority high + max=-1 → takes the rest
+#   - root:  exactly 120 GiB inside LVM (min=priority=max=122880 MiB)
+#
+# Root is capped (not -1) so the LVM PV partition does NOT consume
+# the whole disk. The free tail is then claimed by the host-disks
+# role via `select: boot` + a tail partition in inventory's
+# `storage.disks` (e.g. metal-home-01: `part-alpha` joining
+# longhorndata/longhornthin). On hosts whose `storage:` block does
+# NOT declare a boot-tail partition, the tail simply sits unused —
+# safe default. 120 GiB is generous for a worker OS + k3s + logs;
+# raise it deliberately (re-image required) if needed.
 #
 # `$iflabel{ gpt }` ensures the ESP entry only fires on GPT disks
 # (which our preseed/early_command guarantees via parted mklabel gpt).
@@ -113,7 +122,7 @@ d-i partman-auto/expert_recipe string                                       \
               method{ swap }                                                 \
               format{ }                                                      \
           .                                                                  \
-          4096 10000 -1 ext4                                                 \
+          122880 122880 122880 ext4                                          \
               $defaultignore{ }                                              \
               $lvmok{ }                                                      \
               lv_name{ root }                                                \

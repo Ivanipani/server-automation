@@ -91,8 +91,10 @@ e.g. pve-home-02: add a 1 TB disk to extend `longhorn-data`.
 2. `just disk-plan` → copy the suggested selector block.
 3. In `inventory.yaml`, add a new `storage.disks` entry whose partition
    reuses `vg: longhorndata / thinpool: longhornthin /
-   pve_storage: longhorn-data` with a **new unique `label` partlabel**
-   (e.g. `longhorn-hdd`). Add `wipe: force` if it shows signatures.
+   pve_storage: longhorn-data` with the **next unused ordinal `label`**
+   in the host's existing alpha→beta→gamma sequence (e.g. if the host
+   already has `part-alpha`/`part-beta`, the new disk's partition is
+   `part-gamma`). Add `wipe: force` if it shows signatures.
 4. `just do-storage`. The `longhorndata` VG extends onto the new PV and
    `lvextend +100%FREE` grows `longhornthin` over it — one combined,
    larger `longhorn-data`. No VM/Longhorn disruption (purely additive at
