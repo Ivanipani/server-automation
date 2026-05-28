@@ -45,7 +45,7 @@
 #     VM boot disks live on the node-local `vms` PVE storage. NO VM
 #     receives a Longhorn-backed data disk: Longhorn replica state lives
 #     ONLY on baremetal kube_workers, which carve their own data disks
-#     directly via `storage:` (see worker-home-02 below).
+#     directly via `storage:` (see metal-home-01 below).
 #   - `lxc: { proxmox_node, cores, memory, disk_size, unprivileged,
 #     features, tags, ... }` → Tofu creates this LXC on Proxmox
 #     (parallels `vm:`). Cloned from `template_ct_ids[proxmox_node]`
@@ -134,8 +134,8 @@
 #                            scaffolding only; 20-hypervisor/20-cluster.yml
 #                            asserts this group is empty.
 #   - `workers`        → plain Linux baremetal (no PVE). k3s baremetal
-#                        workers, app hosts, etc. Today: worker-home-02
-#                        (renamed from pve-home-02 after the gaming-PC
+#                        workers, app hosts, etc. Today: metal-home-01
+#                        (renamed from pve-home-01 after the gaming-PC
 #                        box was de-Proxmoxed to plain Debian; old
 #                        crash-loop unit replaced, pve-home-03 retired).
 #                        Only pve-home-01 remains a hypervisor.
@@ -256,7 +256,7 @@ hypervisors:
           # carved into a single vm-storage pool that backs `vms`.
           # That is the ONLY PVE storage every hypervisor needs:
           # Longhorn replica state lives on baremetal kube_workers
-          # (worker-home-02), never on a hypervisor pool.
+          # (metal-home-01), never on a hypervisor pool.
           storage:
             disks:
               - select: boot
@@ -282,8 +282,8 @@ workers:
   # `all.vars.proxmox_endpoints` / `template_*_ids` and Tofu does not
   # see them (no `vm:` / `lxc:` block).
   hosts:
-    worker-home-02:
-      ansible_host: worker-home-02.lan
+    metal-home-01:
+      ansible_host: metal-home-01.lan
       ip_address: 10.1.1.106
       mac_address: "3c:7c:3f:1f:96:af"
       # Debian unattended install: the installer wipes ONLY this disk.
@@ -315,7 +315,7 @@ workers:
       # NOT declared here — only data disks. Selectors are attribute-
       # based: kernel renames + identical-or-larger swap need no edit.
       #
-      # Disk signatures: run `just disk-plan` against worker-home-02 to
+      # Disk signatures: run `just disk-plan` against metal-home-01 to
       # see actual signatures on each data disk. If either disk holds
       # foreign content (e.g. a prior Windows/ext4 layout on the HDD),
       # set `wipe: force` on THAT disk explicitly here — declared,
@@ -473,7 +473,7 @@ virtual-machines:
   # the VM-provisioning nor the DHCP-reservation path is affected.
   #
   # NOTE: `kubernetes` USED TO be a child of this group when every kube
-  # node was a VM. With a baremetal kube_worker (worker-home-02) that's
+  # node was a VM. With a baremetal kube_worker (metal-home-01) that's
   # no longer true, so `kubernetes` is now a top-level group and the
   # firewall play covers both groups explicitly.
   children:
@@ -579,7 +579,7 @@ kubernetes:
       # kube_control_plane re: no source-CIDR support.
       #
       # `firewall_outbound_deny: []` OPTS OUT of the parent
-      # 30-guests SSH-out deny default: the baremetal worker-home-02
+      # 30-guests SSH-out deny default: the baremetal metal-home-01
       # hosts dev/CI workloads that need git over SSH to GitHub as
       # `pani`. Risk traded off — a worker-side process gaining
       # git-via-SSH egress — is acceptable because the worker is
@@ -592,7 +592,7 @@ kubernetes:
           - { port: 9100, proto: tcp, comment: "node-exporter" }
         firewall_outbound_deny: []
       hosts:
-        worker-home-02:
+        metal-home-01:
 
 containers:
   # LXC guests. Like VMs, each leaf group owns its inbound firewall
@@ -606,7 +606,7 @@ containers:
       # is enough — TFTP + nginx are cheap and there's no reason to
       # shard. Tagged `infra` so its Tofu module precedes every VM
       # module on the same node (the ground-up bootstrap invariant).
-      # Lives on pve-home-01 so it survives the worker-home-02 re-image
+      # Lives on pve-home-01 so it survives the metal-home-01 re-image
       # that triggers most iPXE boots.
       hosts:
         bootserv01:
