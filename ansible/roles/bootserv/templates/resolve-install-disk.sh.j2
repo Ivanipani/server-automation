@@ -25,11 +25,16 @@
 #
 # On failure
 # ----------
-#   The installer is left running (`sleep 3600`) instead of dying
-#   silently. You have an hour to:
-#     - Alt+F4: read the resolver log on the d-i syslog console.
-#     - Alt+F2: get a busybox shell. `cat /tmp/install-resolver.log`.
-#   Then power-cycle to retry once inventory or hardware is fixed.
+#   exit 1 → partman/early_command propagates the failure, d-i shows
+#   its standard "command failed" dialog on tty1 (the install screen)
+#   and waits for input. That's the LOUD signal the operator needs.
+#   While d-i is parked at that dialog:
+#     - Alt+F4: read the resolver log on the d-i syslog console
+#     - Alt+F2: busybox shell  →  cat /tmp/install-resolver.log
+#     - Alt+F1: back to the install screen
+#   Earlier versions sleep'd 1h here — that masked the failure (no
+#   loud dialog, just a hung progress bar) and made it easy to walk
+#   away thinking the install was still working.
 
 set -e
 
@@ -94,20 +99,30 @@ if [ -z "$install_disk" ]; then
 ================================================================
   INSTALL HALTED on {{ item }}
 
+  >>> DEBUG: press these keys (top-row Fn keys on the host) <<<
+       Alt+F2  →  busybox shell
+                    cat $LOG
+                    lsblk -do NAME,MODEL,SERIAL
+                    ls /sys/block
+       Alt+F4  →  d-i syslog console (this banner)
+       Alt+F1  →  back to the install screen
+
   resolver could not find a disk matching the inventory hw pin:
     expected model='$EXPECTED_MODEL'
     expected serial='$EXPECTED_SERIAL'
 
-  full log: $LOG  (Alt+F2 for a shell)
-  d-i syslog: Alt+F4
+  Fix: update storage.disks[0].hw in ansible/inventory.yaml with the
+       model + serial of one of the candidates above (whitespace-
+       stripped), then \`just do-bootserv-config\` on the control node
+       and reboot the host.
 
-  Sleeping 1 hour so you can investigate before the box reboots.
+  Exiting non-zero so partman fails loudly (d-i dialog on tty1)
+  instead of hanging the install indefinitely.
 ================================================================
 "
     printf '%s' "$BANNER" >>"$LOG"
     printf '%s' "$BANNER" >/dev/tty4 2>/dev/null || true
     printf '%s' "$BANNER" >/dev/kmsg 2>/dev/null || true
-    sleep 3600
     exit 1
 fi
 
@@ -129,7 +144,7 @@ elif command -v debconf-set >/dev/null 2>&1; then
     say "  set via debconf-set wrapper"
 else
     say "FATAL: no debconf write path available (no confmodule, no debconf-set)"
-    sleep 3600
+    say "  debug: Alt+F2 = busybox shell  |  Alt+F4 = d-i syslog  |  Alt+F1 = install screen"
     exit 1
 fi
 

@@ -202,6 +202,23 @@
   loop_control:
     label: "{{ item }}"
 
+# Generic pre-netcfg install-NIC resolver. Same idea as the disk
+# resolver but BEFORE netcfg instead of partman: fetched + executed by
+# the preseed's `preseed/early_command`. Walks /sys/class/net, picks
+# the first NIC with carrier, udhcpc's a lease, db_set's
+# netcfg/disable_autoconfig=true + every netcfg/get_* so netcfg runs
+# in MANUAL mode. This sidesteps netcfg's down/up cycle that breaks
+# slow SFP+/DAC PHYs and makes the install port-agnostic — whichever
+# NIC the operator cables is the one the install uses. Not per-host
+# (the logic is identical); rendered once at /scripts/.
+- name: Render generic install-NIC resolver
+  ansible.builtin.template:
+    src: resolve-install-iface.sh.j2
+    dest: "{{ bootserv_http_root }}/scripts/resolve-install-iface.sh"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0644"
+
 # Per-host install-disk resolver. The preseed's `partman/early_command`
 # wgets this and `sh`'s it; the resolver walks /sys/block, matches the
 # inventory hw pin (model + serial), and debconf-sets partman-auto/disk +
@@ -223,6 +240,24 @@
     # Same lookup the preseed template uses, so the rendered script
     # carries the expected model + serial baked in.
     _hw: "{{ (hostvars[item].storage.disks | selectattr('select', 'eq', 'boot') | list | first).hw }}"
+
+# Per-host post-partman cleanup. The preseed's `preseed/late_command`
+# wgets this and `sh`'s it BEFORE running image-baseline.sh. It
+# converts the 4th "spare" partition that partman creates per the
+# `uefi-spare` recipe (ext4 mounted /opt/spare) into a raw
+# partlabel-only partition for host-disks to consume — unmounts the
+# spare, strips it from fstab, wipefs the install-time ext4
+# signature, and sgdisk -c's the GPT partlabel to "part-alpha".
+- name: Render per-host post-partman cleanup script
+  ansible.builtin.template:
+    src: cleanup-spare.sh.j2
+    dest: "{{ bootserv_http_root }}/scripts/{{ item }}-cleanup-spare.sh"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0640"
+  loop: "{{ bootserv_netboot_hosts }}"
+  loop_control:
+    label: "{{ item }}"
 
 # ── Canonical image-baseline.sh -----------------------------------
 # Single source of truth applied to every freshly-installed or

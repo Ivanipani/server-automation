@@ -7,9 +7,43 @@
 d-i debian-installer/locale string en_US.UTF-8
 d-i keyboard-configuration/xkb-keymap select us
 
-### Network — DHCP. Static IP comes from the OPNsense reservation tied
-### to the booting NIC's MAC.
+### Network — resolved by preseed/early_command BEFORE netcfg runs.
+### Static IP comes from the OPNsense reservation tied to the cabled
+### NIC's MAC, but DHCP is done by `resolve-install-iface.sh` (fetched
+### from bootserv01), not by netcfg. The resolver:
+###   1. brings every real NIC up,
+###   2. waits up to 30s for any NIC to show carrier,
+###   3. udhcpc-grabs a lease on that NIC,
+###   4. db_set's netcfg/disable_autoconfig=true + every netcfg/get_*
+###      so netcfg runs in MANUAL mode (it just applies our values,
+###      never touches the PHY).
+### Why this is the durable port-agnostic fix: netcfg's own auto flow
+### does an `ip link set down/up` cycle between picking an interface
+### and starting DHCP, and slow SFP+/DAC PHYs (Mellanox CX4,
+### Realtek 2.5G, Broadcom NetXtreme) take 5–10s to re-link after
+### that cycle. With auto, whether netcfg succeeds depends on which
+### NIC is cabled — i.e. which PHY is asked to race a fixed timeout.
+### Resolving once in early_command, on a warm PHY, removes the race.
+### The link_wait_timeout / dhcp_timeout bumps below are belt-and-
+### suspenders: if early_command bails for any reason and netcfg
+### falls back to its own DHCP, the bumped timeouts give slow PHYs
+### the room they need. The choose_interface=auto fallback is the
+### same — used only if disable_autoconfig wasn't flipped.
+###
+### Both values are preseed-time only; the installed system uses its
+### own NetworkManager/ifupdown configuration.
+d-i preseed/early_command string \
+    set -e; \
+    URL=http://bootserv01.lan/scripts/resolve-install-iface.sh; \
+    SCRIPT=/tmp/resolve-install-iface.sh; \
+    if ! wget -q -O "$SCRIPT" "$URL"; then \
+        echo "WARN: could not fetch $URL — falling back to netcfg auto" >/dev/tty4; \
+    else \
+        sh "$SCRIPT" || echo "WARN: resolver exited non-zero — falling back to netcfg auto" >/dev/tty4; \
+    fi
 d-i netcfg/choose_interface select auto
+d-i netcfg/link_wait_timeout string 30
+d-i netcfg/dhcp_timeout string 60
 d-i netcfg/hostname string {{ item }}
 d-i netcfg/get_hostname string {{ item }}
 d-i netcfg/get_domain string {{ hostvars[item].domain | default(domain | default('lan')) }}
@@ -85,9 +119,10 @@ d-i partman/early_command string \
     SCRIPT=/tmp/resolve-install-disk.sh; \
     if ! wget -q -O "$SCRIPT" "$URL"; then \
         echo "FATAL: could not fetch $URL" >/dev/tty4; \
-        sleep 3600; exit 1; \
+        echo "  debug: Alt+F2 = busybox shell  |  Alt+F4 = d-i syslog  |  Alt+F1 = install screen" >/dev/tty4; \
+        exit 1; \
     fi; \
-    sh "$SCRIPT" || { sleep 3600; exit 1; }
+    sh "$SCRIPT"
 
 # The two debconf values below are placeholders — the early_command
 # above rewrites them at install time. They are still preseeded so
@@ -187,41 +222,30 @@ d-i finish-install/reboot_in_progress note
 ### The script contains the vault-derived tourmanager password hash,
 ### so it's `rm`'d in the same compound after it executes — only
 ### the resulting /etc/shadow entry persists on the installed host.
-### Spare → part-alpha cleanup (RUNS FIRST, before image-baseline).
-### The preseed recipe above creates a 4th "spare" ext4 partition
-### that absorbs the disk's leftover so root stays at exactly 100
-### GiB. We don't actually want it ext4-mounted on /opt/spare —
-### we want it as a raw partition labeled "part-alpha" so the
-### post-install host-disks role can pvcreate on it.
+### Late_command: two phases, both run from external scripts fetched
+### off bootserv01 (same pattern as partman/early_command above).
 ###
-### Steps:
-###   1. Read install_disk from /tmp/install_disk.path (resolver
-###      wrote it in partman/early_command).
-###   2. swapoff if relevant (defensive — spare isn't swap here, but
-###      umount /target/opt/spare first if mounted).
-###   3. Remove the /opt/spare line from /target's fstab so the
-###      installed system doesn't try to mount it on boot.
-###   4. wipefs -a on the partition to clear the install-time ext4
-###      signature (host-disks would otherwise refuse it).
-###   5. sgdisk -c 4:part-alpha to set the GPT partlabel so
-###      host-disks recognises the partition via
-###      /dev/disk/by-partlabel/part-alpha.
-###   6. rmdir /target/opt/spare so the empty mountpoint dir
-###      doesn't ship in the installed system.
-###
-### Then image-baseline.sh runs as before (users, sshd, root lock).
+###   1. cleanup-spare.sh — converts the partman "spare" partition
+###      (ext4 mounted /opt/spare during install) into a raw
+###      partlabel-only partition labelled "part-alpha", ready for
+###      the post-install host-disks role. `set -e` inside the
+###      script halts loudly on any failure; the inline form this
+###      replaced silently no-op'd because $INSTALL_DISK was empty
+###      (d-i's /tmp doesn't reliably persist between
+###      partman/early_command and preseed/late_command).
+###   2. image-baseline.sh — the canonical first-boot script
+###      (users, sshd hardening, apt-no-auto-upgrades, root lock).
+###      Runs `in-target` since it operates on the installed system.
 d-i preseed/late_command string \
-    INSTALL_DISK=$(cat /tmp/install_disk.path); \
-    case "$INSTALL_DISK" in \
-        *nvme*|*mmc*) P4="${INSTALL_DISK}p4" ;; \
-        *)            P4="${INSTALL_DISK}4"   ;; \
-    esac; \
-    umount /target/opt/spare 2>/dev/null || true; \
-    sed -i '\#[[:space:]]/opt/spare[[:space:]]#d' /target/etc/fstab; \
-    wipefs -a "$P4"; \
-    sgdisk -c 4:part-alpha "$INSTALL_DISK"; \
-    udevadm settle; \
-    rmdir /target/opt/spare 2>/dev/null || true; \
+    set -e ; \
+    URL=http://bootserv01.lan/scripts/{{ item }}-cleanup-spare.sh ; \
+    SCRIPT=/tmp/cleanup-spare.sh ; \
+    if ! wget -q -O "$SCRIPT" "$URL" ; then \
+        echo "FATAL: could not fetch $URL" >/dev/tty4 ; \
+        echo "  debug: Alt+F2 = busybox shell  |  Alt+F4 = d-i syslog  |  Alt+F1 = install screen" >/dev/tty4 ; \
+        exit 1 ; \
+    fi ; \
+    sh "$SCRIPT" ; \
     in-target wget -qO /var/tmp/image-baseline.sh http://bootserv01.lan/scripts/image-baseline.sh ; \
     in-target bash /var/tmp/image-baseline.sh ; \
     in-target rm /var/tmp/image-baseline.sh

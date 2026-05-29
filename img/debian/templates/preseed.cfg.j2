@@ -8,7 +8,15 @@ d-i keyboard-configuration/xkb-keymap select us
 
 ### Network — DHCP only. The host's static IP is owned by the OPNsense
 ### dnsmasq reservation tied to MAC(s) {{ host.mac_addresses | join(', ') }}.
+###
+### Slow-PHY hardening (see the matching block in
+### ansible/roles/bootserv/templates/preseed.cfg.j2 for the full
+### rationale). Default netcfg/link_wait_timeout=3 is too short for
+### the onboard 2.5G/10G PHYs we have in the fleet — round-2 reset
+### kills the link before autoneg finishes, netcfg gives up.
 d-i netcfg/choose_interface select auto
+d-i netcfg/link_wait_timeout string 30
+d-i netcfg/dhcp_timeout string 60
 d-i netcfg/hostname string {{ target_host }}
 d-i netcfg/get_hostname string {{ target_host }}
 d-i netcfg/get_domain string {{ domain }}
@@ -85,8 +93,8 @@ d-i partman/early_command string \
     done; \
     cat "$LOG" >/dev/tty4 2>/dev/null || true; \
     if [ -z "$install_disk" ]; then \
-        { echo; echo "================================================================"; echo "  INSTALL HALTED on {{ target_host }}: no disk matches inventory hw pin"; echo "    expected model='$M' serial='$S'"; echo "  log: $LOG  (Alt+F2 for shell, Alt+F4 for syslog)"; echo "  Sleeping 1h."; echo "================================================================"; } | tee -a "$LOG" >/dev/tty4 2>/dev/null || true; \
-        sleep 3600; exit 1; \
+        { echo; echo "================================================================"; echo "  INSTALL HALTED on {{ target_host }}: no disk matches inventory hw pin"; echo "    expected model='$M' serial='$S'"; echo "  >>> DEBUG: Alt+F2=shell  Alt+F4=syslog  Alt+F1=install screen"; echo "  log: $LOG"; echo "  Exiting non-zero so partman fails loudly instead of hanging."; echo "================================================================"; } | tee -a "$LOG" >/dev/tty4 2>/dev/null || true; \
+        exit 1; \
     fi; \
     echo "RESOLVED install_disk=$install_disk" | tee -a "$LOG" >/dev/tty4 2>/dev/null || true; \
     if [ -r /usr/share/debconf/confmodule ]; then \

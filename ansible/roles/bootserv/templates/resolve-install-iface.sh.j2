@@ -1,0 +1,296 @@
+#!/bin/sh
+# Rendered by roles/bootserv from ansible/inventory.yaml — do not edit by hand.
+#
+# Pre-netcfg install-NIC resolver. Fetched + executed by the
+# `preseed/early_command` line in every per-host preseed. Hosted at:
+#   http://bootserv01.lan/scripts/resolve-install-iface.sh
+#
+# What it does
+# ------------
+#   1. Walks /sys/class/net, brings every real NIC admin-up so PHYs
+#      can negotiate link.
+#   2. Polls /sys/class/net/<n>/carrier for up to CARRIER_WAIT_SECONDS,
+#      picks the FIRST NIC reporting carrier=1.
+#   3. Runs udhcpc against that NIC, captures the lease values via a
+#      callback script that writes them to /tmp/install-iface-lease.
+#   4. db_set's netcfg/choose_interface + netcfg/disable_autoconfig=true
+#      + netcfg/get_{ipaddress,netmask,gateway,nameservers} so netcfg
+#      runs in MANUAL mode — it just applies the values we computed
+#      and never touches the PHY itself.
+#
+# Why bypass netcfg's own DHCP cycle
+# ----------------------------------
+# netcfg's auto flow does an `ip link set down` + `ip link set up`
+# cycle between picking an interface and starting DHCP. Slow SFP+/DAC
+# PHYs (Mellanox CX4, Realtek 2.5G, Broadcom NetXtreme) can take
+# 5–10s to re-establish link after that cycle, exceeding netcfg's
+# default link_wait_timeout (3s; we already bumped it to 30s in the
+# preseed). Even with the bumped wait, the cycle is fragile on DAC
+# links because the link partner doesn't always trigger fresh
+# negotiation on the LOS recover. Resolving DHCP HERE — once, on a
+# warm PHY, never tearing it back down — sidesteps the whole race
+# and is port-agnostic: whichever NIC the operator cabled is the one
+# we'll use.
+#
+# Logging mirrors the install-disk resolver: full log at
+# /tmp/install-iface-resolver.log, progress also tee'd to tty4
+# (Alt+F4), critical banners also to /dev/kmsg.
+
+set -e
+
+LOG=/tmp/install-iface-resolver.log
+LEASE=/tmp/install-iface-lease
+CARRIER_WAIT_SECONDS=30
+DHCP_TIMEOUT_SECONDS=20
+
+: > "$LOG"
+exec >>"$LOG" 2>&1
+say() { printf '%s\n' "$*" >>"$LOG"; printf '%s\n' "$*" >/dev/tty4 2>/dev/null || true; }
+
+say "===== $(date) resolve-install-iface ====="
+
+# Skip virtual / pseudo interfaces. A real NIC has a /sys/class/net/<n>/device
+# symlink to a PCI/USB device.
+is_real_nic() {
+    n=$1
+    case "$n" in
+        lo|sit*|tun*|tap*|bond*|veth*|br*|dummy*|gre*|teql*) return 1 ;;
+    esac
+    [ -e "/sys/class/net/$n/device" ] || return 1
+    return 0
+}
+
+# Bring every real NIC admin-up so the PHY can negotiate.
+say "--- bringing up all real NICs ---"
+for i in /sys/class/net/*; do
+    n=${i##*/}
+    is_real_nic "$n" || { say "  skip $n (virtual/pseudo)"; continue; }
+    mac=$(cat "/sys/class/net/$n/address" 2>/dev/null || echo '?')
+    say "  ip link set $n up   (mac=$mac)"
+    ip link set "$n" up 2>/dev/null || say "    (link up failed, continuing)"
+done
+
+# Poll for the first NIC to show carrier.
+say "--- polling for carrier (up to ${CARRIER_WAIT_SECONDS}s) ---"
+chosen=""
+for try in $(seq 1 "$CARRIER_WAIT_SECONDS"); do
+    for i in /sys/class/net/*; do
+        n=${i##*/}
+        is_real_nic "$n" || continue
+        if [ "$(cat "/sys/class/net/$n/carrier" 2>/dev/null)" = "1" ]; then
+            chosen="$n"
+            break 2
+        fi
+    done
+    sleep 1
+done
+
+if [ -z "$chosen" ]; then
+    say ""
+    say "FATAL: no NIC has carrier after ${CARRIER_WAIT_SECONDS}s"
+    BANNER="
+================================================================
+  RESOLVER FAILED: no NIC has link.
+
+  >>> DEBUG: press these keys (top-row Fn keys on the host) <<<
+       Alt+F2  →  busybox shell
+                    cat $LOG
+                    ip -br link
+                    ethtool <nic>  (if present)
+       Alt+F4  →  d-i syslog console (this banner)
+       Alt+F1  →  back to the install screen
+
+  Detected interfaces:
+$(for i in /sys/class/net/*; do
+    n=${i##*/}
+    is_real_nic "$n" || continue
+    printf '    %-12s mac=%s\n' "$n" "$(cat /sys/class/net/$n/address 2>/dev/null)"
+done)
+
+  Fix: plug a cable into any NIC and reboot, OR fall back to d-i's
+       manual interface picker by exiting now and pressing Go Back
+       at the network step. The preseed/early_command wrapper will
+       fall through to netcfg auto on resolver failure.
+
+  Exiting non-zero — the wrapper will log a WARN and let netcfg
+  retry on its own (slow-PHY-hardened with link_wait_timeout=30).
+================================================================
+"
+    printf '%s' "$BANNER" >>"$LOG"
+    printf '%s' "$BANNER" >/dev/tty4 2>/dev/null || true
+    printf '%s' "$BANNER" >/dev/kmsg 2>/dev/null || true
+    exit 1
+fi
+
+chosen_mac=$(cat "/sys/class/net/$chosen/address" 2>/dev/null)
+say ""
+say "carrier detected on $chosen (mac=$chosen_mac)"
+say ""
+
+# --- DHCP via udhcpc ---------------------------------------------------
+# udhcpc invokes a callback script for each lifecycle event with lease
+# values in env vars. We use a one-shot callback that just records the
+# bound values; udhcpc exits after the first lease (-q) and we read the
+# file.
+say "--- requesting DHCP lease on $chosen (timeout ${DHCP_TIMEOUT_SECONDS}s) ---"
+cat > /tmp/udhcpc-record.sh <<'EOF'
+#!/bin/sh
+case "$1" in
+    bound|renew)
+        {
+            printf 'iface=%s\n'   "$interface"
+            printf 'ip=%s\n'      "$ip"
+            printf 'subnet=%s\n'  "$subnet"
+            printf 'router=%s\n'  "$router"
+            printf 'dns=%s\n'     "$dns"
+            printf 'domain=%s\n'  "$domain"
+            printf 'serverid=%s\n' "$serverid"
+        } > /tmp/install-iface-lease
+        ;;
+esac
+EOF
+chmod +x /tmp/udhcpc-record.sh
+
+rm -f "$LEASE"
+if ! udhcpc -n -q -i "$chosen" -t "$DHCP_TIMEOUT_SECONDS" -s /tmp/udhcpc-record.sh 2>&1; then
+    say "FATAL: udhcpc returned non-zero (no lease in ${DHCP_TIMEOUT_SECONDS}s)"
+    say "  carrier was up on $chosen ($chosen_mac) but no DHCP offer."
+    say "  Check OPNsense reservation for that MAC."
+    say "  debug: Alt+F2 = busybox shell  |  Alt+F4 = d-i syslog  |  Alt+F1 = install screen"
+    exit 1
+fi
+
+if [ ! -s "$LEASE" ]; then
+    say "FATAL: udhcpc exited 0 but no lease was recorded at $LEASE"
+    say "  debug: Alt+F2 = busybox shell  |  Alt+F4 = d-i syslog  |  Alt+F1 = install screen"
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+. "$LEASE"
+
+say "DHCP success: ip=$ip subnet=$subnet router=$router dns=$dns domain=$domain"
+
+# --- Hand the resolved network to netcfg in MANUAL mode ---------------
+# disable_autoconfig=true short-circuits netcfg's DHCP path; it then
+# uses the get_* values directly. db_fset .. seen true marks each as
+# answered so netcfg doesn't prompt.
+if [ ! -r /usr/share/debconf/confmodule ]; then
+    say "FATAL: /usr/share/debconf/confmodule missing — cannot hand values to netcfg"
+    say "  debug: Alt+F2 = busybox shell  |  Alt+F4 = d-i syslog  |  Alt+F1 = install screen"
+    exit 1
+fi
+# shellcheck disable=SC1091
+. /usr/share/debconf/confmodule
+
+set_seen() {
+    db_set "$1" "$2"
+    db_fset "$1" seen true
+}
+
+set_seen netcfg/choose_interface  "$chosen"
+set_seen netcfg/disable_autoconfig true
+set_seen netcfg/get_ipaddress     "$ip"
+set_seen netcfg/get_netmask       "$subnet"
+set_seen netcfg/get_gateway       "$router"
+set_seen netcfg/get_nameservers   "$dns"
+# get_hostname / get_domain are also preseeded in the per-host preseed;
+# we set get_domain here too so it tracks what the lease actually said,
+# but the preseed wins on collision.
+if [ -n "$domain" ]; then
+    set_seen netcfg/get_domain "$domain"
+fi
+# Confirmation prompts that netcfg would otherwise raise in manual mode.
+db_fset netcfg/confirm_static seen true 2>/dev/null || true
+db_set  netcfg/confirm_static true     2>/dev/null || true
+
+say "  netcfg/choose_interface     = $chosen"
+say "  netcfg/disable_autoconfig   = true"
+say "  netcfg/get_ipaddress        = $ip"
+say "  netcfg/get_netmask          = $subnet"
+say "  netcfg/get_gateway          = $router"
+say "  netcfg/get_nameservers      = $dns"
+
+# --- Apply the network to the LIVE kernel ourselves -------------------
+# netcfg in manual mode is supposed to do this, but in practice it
+# sometimes writes /etc/network/interfaces (for the installed system)
+# without actually configuring d-i's runtime interface — at which
+# point the mirror fetch in choose-mirror fails with "bad mirror"
+# because there's no network to fetch over.
+#
+# Applying it here is authoritative. We flush whatever udhcpc may
+# have set (it didn't, with our custom -s callback, but defensive),
+# then `ip addr add` + `ip route add default` + write /etc/resolv.conf.
+# By the time netcfg runs, the network is already up; netcfg's
+# manual-mode application is then idempotent (it may re-add the same
+# address with EEXIST → harmless) and only the get_* values it writes
+# into the installed system's /etc/network/interfaces matter.
+say ""
+say "--- applying lease to live kernel ($chosen) ---"
+
+# Convert dotted netmask → prefix length (BusyBox sh-friendly).
+mask_to_prefix() {
+    m=$1
+    bits=0
+    for o in $(echo "$m" | tr '.' ' '); do
+        case $o in
+            255) bits=$((bits+8)) ;;
+            254) bits=$((bits+7)); break ;;
+            252) bits=$((bits+6)); break ;;
+            248) bits=$((bits+5)); break ;;
+            240) bits=$((bits+4)); break ;;
+            224) bits=$((bits+3)); break ;;
+            192) bits=$((bits+2)); break ;;
+            128) bits=$((bits+1)); break ;;
+            0)   break ;;
+            *)   echo 24; return ;;
+        esac
+    done
+    echo "$bits"
+}
+prefix=$(mask_to_prefix "$subnet")
+
+ip addr flush dev "$chosen" 2>/dev/null || true
+ip addr add "$ip/$prefix" dev "$chosen"
+ip link set "$chosen" up
+ip route del default 2>/dev/null || true
+ip route add default via "$router" dev "$chosen"
+
+# /etc/resolv.conf: $dns can be space-separated. Write one line per server.
+{
+    [ -n "$domain" ] && printf 'search %s\n' "$domain"
+    for ns in $dns; do
+        printf 'nameserver %s\n' "$ns"
+    done
+} > /etc/resolv.conf
+
+say "  ip addr add $ip/$prefix dev $chosen"
+say "  ip route add default via $router dev $chosen"
+say "  /etc/resolv.conf:"
+sed 's/^/    /' /etc/resolv.conf >>"$LOG"
+
+# Quick post-apply sanity probe so failures show up HERE, not 4 steps
+# later in choose-mirror.
+say ""
+say "--- reachability probe ---"
+if ping -c1 -W2 "$router" >/dev/null 2>&1; then
+    say "  gateway reachable: $router"
+else
+    say "  WARN: gateway NOT reachable ($router) — check L2 / cabling / VLAN"
+fi
+if ping -c1 -W2 1.1.1.1 >/dev/null 2>&1; then
+    say "  WAN reachable: 1.1.1.1"
+else
+    say "  WARN: WAN NOT reachable — OPNsense NAT/firewall? lease IP outside LAN?"
+fi
+# nslookup may not exist in busybox d-i; use a noisy fallback.
+if command -v nslookup >/dev/null 2>&1; then
+    nslookup deb.debian.org 2>&1 | sed 's/^/    /' >>"$LOG"
+else
+    # busybox d-i usually has `getent hosts` via NSS.
+    getent hosts deb.debian.org 2>&1 | sed 's/^/    /' >>"$LOG" || true
+fi
+
+say ""
+say "===== resolver done at $(date) ====="
+exit 0

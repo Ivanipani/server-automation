@@ -178,35 +178,12 @@ all:
     network_gateway: "10.1.1.1"
     network_cidr: "/24"
     ansible_python_interpreter: /usr/bin/python3
-    # Proxmox API endpoints, one per HYPERVISOR. Read by Tofu via
-    # tofu/modules/hypervisor/locals.tf, then consumed by each per-node
-    # workspace's provider.tf (tofu/per-node/<host>/). Every hypervisor
-    # is standalone — there is no shared API, so each node must be
-    # addressed directly. Workers (plain Linux baremetal) do NOT appear
-    # here — they don't run the PVE API. Adding a hypervisor: see the
-    # checklist in tofu/README.md.
     proxmox_endpoints:
       pve-home-01: "https://pve-home-01.lan:8006"
-    # Per-hypervisor Proxmox template IDs. Read by Ansible
-    # (04-prepare-templates.yml) and Tofu (tofu/locals.tf). VM storage is
-    # node-local LVM-thin, so every hypervisor bakes its own local
-    # template. These maps are the single source of truth — no offset
-    # arithmetic, no group-ordering coupling. The value is each node's
-    # *anchor* (first/default template) ID; 04-prepare-templates.yml
-    # builds the per-image-family templates as anchor+0, anchor+1, … in
-    # vm_templates_base / lxc_templates_base order on each node. Tofu
-    # clones each VM from `template_vm_ids[its proxmox_node]` (the
-    # default = first VM template). Per-VM override: set `vm.template_id`
-    # on a host below (used verbatim). Keep anchors ≥ (#templates) apart
-    # so families don't collide.
     template_vm_ids:
       pve-home-01: 9001
-      # pve-home-03: 9021
-      # pve-home-04: 9031
     template_ct_ids:
       pve-home-01: 9101
-      # pve-home-03: 9121
-      # pve-home-04: 9131
 
 router:
   hosts:
@@ -216,17 +193,10 @@ router:
       static_ip: true
 
 physical:
-  # Baseline inbound policy for EVERY baremetal Linux host (hypervisors
-  # + workers). SSH 22/tcp is hardcoded by the firewall-basic role —
-  # this list is for service ports on top of that. Deeper groups
-  # (`hypervisors`, `kube_workers`) REPLACE this list with their own.
   vars:
     firewall_inbound_allow:
       - { proto: tcp, port: 22, comment: "ssh" }
       - { proto: tcp, port: 9100, comment: "node-exporter" }
-    # Default NFS mounts for every physical host. Deeper groups
-    # REPLACE this list (no merge — see header), so `hypervisors`
-    # re-lists these entries below and adds its own on top.
     nfs_mounts:
       - share: build-artifacts
         path: /mnt/nas/build-artifacts
@@ -243,27 +213,11 @@ foundation:
     pve-home-01:
 
 hypervisors:
-  # PVE hypervisors only. The 20-hypervisor tier targets this group
-  # (Proxmox repo flip, LVM-thin storage carve, template bake). Every
-  # PVE host lives under `pve_standalone`; the sibling `pve_cluster`
-  # group is gated off (see header) and exists only as deprecated
-  # scaffolding.
   vars:
-    # PVE web UI on top of the baseline SSH. SSH is repeated here only
-    # because this list REPLACES `physical.firewall_inbound_allow`;
-    # the role hardcodes SSH so removing it would still leave SSH open.
     firewall_inbound_allow:
       - { port: 22, proto: tcp }
       - { port: 8006, proto: tcp, comment: "PVE web UI" }
       - { port: 9100, proto: tcp, comment: "node-exporter" }
-    # NFS mounts for hypervisors. REPLACES (does not merge) the
-    # parent `physical.nfs_mounts`, so the `build-artifacts`
-    # and `scratch` mounts are re-listed here. The hypervisor-only
-    # addition is `proxmox` — originally the publish target for the
-    # deleted 20-hypervisor/40-bake-images.yml (Packer → NAS image-bake
-    # path); the current bake flow publishes to bootserv01 HTTP instead
-    # (13-foundation/95-bake-publish-images.yml). Retained for manual
-    # workflows / backups; remove if unused.
     nfs_mounts:
       - share: build-artifacts
         path: /mnt/nas/build-artifacts
@@ -271,25 +225,14 @@ hypervisors:
       - share: scratch
         path: /mnt/nas/scratch
         options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
-      - share: proxmox
-        path: /mnt/nas/proxmox
-        options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
   children:
     pve_standalone:
-      # Independent PVE nodes — no corosync, no HA, no live-migration.
       hosts:
         pve-home-01:
           ansible_host: pve-home-01.lan
           ip_address: 10.1.1.105
           mac_addresses:
             - "18:60:24:dc:b7:32"
-          # Mini-PC: a single 256 GB boot NVMe is the ONLY storage.
-          # PVE installer takes the first ~100 GiB (lvm.hdsize=100) as
-          # the `pve` VG (hypervisor); the free tail (~156 GiB) is
-          # carved into a single vm-storage pool that backs `vms`.
-          # That is the ONLY PVE storage every hypervisor needs:
-          # Longhorn replica state lives on baremetal kube_workers
-          # (metal-home-01), never on a hypervisor pool.
           storage:
             disks:
               - select: boot
@@ -301,109 +244,20 @@ hypervisors:
                     content: images,rootdir,iso,vztmpl,snippets
                     size: "0"          # fill the boot tail
     pve_cluster:
-      # GATED OFF: PVE clustering is fully disabled in this repo by an
-      # assertion in playbooks/poochella/infra/20-hypervisor/20-cluster.yml.
-      # Group kept (empty) as deprecated scaffolding for reference.
-      # Every hypervisor is standalone — keep them under `pve_standalone`.
       children: {}
 
 workers:
-  # Plain Linux baremetal hosts (no PVE). k3s baremetal workers, app
-  # hosts, etc. These boxes get the full 17-host baseline (users,
-  # ssh-hardening, firewall, tailscale, node-exporter) but skip the
-  # 20-hypervisor tier entirely. They DO NOT appear in
-  # `all.vars.proxmox_endpoints` / `template_*_ids` and Tofu does not
-  # see them (no `vm:` / `lxc:` block).
   hosts:
     metal-home-01:
       ansible_host: metal-home-01.lan
       ip_address: 10.1.1.106
-      # Every NIC's MAC: the onboard 1GbE (used for everyday Ansible
-      # traffic + the dnsmasq-bound `ip_address`) and both Mellanox
-      # ConnectX-4 Lx 10GbE ports. Every MAC is reserved on OPNsense
-      # to this host's `ip_address` and dispatched in the rendered
-      # iPXE script, so PXE works regardless of which NIC is cabled /
-      # first in BIOS boot order. The preseed (served by bootserv01
-      # over HTTP) wipes ONLY the boot disk — identified by
-      # `storage.disks` entry `select: boot` + its `hw: {model, serial}`
-      # pin (see below). Both Debian install paths (bootserv netboot
-      # + img/debian ISO) resolve the install target by lsblk-matching
-      # that hw block at install time, so adding/removing data disks
-      # never risks installing onto the wrong device.
       mac_addresses:
         - "3c:7c:3f:1f:96:af"   # onboard 1GbE
         - "e8:eb:d3:8c:86:bc"   # Mellanox ConnectX-4 Lx port 1 (10GbE)
         - "e8:eb:d3:8c:86:bd"   # Mellanox ConnectX-4 Lx port 2 (10GbE)
-      # Baremetal kube_worker Longhorn data layout: combine the boot
-      # NVMe's tail + the second NVMe + the WDC HDD into ONE LVM-thin
-      # pool, then put a single thin LV (`longhorn-data`) on top, ext4'd
-      # and mounted at /var/lib/longhorn. host-disks builds the
-      # substrate; Longhorn (Flux repo) places replicas into that
-      # mountpoint. The boot NVMe is partly owned by the Debian
-      # installer — the preseed caps the OS LVM PV at ~120 GiB (root LV)
-      # + ~RAM*2 for swap, leaving the rest of the disk as free space.
-      # host-disks claims that tail via `select: boot` + the
-      # `part-alpha` partition. On the boot disk the role's wipe gate
-      # is bypassed and sgdisk only APPENDS a new GPT entry — existing
-      # partition entries (EFI, LVM PV) and their byte ranges are not
-      # modified. Note: the GPT table itself IS rewritten (header CRCs
-      # + one extra entry); partx -u is used instead of partprobe so
-      # the busy boot disk's kernel state can refresh without
-      # BLKRRPART refusal. The new tail partition is wipe=refuse by
-      # default → if old on-platter signatures bleed through, the
-      # carve HARD-FAILS rather than overwriting in place. Non-boot
-      # disk selectors are attribute-based:
-      # kernel renames + identical-or-larger swap need no edit. The two
-      # 2 TB NVMes have the same model so the data-NVMe selector MUST
-      # pin by serial (model-only would resolve to >1 disk and hard-fail
-      # preflight); the boot NVMe is selected via `select: boot` and so
-      # never participates in attribute matching.
-      #
-      # Disk signatures: run `just disk-plan` against metal-home-01 to
-      # see actual signatures on each data disk. If either disk holds
-      # foreign content (e.g. a prior Windows/ext4 layout on the HDD),
-      # set `wipe: force` on THAT disk explicitly here — declared,
-      # scoped, self-documenting. Leave `wipe: refuse` (the default)
-      # otherwise so the role refuses to clobber unexpected data.
       storage:
         disks:
-          # Partition labels are ordinal (alpha, beta, gamma, …) NOT
-          # function-named. The label is just the GPT partlabel +
-          # idempotency key for host-disks; the consumer (Longhorn) is
-          # named through the vg/thinpool/mount instead. Decouples the
-          # partition layer from any particular consumer — if longhorn
-          # is replaced, only vg/thinpool/mount change, not labels.
-          # Ordinals follow disk declaration order on THIS host (alpha
-          # = first disk's tail partition, beta = second disk, …); they
-          # carry no meaning across hosts.
           - select: boot
-            # `hw:` pins the boot disk by stable hardware attributes.
-            # Required for any host installable via the bootserv
-            # netboot preseed (the `hw:` block below is the marker that
-            # gates per-host preseed/iPXE rendering for this host) or
-            # the img/debian ISO path (`just img-debian <host>`) —
-            # both preseeds resolve the install target by lsblk-
-            # matching this hw block at install time (single source of
-            # truth, no parallel `install_disk` field). At runtime, the
-            # host-disks role's preflight asserts that findmnt-/
-            # resolves to this same disk.
-            # The boot NVMe (~2 TB). The preseed (method=regular)
-            # creates a FOUR-partition layout:
-            #   p1 (538 MiB): ESP / vfat / /boot/efi
-            #   p2 (4 GiB):   linux-swap
-            #   p3 (100 GiB): ext4 / /
-            #   p4 (~1.78 TiB): the "spare" — formatted ext4 by
-            #     partman to make partman happy (it grows the last
-            #     unbounded partition to absorb the disk leftover
-            #     instead of growing /), then immediately re-purposed
-            #     by preseed/late_command into raw partlabel
-            #     "part-alpha": umount, fstab-strip, wipefs, sgdisk -c.
-            # By the time host-disks sees the box, p4 exists with the
-            # expected partlabel and no filesystem signature, so the
-            # role skips the carve step and goes straight to pvcreate.
-            # (sgdisk appends a new GPT entry (the table
-            # is rewritten with one extra entry; the existing EFI + LVM
-            # PV entries and their data are not modified).
             hw:
               model: "CT2000P310SSD8"
               serial: "254854AAD28F"
@@ -419,76 +273,45 @@ workers:
                 thinpool: longhornthin
                 size: "0"
           - select: { model: "WDC WD10EZEX-08WN4A0", serial: "WD-WCC6Y1LPLUY3" }
-            # `wipe: force`: this disk holds stale signatures from the
-            # previous worker-home-02 carve (`longhorn-hdd` partlabel
-            # + an LVM PV in an old `longhorndata` VG whose other PV
-            # was on the now-replaced Samsung NVMe). The renamed
-            # `part-gamma` partlabel doesn't match the stale one, so
-            # host-disks would refuse without explicit consent. Safe
-            # to leave at `force` until the next re-image of this
-            # host; drop back to `refuse` (default) once stable.
             wipe: force
             partitions:
               - label: part-gamma
                 vg: longhorndata
                 thinpool: longhornthin
                 size: "0"
-                # The mount is declared on EXACTLY ONE partition per
-                # (vg,thinpool); the role consolidates multi-partition
-                # pools to one thin LV + one mount.
                 mount:
                   path: /var/lib/longhorn
                   fstype: ext4
                   lv_name: longhorn-data
     metal-home-02:
-      # Hardware not yet inspected — this entry is the minimum needed
-      # for the host to iPXE-boot the Debian installer. The install will
-      # HALT at partman/early_command on first boot: the resolver
-      # (resolve-install-disk.sh, rendered from the `hw:` block below)
-      # walks /sys/block looking for the pinned model+serial, prints a
-      # banner to tty4 (Alt+F4) listing every real disk's model+serial
-      # when no match is found, and sleeps 3600s. That banner IS the
-      # discovery mechanism. Workflow:
-      #   1) PXE-boot the host
-      #   2) At the halt banner, Alt+F2 → `lsblk -do NAME,MODEL,SERIAL`
-      #      to capture the boot disk + any data disks
-      #   3) Replace the TODO placeholders below; add data-disk selectors
-      #      + the `mount:` block on the longhorndata pool (see
-      #      metal-home-01 above for the full pattern)
-      #   4) Re-run 13-foundation/90-bootserv.yml and reboot the host
       ansible_host: metal-home-02.lan
       ip_address: 10.1.1.107
-      # Single-NIC assumption. If the box has extra PXE-capable NICs
-      # (e.g. a 10GbE add-in card), list their MACs too; the iPXE
-      # dispatcher (boot.ipxe) matches on any of them. See
-      # metal-home-01 above for the multi-NIC pattern.
       mac_addresses:
-        - "38:05:25:3a:1f:08"
-        - "38:05:25:3a:1f:09"
+        - "38:05:25:3a:1f:08" # SFP28
+        - "38:05:25:3a:1f:09" # SFP28
         - "38:05:25:3a:16:b2"
       storage:
         disks:
           - select: boot
-            # TODO: fill in from the resolver halt banner on first boot.
-            # Until these match a real disk, the installer will halt by
-            # design (which is what gets you the banner in the first
-            # place). Leave the strings non-empty — the bootserv role
-            # templates this block into resolve-install-disk.sh at
-            # render time, so empty values would break the play.
             hw:
-              model: "TODO-from-resolver-banner"
-              serial: "TODO-from-resolver-banner"
+              model: "CT1000P310SSD8"
+              serial: "25465456A1D6"
             partitions:
               - label: part-alpha
                 vg: longhorndata
                 thinpool: longhornthin
                 size: "0"
-                # TODO: add `mount: { path: /var/lib/longhorn, fstype: ext4,
-                # lv_name: longhorn-data }` here (or on a sibling data-disk
-                # partition that joins this pool) once the disk layout is
-                # known. host-disks preflight refuses pools with no mount
-                # target — but that's a post-install concern; iPXE boot
-                # does not exercise it.
+          - select: { model: "Samsung SSD 980 1TB", serial: "S64ANG0R323366R" }
+            wipe: force
+            partitions:
+              - label: part-beta
+                vg: longhorndata
+                thinpool: longhornthin
+                size: "0"
+                mount:
+                  path: /var/lib/longhorn
+                  fstype: ext4
+                  lv_name: longhorn-data
 
 
 switches:
@@ -508,47 +331,11 @@ storage:
         - "90:09:d0:96:65:63"
       nas:
         images_dir: /volume1/proxmox/images/vm
-        # DSM SSH user used for rsync workflows (rsync-over-SSH style:
-        # <user>@nas01.lan:<path>). Currently `pani` is the single
-        # activated DSM user — every rsync workflow rides that account.
-        # Split into a dedicated `pve-publisher` (or per-workflow user)
-        # later if least-privilege becomes a concern.
         rsync_user: pani
         https_url_base: https://nas01.lan/proxmox/images/vm
-      # Programmatically-managed NFS shares on nas01 (additive).
-      # The underlying storage pool + volume are created MANUALLY in
-      # DSM (out of scope by design — see synology-storage role's
-      # main.yml). Ansible only owns share existence, quotas, and NFS
-      # export rules.
-      #
-      # Consumed by playbooks/poochella/infra/15-nas/30-storage.yml
-      # (synology-storage role); preflight.yml asserts this shape.
-      #
-      # NFS export scope: every share below is opened to the whole LAN
-      # (10.1.1.0/24) RW. Trade-off: any LAN device can mount any share
-      # — including `k3s-snapshots` (contains the cluster join token —
-      # mount = cluster takeover) and `longhorn-backup` (volume data).
-      # Acceptable because OPNsense WAN default-deny means there is no
-      # path from the internet, and the LAN is single-admin. Tighten
-      # individual shares by replacing the LAN-wide rule with per-IP
-      # rules if a share ever needs to be restricted.
-      #
-      # Squash policy: every rule uses `squash: all_squash` so every
-      # NFS client user (root or otherwise) is squashed to DSM's
-      # "admin" identity, which on this NAS resolves to `pani` (the
-      # only activated DSM user). Consequence: file ownership on the
-      # NAS is always `pani` regardless of which client user wrote
-      # the file — and crucially, server-side users do NOT need to
-      # exist on DSM. Adding a new server-side user requires no NAS
-      # change. To restore per-user ownership (and require matching
-      # Synology users), switch back to `no_root_squash`.
       storage:
         vol_path: /volume1
         shares:
-          # Off-box mirror of k3s embedded-etcd snapshots + the
-          # /var/lib/rancher/k3s/server/token (snapshots are useless
-          # without it). rsync'd from each CP on a systemd timer; see
-          # roles/k3s/tasks/_snapshot_sync.yml (Phase 0.2).
           - name: k3s-snapshots
             description: "k3s etcd snapshots (off-box backup)"
             quota_gb: 10
@@ -559,17 +346,6 @@ storage:
                   squash: all_squash
                   security: sys
                   async: true
-          # Durable mirror of bootserv01's published build artifacts
-          # (Debian VM qcow2 + LXC tar.zst, with sha256 sidecars).
-          # Producer at 13-foundation/95-bake-publish-images.yml pushes
-          # to bootserv01 over `pct push`; a follow-up job (TBD) rsyncs
-          # those out to this share so a bootserv01 LXC rebuild
-          # doesn't require re-baking from upstream. Layout inside the
-          # share mirrors bootserv01's /srv/http: cloud-images/ +
-          # lxc-templates/.
-          # Mounted on every PHYSICAL host (see
-          # physical.vars.nfs_mounts in inventory.yaml) so any
-          # node can browse / restore artifacts off-box.
           - name: build-artifacts
             description: "bootserv01 cloud-images + lxc-templates mirror"
             quota_gb: 100
@@ -580,12 +356,6 @@ storage:
                   squash: all_squash
                   security: sys
                   async: true
-          # Cluster-wide scratch space: arbitrary files shared across
-          # every physical host. No defined schema; treat as a shared
-          # /tmp that survives reboots. RW for every physical host;
-          # extend the rule list when a new baremetal host comes
-          # online. Mounted at /mnt/nas/scratch on every physical host
-          # (see physical.vars.nfs_mounts in inventory.yaml).
           - name: scratch
             description: "Cluster-wide scratch / shared arbitrary files"
             quota_gb: 100
@@ -596,12 +366,6 @@ storage:
                   squash: all_squash
                   security: sys
                   async: true
-          # Longhorn BackupTarget destination (the Flux-side Longhorn
-          # config points its BackupTarget URL at
-          # nfs://nas01.lan:/volume1/longhorn-backup). Backup chunks +
-          # metadata; restore path for re-imaged workers. Allow every
-          # kube node since Longhorn manager pods on any node may list
-          # backups, and engines on any future worker initiate uploads.
           - name: longhorn-backup
             description: "Longhorn BackupTarget"
             quota_gb: 1024
@@ -614,21 +378,8 @@ storage:
                   async: true
 
 virtual-machines:
-  # No loose `hosts:` here on purpose. Every VM lives in a LEAF child
-  # group so its inbound firewall policy comes from that group's
-  # group_vars/<group>.yml (`firewall_inbound_allow`); see
-  # playbooks/poochella/infra/30-guests/40-firewall.yml. Deeper nesting
-  # is safe: tofu/locals.tf walks the inventory tree (depth 3, this is
-  # depth 2) and the dnsmasq playbook walks groups['all'], so neither
-  # the VM-provisioning nor the DHCP-reservation path is affected.
-  #
-  # NOTE: `kubernetes` USED TO be a child of this group when every kube
-  # node was a VM. With a baremetal kube_worker (metal-home-01) that's
-  # no longer true, so `kubernetes` is now a top-level group and the
-  # firewall play covers both groups explicitly.
   children:
     dev:
-      # Developer/scratch VMs (Ivan's devbox).
       vars:
         firewall_inbound_allow:
           # Dev/scratch range (port-forwards, ad-hoc services).
@@ -644,28 +395,9 @@ virtual-machines:
       #       memory: 8192
       #       disk_size: 100
       #       tags: [dev, ivan]
-    # databases:
-    #   # Database VMs. STOPGAP: firewall-basic has no source-CIDR
-    #   # support, so 5432 is LAN-wide. Acceptable behind OPNsense
-    #   # WAN default-deny on a single L2 — tracked as a follow-up.
-    #   vars:
-    #     firewall_inbound_allow:
-    #       - { port: 5432, proto: tcp }            # PostgreSQL
-    #       - { port: "50000:50100", proto: tcp }   # dev/scratch range
-    #   # hosts:
-    #   #   postgres01:
-    #   #     ...
-
 kubernetes:
   children:
     kube_control_plane:
-      # k3s control plane: kube-apiserver + embedded etcd + kubelet +
-      # flannel VXLAN. Must be open BEFORE 40-kube/20-k3s.yml so the
-      # cluster can form behind default-deny-incoming.
-      # STOPGAP: firewall-basic has no source-CIDR support, so etcd
-      # (2379-2380) and kubelet (10250) are LAN-wide. Acceptable behind
-      # OPNsense WAN default-deny on a single L2 — tracked as a
-      # follow-up.
       vars:
         firewall_inbound_allow:
           - { port: 6443, proto: tcp }       # kube-apiserver + kube-vip VIP
@@ -673,18 +405,6 @@ kubernetes:
           - { port: 2380, proto: tcp }       # embedded etcd peer
           - { port: 10250, proto: tcp }      # kubelet API
           - { port: 8472, proto: udp }       # flannel VXLAN
-        # NFS mounts on every CP. Same `nfs_mounts` schema as
-        # the baremetal side — the variable name is legacy but the
-        # mount mechanics are identical. Re-imported from
-        # 17-host/16-nfs-mounts.yml via 40-kube/site.yml scoped to
-        # kube_control_plane (mirroring how 13-foundation re-imports
-        # 17-host playbooks against the `foundation` group).
-        #
-        # `k3s-snapshots`: target for the off-box etcd-snapshot rsync
-        # sidecar (roles/k3s/tasks/_snapshot_sync.yml). k3s writes
-        # snapshots locally every 12h; the sidecar rsyncs them + the
-        # cluster join token here so a CP-VM rebuild can be rescued
-        # via `--cluster-reset --cluster-reset-restore-path=...`.
         nfs_mounts:
           - share: k3s-snapshots
             path: /mnt/nas/k3s-snapshots
@@ -695,10 +415,6 @@ kubernetes:
           ip_address: 10.1.1.110
           mac_address: "02:00:00:00:02:01"
           vm:
-            # Only pve-home-01 is a hypervisor today; pin all CP VMs
-            # there until a second hypervisor exists. With one
-            # hypervisor an etcd CP cluster has zero failure tolerance
-            # at the physical layer (any CP loss = etcd loss).
             proxmox_node: pve-home-01
             cores: 4
             memory: 12288
@@ -725,16 +441,6 @@ kubernetes:
     #         disk_size: 30
     #         tags: [kube, control-plane]
     kube_workers:
-      # k3s workers: kubelet + flannel VXLAN. Same STOPGAP as
-      # kube_control_plane re: no source-CIDR support.
-      #
-      # `firewall_outbound_deny: []` OPTS OUT of the parent
-      # 30-guests SSH-out deny default: the baremetal metal-home-01
-      # hosts dev/CI workloads that need git over SSH to GitHub as
-      # `pani`. Risk traded off — a worker-side process gaining
-      # git-via-SSH egress — is acceptable because the worker is
-      # baremetal-owned (not multi-tenant VM substrate) and an
-      # attacker with shell on it already has many egress paths.
       vars:
         firewall_inbound_allow:
           - { port: 10250, proto: tcp, comment: "kubelet API" }      # kubelet API
@@ -743,21 +449,11 @@ kubernetes:
         firewall_outbound_deny: []
       hosts:
         metal-home-01:
+        metal-home-02:
 
 containers:
-  # LXC guests. Like VMs, each leaf group owns its inbound firewall
-  # policy in group_vars/<group>.yml. Hosts here carry an `lxc:` block
-  # which Tofu shapes into `proxmox_virtual_environment_container`
-  # resources (cloned from `template_ct_ids[proxmox_node]`); see the
-  # header for the namespace contract.
   children:
     bootserv:
-      # The fleet's iPXE / Debian-netboot home base. ONE LXC per cluster
-      # is enough — TFTP + nginx are cheap and there's no reason to
-      # shard. Tagged `infra` so its Tofu module precedes every VM
-      # module on the same node (the ground-up bootstrap invariant).
-      # Lives on pve-home-01 so it survives the metal-home-01 re-image
-      # that triggers most iPXE boots.
       hosts:
         bootserv01:
           ansible_host: bootserv01.lan
@@ -774,15 +470,3 @@ containers:
             - { proto: tcp, port: 22, comment: "ssh" }
             - { proto: tcp, port: 80, comment: "http" }
             - { proto: tcp, port: 443, comment: "https" }
-    # dns:
-    #   # DNS/DHCP LXCs (pihole). Carried over from the prior
-    #   # host-keyed _container_inbound map for pihole02.
-    #   vars:
-    #     firewall_inbound_allow:
-    #       - { port: 53, proto: tcp }    # DNS
-    #       - { port: 53, proto: udp }    # DNS
-    #       - { port: 67, proto: udp }    # DHCP
-    #       - { port: 80, proto: tcp }    # admin UI
-    #   # hosts:
-    #   #   pihole02:
-    #   #     ...
