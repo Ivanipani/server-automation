@@ -82,14 +82,15 @@ d-i clock-setup/utc boolean true
 d-i time/zone string {{ bootserv_timezone }}
 d-i clock-setup/ntp boolean true
 
-### Partitioning — whole-disk LVM on the inventory-marked boot disk.
-### Every other disk on the host is left untouched (free for the
-### post-install host-disks role to carve, if applicable).
+### Partitioning — three fixed-size OS partitions on the inventory-
+### marked boot disk; everything past 100 GiB is left as free space
+### for the post-install host-disks role to carve. Every other disk
+### on the host is also left untouched.
 ###
 ### Install target resolution: the boot disk is pinned in inventory by
 ### `storage.disks[?select == 'boot'].hw.{model, serial}` (single
 ### source of truth — no parallel `install_disk` field). The
-### `partman/early_command` below walks lsblk at install time and
+### `partman/early_command` below walks /sys/block at install time and
 ### writes the matching /dev path into the partman-auto/disk and
 ### grub-installer/bootdev debconf settings, which the partitioner +
 ### grub installer pick up moments later. Resolving at install time
@@ -97,22 +98,19 @@ d-i clock-setup/ntp boolean true
 ### robust against re-cabling, NVMe slot order, and the SATA/NVMe
 ### mix that varies host-to-host. Hook choice matters: per the
 ### Debian preseed manual, `preseed/early_command` runs before
-### partman's disk discovery (lsblk may return nothing), while
-### `partman/early_command` is "run just before the partitioner
-### starts" and is the documented hook for dynamic partitioner
-### preseeding that depends on disk state.
+### partman's disk discovery, while `partman/early_command` is "run
+### just before the partitioner starts" and is the documented hook
+### for dynamic partitioner preseeding that depends on disk state.
 ###
-### ASSUMPTION: the install disk is BLANK at install time. We assume
-### the operator has wiped it out-of-band — either via the host's BIOS
-### secure-erase feature or `dd`/`blkdiscard` from a rescue env —
-### before triggering the PXE install. The early_command below does
-### NOT zero the disk. An earlier attempt to do so from d-i's
-### stripped initrd was unreliable (no `wipefs`/`sgdisk`, partman
-### caching the old layout before `partman/early_command` fires,
-### etc.) and the out-of-band wipe is faster, more thorough, and
-### removes the partman "refuses to overwrite" gate cleanly. If you
-### need to install on a dirty disk in the future, restore the wipe
-### block from git history.
+### Disk-state preconditions: NONE. The resolver dd-zeroes the
+### partition table on the resolved disk (first 10 MiB + last 64 KiB)
+### so partman sees a blank slate, even after a re-image or an NVMe
+### swap from another host. The wipe is MINIMAL — partman's format
+### step does the real wipe of the OS-managed 100 GiB. Sectors past
+### 100 GiB are NEVER touched by the preseed; that region is owned
+### by the host-disks role post-install. The hw pin is the only
+### safety: only the exact disk pinned in inventory is wiped;
+### siblings on the host are never touched.
 d-i partman/early_command string \
     set -e; \
     URL=http://bootserv01.lan/scripts/{{ item }}-resolve-install-disk.sh; \
@@ -131,16 +129,14 @@ d-i partman/early_command string \
 d-i partman-auto/disk string /dev/__resolved_by_early_command__
 d-i partman-auto/method string regular
 
-# Four-partition layout. The 4th "spare" partition is the trick: its
-# max=-1 means partman dedicates ALL leftover disk space to it,
-# which prevents the well-known partman quirk of growing the /
-# partition past its declared max. With spare absorbing the
-# remainder, root sits at EXACTLY 100 GiB. The spare is then
-# repurposed in preseed/late_command (below): we unmount it, drop
-# the fstab line, wipefs the install-time ext4 signature, and
-# sgdisk -c the GPT partlabel to "part-alpha" — leaving p4 as a
-# raw, partlabeled, signature-free partition that host-disks
-# pvcreate's into longhordata.
+# Three-partition layout — totals exactly 100 GiB. The rest of the
+# disk is left as free space in the GPT; the host-disks role creates
+# p4 + the data-pool LVM thinpool post-install from inventory's
+# storage.disks[?select == 'boot'].partitions declaration. Keeping
+# the data-partition layout off the preseed and onto host-disks means
+# the area past 100 GiB is NEVER touched by the installer — survives
+# re-images cleanly (provided host-disks' "boot disk: never wipe,
+# only carve" rule holds, which is its existing default).
 #
 # Recipe format per partition: `min priority max fs_type` then options.
 #   - p1 ESP:    538/538/538 vfat, method{ efi }, /boot/efi.
@@ -148,12 +144,16 @@ d-i partman-auto/method string regular
 #   - p2 swap:   4096/4096/4096 linux-swap, no mountpoint.
 #                Fixed size; modest swap as OOM cushion.
 #   - p3 root:   102400/102400/102400 ext4, /. Fixed size.
-#   - p4 spare:  1/1/-1 ext4, /opt/spare. min=1 MiB and max=-1
-#                signal "absorb the leftover"; partman gives it
-#                everything not claimed above (~1.78 TiB on
-#                metal-home-01). late_command unmounts + relabels.
+#
+# Watch-out (revisit if observed on first re-image): earlier versions
+# of this recipe added a 4th "spare" partition with max=-1 specifically
+# to absorb the remainder, on the theory that partman has a quirk of
+# growing the LAST partition past its declared max even when min=max.
+# With p3 here set min=priority=max=102400, partman SHOULD respect the
+# cap. If p3 ends up > 100 GiB on first re-image, the fallback is to
+# re-add a nominal 1 MiB p4 with method{ keep } (no format).
 d-i partman-auto/expert_recipe string                                       \
-      uefi-spare ::                                                          \
+      uefi-3p ::                                                             \
           538 538 538 free                                                   \
               $iflabel{ gpt }                                                \
               $reusemethod{ }                                                \
@@ -172,17 +172,9 @@ d-i partman-auto/expert_recipe string                                       \
               use_filesystem{ }                                              \
               filesystem{ ext4 }                                             \
               mountpoint{ / }                                                \
-          .                                                                  \
-          1 1 -1 ext4                                                        \
-              $primary{ }                                                    \
-              method{ format }                                               \
-              format{ }                                                      \
-              use_filesystem{ }                                              \
-              filesystem{ ext4 }                                             \
-              mountpoint{ /opt/spare }                                       \
           .
 
-d-i partman-auto/choose_recipe select uefi-spare
+d-i partman-auto/choose_recipe select uefi-3p
 
 d-i partman-partitioning/choose_label string gpt
 d-i partman-partitioning/default_label string gpt
@@ -212,40 +204,18 @@ d-i grub-installer/bootdev string /dev/__resolved_by_early_command__
 ### Finish
 d-i finish-install/reboot_in_progress note
 
-### Late command — wget + bash the canonical baseline script from
-### bootserv01 (LAN-only via Caddy's @sensitive ACL). The script
-### handles users (ansible + tourmanager), sshd hardening drop-in,
-### apt-no-auto-upgrades, and the root-account lock. Identical
-### script runs in the VM bake, LXC bake, and PVE first-boot —
-### single source of truth, see group_vars/all/image-baseline.yml.
+### Late command — wget + bash the canonical image-baseline.sh from
+### bootserv01 inside the installed-system chroot via `in-target`.
+### Same script the VM bake, LXC bake, and PVE first-boot run —
+### single source of truth (users, sshd hardening, apt-no-auto-
+### upgrades, root lock). See group_vars/all/image-baseline.yml.
 ###
-### The script contains the vault-derived tourmanager password hash,
-### so it's `rm`'d in the same compound after it executes — only
-### the resulting /etc/shadow entry persists on the installed host.
-### Late_command: two phases, both run from external scripts fetched
-### off bootserv01 (same pattern as partman/early_command above).
-###
-###   1. cleanup-spare.sh — converts the partman "spare" partition
-###      (ext4 mounted /opt/spare during install) into a raw
-###      partlabel-only partition labelled "part-alpha", ready for
-###      the post-install host-disks role. `set -e` inside the
-###      script halts loudly on any failure; the inline form this
-###      replaced silently no-op'd because $INSTALL_DISK was empty
-###      (d-i's /tmp doesn't reliably persist between
-###      partman/early_command and preseed/late_command).
-###   2. image-baseline.sh — the canonical first-boot script
-###      (users, sshd hardening, apt-no-auto-upgrades, root lock).
-###      Runs `in-target` since it operates on the installed system.
+### The script contains the vault-derived tourmanager password
+### hash, so it's `rm`'d in the same compound after it executes —
+### only the resulting /etc/shadow entry persists on the installed
+### host.
 d-i preseed/late_command string \
     set -e ; \
-    URL=http://bootserv01.lan/scripts/{{ item }}-cleanup-spare.sh ; \
-    SCRIPT=/tmp/cleanup-spare.sh ; \
-    if ! wget -q -O "$SCRIPT" "$URL" ; then \
-        echo "FATAL: could not fetch $URL" >/dev/tty4 ; \
-        echo "  debug: Alt+F2 = busybox shell  |  Alt+F4 = d-i syslog  |  Alt+F1 = install screen" >/dev/tty4 ; \
-        exit 1 ; \
-    fi ; \
-    sh "$SCRIPT" ; \
     in-target wget -qO /var/tmp/image-baseline.sh http://bootserv01.lan/scripts/image-baseline.sh ; \
     in-target bash /var/tmp/image-baseline.sh ; \
     in-target rm /var/tmp/image-baseline.sh

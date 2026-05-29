@@ -7,13 +7,33 @@
 #
 # What it does
 # ------------
-#   1. Walks /sys/block (NOT lsblk — d-i's stripped util-linux may lack
-#      the PATH column, and sysfs is the canonical kernel source).
+#   1. Walks /sys/block (NOT lsblk — d-i's stripped util-linux ships
+#      neither lsblk nor PKNAME, and sysfs is the canonical kernel
+#      source anyway).
 #   2. Matches one disk against the inventory hw pin (model + serial)
 #      from storage.disks[?select == 'boot'].hw.{model, serial}.
-#   3. Writes the resolved /dev path into partman-auto/disk and
+#   3. Wipes the partition table on the resolved disk (dd-zero first
+#      10 MiB + last 64 KiB, then blockdev --rereadpt). The wipe is
+#      deliberately MINIMAL — just enough to kill the primary GPT
+#      (sectors 1-33) + MBR + LVM PV label/metadata + backup GPT
+#      (last 33 sectors), so partman starts from a blank partition
+#      table. The OS-managed area (first ~100 GiB) is then wiped by
+#      partman's own format step; sectors past 100 GiB are NEVER
+#      touched by the preseed — that region is owned by the host-disks
+#      role post-install. The hw pin is the only safety: only the
+#      exact disk pinned in inventory is wiped; siblings on the host
+#      are never touched.
+#   4. Writes the resolved /dev path into partman-auto/disk and
 #      grub-installer/bootdev via debconf, so the partitioner + grub
 #      installer pick it up moments later.
+#
+# Tooling: d-i's stripped runtime reliably ships dd, blockdev,
+# blkdiscard, swapoff, mkswap, mount/umount, find, ls, cat, awk, sed.
+# It does NOT ship wipefs, lsblk, sgdisk, pvremove, vgchange. Earlier
+# versions of this script tried to use all of those with "skip if not
+# present" guards — the guards silently masked the fact that wipefs
+# and partprobe never ran on real hardware. This rewrite uses only
+# dd + blockdev (both confirmed present).
 #
 # Logging
 # -------
@@ -57,14 +77,6 @@ say ""
 say "--- /proc/partitions ---"
 cat /proc/partitions >>"$LOG" 2>&1 || true
 cat /proc/partitions >/dev/tty4 2>/dev/null || true
-
-say "--- lsblk -do NAME,MODEL,SERIAL (best effort) ---"
-{
-    lsblk -do NAME,MODEL,SERIAL 2>&1 || echo "(lsblk failed: $?)"
-} >>"$LOG"
-{
-    lsblk -do NAME,MODEL,SERIAL 2>&1 || echo "(lsblk failed: $?)"
-} >/dev/tty4 2>/dev/null || true
 say ""
 
 # Walk /sys/block — every block device the kernel exposes has a
@@ -102,8 +114,11 @@ if [ -z "$install_disk" ]; then
   >>> DEBUG: press these keys (top-row Fn keys on the host) <<<
        Alt+F2  →  busybox shell
                     cat $LOG
-                    lsblk -do NAME,MODEL,SERIAL
-                    ls /sys/block
+                    cat /proc/partitions
+                    for d in /sys/block/*; do
+                      echo \$d \$(cat \$d/device/model 2>/dev/null) \\
+                                \$(cat \$d/device/serial 2>/dev/null)
+                    done
        Alt+F4  →  d-i syslog console (this banner)
        Alt+F1  →  back to the install screen
 
@@ -128,6 +143,62 @@ fi
 
 say ""
 say "RESOLVED install_disk=$install_disk"
+
+# ============================================================
+# Wipe the partition table on $install_disk before partman runs.
+#
+# Why: the host may carry an old partition table from a prior install
+# (Proxmox LVM-thin pool, prior Debian root LVM, an NVMe swapped in
+# from another host). Partman would otherwise refuse to silently
+# overwrite existing PV/VG signatures and halt at a dialog. The
+# (model, serial) hw pin resolved above is the only safety: we touch
+# ONLY $install_disk, never a sibling.
+#
+# Scope: MINIMAL. Just the partition table at the head + tail —
+# enough to make partman see a blank slate. Partman's own format step
+# wipes the OS-managed area (first ~100 GiB) as a side-effect of
+# creating p1-p3. Sectors past 100 GiB are NEVER touched by the
+# preseed; that region is owned by the host-disks role post-install.
+#
+# What gets killed:
+#   - GPT primary header   (sectors 1-33)
+#   - MBR                  (first 512 B)
+#   - LVM2 PV label        (sector 1)
+#   - LVM2 metadata area   (first ~1 MiB; 10 MiB is generous)
+#   - GPT backup header    (last 33 sectors)
+#
+# Tooling: dd + blockdev only — both are reliably present in d-i's
+# stripped runtime. The previous version of this script attempted
+# blkdiscard / wipefs / partprobe with "skip if not present" guards;
+# those tools are silently absent in d-i, so the guards just masked
+# no-ops. dd-zeroing the header sectors is the canonical fallback
+# and what wipefs would have done anyway for our targets.
+# ============================================================
+say ""
+say "--- wiping $install_disk partition table ---"
+
+# Head: 10 MiB covers GPT primary (16 KiB at LBA 1) + MBR + LVM PV
+# label + first LVM metadata area (default 1 MiB) with room to spare.
+say "  dd zero first 10 MiB"
+dd if=/dev/zero of="$install_disk" bs=1M count=10 conv=fsync >>"$LOG" 2>&1
+
+# Tail: 128 sectors (64 KiB) covers the GPT backup header (last 33
+# sectors). Tight scope so we don't touch the data region past
+# 100 GiB. If we left the backup intact, parted/partman would
+# detect the corrupted primary and restore the OLD layout from it.
+SECTORS=$(blockdev --getsz "$install_disk")
+TAIL_START=$((SECTORS - 128))
+say "  dd zero last 64 KiB (seek=$TAIL_START sectors, count=128)"
+dd if=/dev/zero of="$install_disk" bs=512 seek=$TAIL_START \
+   count=128 conv=fsync >>"$LOG" 2>&1
+
+# Force the kernel to drop its cached partition table so partman
+# sees the (now empty) layout, not whatever was there at boot.
+say "  re-read partition table"
+blockdev --rereadpt "$install_disk" >>"$LOG" 2>&1
+
+say "  wipe complete"
+say ""
 
 # Prefer the canonical d-i confmodule API (`db_set` via
 # debconf-communicate); fall back to the `debconf-set` shell wrapper

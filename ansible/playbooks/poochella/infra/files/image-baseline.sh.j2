@@ -155,8 +155,16 @@ chown root:root {{ image_baseline_sshd.drop_in_path }}
 # `ssh-hostkeys` would reset them anyway. On the netboot preseed,
 # LXC bake, and PVE first-boot paths, hostkeys exist and the
 # validate runs normally.
+#
+# /run/sshd is the privilege-separation chroot dir; OpenSSH 9.x
+# `sshd -t` refuses to run without it ("Missing privilege separation
+# directory: '/run/sshd'"). On a live host it's created on every boot
+# by /usr/lib/tmpfiles.d/sshd.conf, but inside d-i's in-target chroot
+# systemd-tmpfiles hasn't run yet, so we mkdir it manually. Idempotent
+# on the live paths (dir already exists).
 if command -v sshd >/dev/null 2>&1 \
    && ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
+  mkdir -p /run/sshd
   sshd -t -f {{ image_baseline_sshd.drop_in_path }}
 fi
 
