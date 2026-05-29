@@ -259,14 +259,14 @@ workers:
         disks:
           - select: boot
             hw:
-              model: "CT2000P310SSD8"
-              serial: "254854AAD28F"
+              model: "Samsung SSD 980 1TB"
+              serial: "S64ANG0R323366R"
             partitions:
               - label: part-alpha
                 vg: longhorndata
                 thinpool: longhornthin
                 size: "0"
-          - select: { model: "CT2000P310SSD8", serial: "254854AC2A9A" }
+          - select: { model: "CT2000P310SSD8", serial: "254854AAD28F" }
             partitions:
               - label: part-beta
                 vg: longhorndata
@@ -301,7 +301,7 @@ workers:
                 vg: longhorndata
                 thinpool: longhornthin
                 size: "0"
-          - select: { model: "Samsung SSD 980 1TB", serial: "S64ANG0R323366R" }
+          - select: { model: "CT2000P310SSD8", serial: "254854AC2A9A" }
             wipe: force
             partitions:
               - label: part-beta

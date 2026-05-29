@@ -187,3 +187,7 @@ do-bootserv-config: check
 do-router-dhcp: check
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/10-router/20-dnsmasq.yml
 
+
+sync-preseed-templates:
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/90-bootserv.yml --start-at-task "Copy iPXE chainload binaries into TFTP root"
+
