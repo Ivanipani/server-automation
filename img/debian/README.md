@@ -95,11 +95,12 @@ for the Proxmox auto-installer is untouched.
 
 ## Adding a third baremetal host
 
-1. Add the host to `ansible/inventory.yaml` with `mac_address` and a
+1. Add the host to `ansible/inventory.yaml` with `mac_addresses` (LIST
+   of every NIC's MAC — any of them can initiate iPXE boot) and a
    `storage.disks` block whose boot entry is marked `select: boot` with
    `hw: { model, serial }` (`just disk-plan` after a live boot from a
    rescue medium prints model + serial per disk).
-2. Add its MAC to the OPNsense dnsmasq reservation (`just do-router-dhcp`).
+2. Push the static DHCP reservation to OPNsense (`just do-router-dhcp`).
 3. `just baremetal-iso <new-host>`.
 
 ## Refreshing the pinned upstream ISO

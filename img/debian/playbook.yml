@@ -50,7 +50,8 @@
     - name: Assert host carries the fields the preseed needs
       ansible.builtin.assert:
         that:
-          - hostvars[target_host].mac_address is defined
+          - hostvars[target_host].mac_addresses is defined
+          - hostvars[target_host].mac_addresses | length > 0
           - hostvars[target_host].storage is defined
           - hostvars[target_host].storage.disks is defined
           - (hostvars[target_host].storage.disks
@@ -67,16 +68,16 @@
              | list | first).hw.serial is defined
         fail_msg: >-
           {{ target_host }} is missing required fields in inventory.yaml.
-          Required: mac_address, plus EXACTLY ONE `storage.disks` entry
-          marked `select: boot` carrying an `hw: {model, serial}` block.
-          The preseed resolves the install target by lsblk-matching that
-          hw pin at install time. See metal-home-01 for the canonical
-          shape.
+          Required: mac_addresses (non-empty list), plus EXACTLY ONE
+          `storage.disks` entry marked `select: boot` carrying an
+          `hw: {model, serial}` block. The preseed resolves the install
+          target by lsblk-matching that hw pin at install time. See
+          metal-home-01 for the canonical shape.
 
     - name: Extract the inventory fields the preseed needs
       ansible.builtin.set_fact:
         host:
-          mac_address: "{{ hostvars[target_host].mac_address }}"
+          mac_addresses: "{{ hostvars[target_host].mac_addresses }}"
           storage:
             disks: "{{ hostvars[target_host].storage.disks }}"
 

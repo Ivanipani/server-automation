@@ -3,20 +3,23 @@
 # Booted via DHCP option `filename=http://bootserv01.lan/boot.ipxe` (served to
 # clients whose DHCP user-class is "iPXE", i.e. chainloaded from ipxe.efi /
 # undionly.kpxe). Dispatches on the booting NIC's MAC to a per-host script.
+# `netboot_hosts` (passed by the role) is already filtered to hosts that
+# carry a `select: boot` disk entry with an `hw: {model, serial}` pin —
+# the marker for "installable via this bootserv preseed".
 
 echo
 echo iPXE dispatcher on ${net0/mac} (ipxe ${version})
 echo
 
-{% for name in netboot_hosts if hostvars[name].debian_netboot is defined %}
-{% for m in hostvars[name].debian_netboot.boot_macs %}
+{% for name in netboot_hosts %}
+{% for m in hostvars[name].mac_addresses %}
 iseq ${net0/mac} {{ m | lower }} && chain hosts/{{ name }}.ipxe ||
 {% endfor %}
 {% endfor %}
 
 echo No MAC-based dispatch matched. Falling back to the menu.
 menu Boot menu (unknown MAC ${net0/mac})
-{% for name in netboot_hosts if hostvars[name].debian_netboot is defined %}
+{% for name in netboot_hosts %}
 item {{ name }} Install Debian 13 on {{ name }}
 {% endfor %}
 item --gap -- Diagnostics
@@ -25,7 +28,7 @@ item exit   Exit to firmware boot order
 choose target || goto err
 goto ${target}
 
-{% for name in netboot_hosts if hostvars[name].debian_netboot is defined %}
+{% for name in netboot_hosts %}
 :{{ name }}
 chain hosts/{{ name }}.ipxe
 {% endfor %}

@@ -60,7 +60,7 @@ Single source of truth for every host in the homelab. Read by Ansible (as its in
 
 Per-host fields:
 - `ansible_host` — DNS name or IP Ansible uses to reach the host
-- `ip_address` + `mac_address` — host appears as a dnsmasq static DHCP+DNS reservation on OPNsense
+- `ip_address` + (`mac_addresses` for physical hosts | `mac_address` for VMs) — host appears as a dnsmasq static DHCP+DNS reservation on OPNsense. Physical hosts use a LIST of every NIC's MAC (multi-NIC hosts collapse to one OPNsense entry with all MACs in `hardware_addr`, and every entry is also a valid iPXE boot MAC). VMs have exactly one NIC and so a single `mac_address` string, which is also the MAC Tofu provisions on the VM NIC.
 - `static_ip: true` — suppress the dnsmasq reservation (e.g. the router itself)
 - `vm: { proxmox_node, cores, memory, disk_size, tags, ... }` — Tofu creates this VM on Proxmox, pinned to `proxmox_node`. VM MACs use the locally-administered `02:` prefix. VM boot disks live on the node-local `vms` PVE storage; no VM ever receives a Longhorn-backed data disk (replicas live only on baremetal kube_workers — see Storage carving below).
 
@@ -142,7 +142,7 @@ Roles under `roles/` are units of work, not "things to install":
 
 ## bootserv01 / iPXE boot flow
 
-`bootserv01` is an LXC on `pve-home-01` (inventory `containers.bootserv.bootserv01`, `lxc:` block tagged `infra`) that serves TFTP (iPXE chainload binaries) and HTTP (boot scripts + Debian netboot kernel/initrd + per-host preseeds) to baremetal hosts that net-boot from their NIC. OPNsense's dnsmasq advertises `ipxe.efi` / `undionly.kpxe` to vanilla-PXE clients (chainload) and a script URL to user-class iPXE clients. Per-host iPXE dispatch + preseed are rendered by the `bootserv` Ansible role from inventory hosts that carry a `debian_netboot:` block.
+`bootserv01` is an LXC on `pve-home-01` (inventory `containers.bootserv.bootserv01`, `lxc:` block tagged `infra`) that serves TFTP (iPXE chainload binaries) and HTTP (boot scripts + Debian netboot kernel/initrd + per-host preseeds) to baremetal hosts that net-boot from their NIC. OPNsense's dnsmasq advertises `ipxe.efi` / `undionly.kpxe` to vanilla-PXE clients (chainload) and a script URL to user-class iPXE clients. Per-host iPXE dispatch + preseed are rendered by the `bootserv` Ansible role from every inventory host whose `storage.disks` carries a `select: boot` entry with an `hw: {model, serial}` pin (the marker that the host is installable via this preseed). The dispatcher matches against every entry in that host's `mac_addresses` list — there is no separate "boot MAC" field.
 
 **Brought up by the 13-foundation tier.** The bootserv01 LXC is created by `13-foundation/80-tofu-infra-lxcs.yml` (loops over the `foundation` group and runs `tofu apply -target=module.hypervisor.module.infra_lxcs` against each foundation node's per-node workspace — does NOT touch any VM) and configured by `13-foundation/90-bootserv.yml` (was `30-guests/15-bootserv.yml`). Foundation must complete before any other baremetal can be netbooted — that's the whole point of the tier.
 

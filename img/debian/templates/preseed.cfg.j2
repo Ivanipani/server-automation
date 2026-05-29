@@ -7,7 +7,7 @@ d-i debian-installer/locale string en_US.UTF-8
 d-i keyboard-configuration/xkb-keymap select us
 
 ### Network — DHCP only. The host's static IP is owned by the OPNsense
-### dnsmasq reservation tied to MAC {{ host.mac_address }}.
+### dnsmasq reservation tied to MAC(s) {{ host.mac_addresses | join(', ') }}.
 d-i netcfg/choose_interface select auto
 d-i netcfg/hostname string {{ target_host }}
 d-i netcfg/get_hostname string {{ target_host }}

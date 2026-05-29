@@ -146,9 +146,30 @@
 
 # --- iPXE dispatcher + per-host scripts ------------------------------
 # The dispatcher matches on the MAC of the booting NIC and chains to
-# the per-host script. Hosts come from inventory: anything with a
-# `debian_netboot:` block. Each host can have multiple boot_macs (e.g.
-# multi-port NICs) — every MAC dispatches to the same per-host script.
+# the per-host script. A host is "netbootable via this bootserv preseed"
+# iff its `storage.disks` carries a `select: boot` entry with an
+# `hw: {model, serial}` pin — the resolver + preseed need that pin to
+# find the install disk, so its presence IS the netbootable marker.
+# Every MAC in `mac_addresses` dispatches to the same per-host script.
+- name: Initialize empty netboot host list
+  ansible.builtin.set_fact:
+    bootserv_netboot_hosts: []
+
+- name: Compute netboot host list (boot-disk hw pin defined)
+  ansible.builtin.set_fact:
+    bootserv_netboot_hosts: "{{ bootserv_netboot_hosts + [item] }}"
+  loop: "{{ groups['all'] }}"
+  when:
+    - hostvars[item].mac_addresses is defined
+    - hostvars[item].storage is defined
+    - hostvars[item].storage.disks is defined
+    - (hostvars[item].storage.disks
+        | selectattr('select', 'eq', 'boot')
+        | selectattr('hw', 'defined')
+        | list | length) > 0
+  loop_control:
+    label: "{{ item }}"
+
 - name: Render the iPXE dispatcher (boot.ipxe)
   ansible.builtin.template:
     src: boot.ipxe.j2
@@ -157,9 +178,7 @@
     group: "{{ bootserv_group }}"
     mode: "0644"
   vars:
-    # Template iterates these by name and filters on
-    # `hostvars[name].debian_netboot is defined`.
-    netboot_hosts: "{{ groups['all'] }}"
+    netboot_hosts: "{{ bootserv_netboot_hosts }}"
 
 - name: Render per-host iPXE script
   ansible.builtin.template:
@@ -168,8 +187,7 @@
     owner: "{{ bootserv_owner }}"
     group: "{{ bootserv_group }}"
     mode: "0644"
-  loop: "{{ groups['all'] }}"
-  when: hostvars[item].debian_netboot is defined
+  loop: "{{ bootserv_netboot_hosts }}"
   loop_control:
     label: "{{ item }}"
 
@@ -180,8 +198,7 @@
     owner: "{{ bootserv_owner }}"
     group: "{{ bootserv_group }}"
     mode: "0640"
-  loop: "{{ groups['all'] }}"
-  when: hostvars[item].debian_netboot is defined
+  loop: "{{ bootserv_netboot_hosts }}"
   loop_control:
     label: "{{ item }}"
 
@@ -199,8 +216,7 @@
     owner: "{{ bootserv_owner }}"
     group: "{{ bootserv_group }}"
     mode: "0640"
-  loop: "{{ groups['all'] }}"
-  when: hostvars[item].debian_netboot is defined
+  loop: "{{ bootserv_netboot_hosts }}"
   loop_control:
     label: "{{ item }}"
   vars:

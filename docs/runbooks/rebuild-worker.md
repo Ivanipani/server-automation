@@ -45,7 +45,7 @@ Do not proceed past any gate that fails.
    ```
    If this fails, the host will netboot into nothing. Run `just do-foundation` (brings up `pve-home-01` + `bootserv01` + the bootserv role) before proceeding.
 
-4. **Operator has physical or IPMI access** to the box. There is no remote PXE-trigger automation; the host boots from the Mellanox ConnectX-4 Lx by BIOS first-boot order (see `boot_macs` in `ansible/inventory.yaml`).
+4. **Operator has physical or IPMI access** to the box. There is no remote PXE-trigger automation; the host boots from the Mellanox ConnectX-4 Lx by BIOS first-boot order (see the host's `mac_addresses` in `ansible/inventory.yaml`).
 
 5. **Drain has succeeded** — see step 2 of the procedure below.
 
@@ -253,6 +253,6 @@ Once a second worker comes online (Phase 2), Longhorn rebuilds the replica from 
 - `docs/runbooks/longhorn-backup.md` — BackupTarget + RecurringJob wiring; this runbook hard-depends on it.
 - `docs/storage-disk-runbook.md` — single-disk swap on a live worker (different scenario; not a full re-image).
 - `docs/poochella-stability-runbook.md` — incident history for the box (formerly `pve-home-02`, hardware crash loop in 2026-05).
-- `ansible/inventory.yaml` — `worker-home-02` block (`debian_netboot.boot_macs`, `storage.disks` — the `select: boot` entry's `hw: {model, serial}` block is what the preseed resolves at install time).
+- `ansible/inventory.yaml` — `worker-home-02` block (`mac_addresses` — every NIC's MAC, any of which can initiate iPXE — plus `storage.disks`: the `select: boot` entry's `hw: {model, serial}` block is what the preseed resolves at install time).
 - `ansible/group_vars/kube_workers.yml` — Longhorn-related node labels applied at k3s join.
 - `justfile` — `do-foundation`, `do-host-init`, `do-bootserv-config`, `do-router-dhcp`, `disk-plan`, `ssh-refresh`.
