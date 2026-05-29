@@ -371,10 +371,21 @@ workers:
             # truth, no parallel `install_disk` field). At runtime, the
             # host-disks role's preflight asserts that findmnt-/
             # resolves to this same disk.
-            # The boot NVMe (~2 TB) — preseed caps the OS LVM PV at
-            # 130 GB (4 GiB swap + ~120 GiB root + ~6 GiB LVM
-            # overhead); this claims the remaining ~1.7 TiB tail.
-            # sgdisk appends a new GPT entry (the table
+            # The boot NVMe (~2 TB). The preseed (method=regular)
+            # creates a FOUR-partition layout:
+            #   p1 (538 MiB): ESP / vfat / /boot/efi
+            #   p2 (4 GiB):   linux-swap
+            #   p3 (100 GiB): ext4 / /
+            #   p4 (~1.78 TiB): the "spare" — formatted ext4 by
+            #     partman to make partman happy (it grows the last
+            #     unbounded partition to absorb the disk leftover
+            #     instead of growing /), then immediately re-purposed
+            #     by preseed/late_command into raw partlabel
+            #     "part-alpha": umount, fstab-strip, wipefs, sgdisk -c.
+            # By the time host-disks sees the box, p4 exists with the
+            # expected partlabel and no filesystem signature, so the
+            # role skips the carve step and goes straight to pvcreate.
+            # (sgdisk appends a new GPT entry (the table
             # is rewritten with one extra entry; the existing EFI + LVM
             # PV entries and their data are not modified).
             hw:
@@ -413,6 +424,56 @@ workers:
                   path: /var/lib/longhorn
                   fstype: ext4
                   lv_name: longhorn-data
+    metal-home-02:
+      # Hardware not yet inspected — this entry is the minimum needed
+      # for the host to iPXE-boot the Debian installer. The install will
+      # HALT at partman/early_command on first boot: the resolver
+      # (resolve-install-disk.sh, rendered from the `hw:` block below)
+      # walks /sys/block looking for the pinned model+serial, prints a
+      # banner to tty4 (Alt+F4) listing every real disk's model+serial
+      # when no match is found, and sleeps 3600s. That banner IS the
+      # discovery mechanism. Workflow:
+      #   1) PXE-boot the host
+      #   2) At the halt banner, Alt+F2 → `lsblk -do NAME,MODEL,SERIAL`
+      #      to capture the boot disk + any data disks
+      #   3) Replace the TODO placeholders below; add data-disk selectors
+      #      + the `mount:` block on the longhorndata pool (see
+      #      metal-home-01 above for the full pattern)
+      #   4) Re-run 13-foundation/90-bootserv.yml and reboot the host
+      ansible_host: metal-home-02.lan
+      ip_address: 10.1.1.107
+      mac_address: "38:05:25:3a:1f:08"
+      # Single-NIC assumption — set to mac_address. If the box has extra
+      # PXE-capable NICs (e.g. a 10GbE add-in card), list their MACs too;
+      # the iPXE dispatcher (boot.ipxe) matches on any of them. See
+      # metal-home-01 above for the dual-port pattern.
+      debian_netboot:
+        boot_macs:
+          - "38:05:25:3a:1f:08"
+      storage:
+        disks:
+          - select: boot
+            # TODO: fill in from the resolver halt banner on first boot.
+            # Until these match a real disk, the installer will halt by
+            # design (which is what gets you the banner in the first
+            # place). Leave the strings non-empty — the bootserv role
+            # templates this block into resolve-install-disk.sh at
+            # render time, so empty values would break the play.
+            hw:
+              model: "TODO-from-resolver-banner"
+              serial: "TODO-from-resolver-banner"
+            partitions:
+              - label: part-alpha
+                vg: longhorndata
+                thinpool: longhornthin
+                size: "0"
+                # TODO: add `mount: { path: /var/lib/longhorn, fstype: ext4,
+                # lv_name: longhorn-data }` here (or on a sibling data-disk
+                # partition that joins this pool) once the disk layout is
+                # known. host-disks preflight refuses pools with no mount
+                # target — but that's a post-install concern; iPXE boot
+                # does not exercise it.
+
 
 switches:
   hosts:

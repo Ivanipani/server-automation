@@ -94,94 +94,60 @@ d-i partman/early_command string \
 # that if the early_command failed silently, partman would refuse
 # (no matching disk) rather than auto-picking one and wiping it.
 d-i partman-auto/disk string /dev/__resolved_by_early_command__
-d-i partman-auto/method string lvm
-d-i partman-lvm/device_remove_lvm boolean true
-d-i partman-md/device_remove_md boolean true
-d-i partman-lvm/confirm boolean true
-d-i partman-lvm/confirm_nooverwrite boolean true
-d-i partman-auto-lvm/new_vg_name string system
-# guided_size caps the LVM PV partition size — and THIS is what
-# actually limits root, NOT the recipe `max` field below. partman's
-# LVM mode grows the last $lvmok LV to fill the VG regardless of its
-# recipe max, so the only reliable way to bound root is to bound the
-# VG itself. 130GB = swap (4 GiB) + root (120 GiB) + ~6 GiB LVM
-# metadata/PE-rounding overhead (partman empirically demands ≥127GB
-# for this recipe; 125GB was rejected at install time with "not
-# enough for the partitioning scheme requested, which requires
-# 127GB"). The 3 GiB margin above that floor avoids tripping on
-# rounding edge cases. The rest of the disk stays unallocated at
-# the partition layer for host-disks to claim via `select: boot`.
-d-i partman-auto-lvm/guided_size string 130GB
-# Suppress the legacy "no separate /boot with LVM" warning. The
-# concern dates from grub-pc not being able to read LVM, so /boot
-# had to be plain ext4 outside LVM. grub-efi-amd64 (what UEFI
-# installs use) reads ext4-inside-LVM natively, so /boot can live in
-# the root LV. The warning is partman being conservative; we ack it.
-d-i partman-auto-lvm/no_boot boolean true
+d-i partman-auto/method string regular
 
-# Custom partman recipe: ESP (outside LVM) + swap LV + root LV.
-# Stock `atomic` produces only one partition for / and doesn't include
-# an EFI System Partition, and partman's UEFI auto-add-ESP logic
-# doesn't reliably fire under method=lvm — the result is a layout
-# with no mountable root ("no root file system" / "partition too
-# small" at install time). This explicit recipe avoids the ambiguity.
+# Four-partition layout. The 4th "spare" partition is the trick: its
+# max=-1 means partman dedicates ALL leftover disk space to it,
+# which prevents the well-known partman quirk of growing the /
+# partition past its declared max. With spare absorbing the
+# remainder, root sits at EXACTLY 100 GiB. The spare is then
+# repurposed in preseed/late_command (below): we unmount it, drop
+# the fstab line, wipefs the install-time ext4 signature, and
+# sgdisk -c the GPT partlabel to "part-alpha" — leaving p4 as a
+# raw, partlabeled, signature-free partition that host-disks
+# pvcreate's into longhordata.
 #
 # Recipe format per partition: `min priority max fs_type` then options.
-#   - ESP:   538/538/1075 MiB FAT32, `method{ efi }`, NOT in LVM
-#   - swap:  exactly 4 GiB inside LVM (min=priority=max=4096 MiB).
-#           Fixed (not 200% of RAM) for predictable sizing — modern
-#           server workloads don't need RAM-proportional swap.
-#   - root:  exactly 120 GiB inside LVM (min=priority=max=122880 MiB)
-#
-# Root is capped (not -1) so the LVM PV partition does NOT consume
-# the whole disk. NOTE: the recipe `max` field alone is NOT enough —
-# partman's LVM mode grows the last $lvmok LV to fill the VG. The
-# REAL cap is `partman-auto-lvm/guided_size` above (130GB); the
-# recipe `max` is belt-and-suspenders. With guided_size at 130GB
-# and swap fixed at 4 GiB, root lands at ~123 GiB if partman ignores
-# recipe max (last-LV-grows-to-fill behaviour) or exactly 120 GiB if
-# honored. Either way root is bounded; close enough to the "120 GB
-# max" target. The free tail of the disk is then claimed by host-disks via
-# `select: boot` + a tail partition in inventory's `storage.disks`
-# (e.g. metal-home-01: `part-alpha` joining longhorndata/
-# longhornthin). On hosts whose `storage:` block does NOT declare a
-# boot-tail partition, the tail simply sits unused — safe default.
-# 120 GiB is generous for a worker OS + k3s + logs; raise it
-# deliberately (re-image required) if needed.
-#
-# `$iflabel{ gpt }` ensures the ESP entry only fires on GPT disks
-# (which our preseed/early_command guarantees via parted mklabel gpt).
-# `$defaultignore{ }` keeps swap+root out of the default partition
-# list — they only materialize via the LVM mechanism.
-# `$lvmok{ }` tells partman to allocate this partition inside the LVM
-# PV rather than as a standalone primary.
+#   - p1 ESP:    538/538/538 vfat, method{ efi }, /boot/efi.
+#                Fixed size (min=max).
+#   - p2 swap:   4096/4096/4096 linux-swap, no mountpoint.
+#                Fixed size; modest swap as OOM cushion.
+#   - p3 root:   102400/102400/102400 ext4, /. Fixed size.
+#   - p4 spare:  1/1/-1 ext4, /opt/spare. min=1 MiB and max=-1
+#                signal "absorb the leftover"; partman gives it
+#                everything not claimed above (~1.78 TiB on
+#                metal-home-01). late_command unmounts + relabels.
 d-i partman-auto/expert_recipe string                                       \
-      uefi-lvm-system ::                                                     \
-          538 538 1075 free                                                  \
+      uefi-spare ::                                                          \
+          538 538 538 free                                                   \
               $iflabel{ gpt }                                                \
               $reusemethod{ }                                                \
               method{ efi }                                                  \
               format{ }                                                      \
           .                                                                  \
           4096 4096 4096 linux-swap                                          \
-              $defaultignore{ }                                              \
-              $lvmok{ }                                                      \
-              lv_name{ swap }                                                \
+              $primary{ }                                                    \
               method{ swap }                                                 \
               format{ }                                                      \
           .                                                                  \
-          122880 122880 122880 ext4                                          \
-              $defaultignore{ }                                              \
-              $lvmok{ }                                                      \
-              lv_name{ root }                                                \
+          102400 102400 102400 ext4                                          \
+              $primary{ }                                                    \
               method{ format }                                               \
               format{ }                                                      \
               use_filesystem{ }                                              \
               filesystem{ ext4 }                                             \
               mountpoint{ / }                                                \
+          .                                                                  \
+          1 1 -1 ext4                                                        \
+              $primary{ }                                                    \
+              method{ format }                                               \
+              format{ }                                                      \
+              use_filesystem{ }                                              \
+              filesystem{ ext4 }                                             \
+              mountpoint{ /opt/spare }                                       \
           .
 
-d-i partman-auto/choose_recipe select uefi-lvm-system
+d-i partman-auto/choose_recipe select uefi-spare
 
 d-i partman-partitioning/choose_label string gpt
 d-i partman-partitioning/default_label string gpt
@@ -221,7 +187,41 @@ d-i finish-install/reboot_in_progress note
 ### The script contains the vault-derived tourmanager password hash,
 ### so it's `rm`'d in the same compound after it executes — only
 ### the resulting /etc/shadow entry persists on the installed host.
+### Spare → part-alpha cleanup (RUNS FIRST, before image-baseline).
+### The preseed recipe above creates a 4th "spare" ext4 partition
+### that absorbs the disk's leftover so root stays at exactly 100
+### GiB. We don't actually want it ext4-mounted on /opt/spare —
+### we want it as a raw partition labeled "part-alpha" so the
+### post-install host-disks role can pvcreate on it.
+###
+### Steps:
+###   1. Read install_disk from /tmp/install_disk.path (resolver
+###      wrote it in partman/early_command).
+###   2. swapoff if relevant (defensive — spare isn't swap here, but
+###      umount /target/opt/spare first if mounted).
+###   3. Remove the /opt/spare line from /target's fstab so the
+###      installed system doesn't try to mount it on boot.
+###   4. wipefs -a on the partition to clear the install-time ext4
+###      signature (host-disks would otherwise refuse it).
+###   5. sgdisk -c 4:part-alpha to set the GPT partlabel so
+###      host-disks recognises the partition via
+###      /dev/disk/by-partlabel/part-alpha.
+###   6. rmdir /target/opt/spare so the empty mountpoint dir
+###      doesn't ship in the installed system.
+###
+### Then image-baseline.sh runs as before (users, sshd, root lock).
 d-i preseed/late_command string \
+    INSTALL_DISK=$(cat /tmp/install_disk.path); \
+    case "$INSTALL_DISK" in \
+        *nvme*|*mmc*) P4="${INSTALL_DISK}p4" ;; \
+        *)            P4="${INSTALL_DISK}4"   ;; \
+    esac; \
+    umount /target/opt/spare 2>/dev/null || true; \
+    sed -i '\#[[:space:]]/opt/spare[[:space:]]#d' /target/etc/fstab; \
+    wipefs -a "$P4"; \
+    sgdisk -c 4:part-alpha "$INSTALL_DISK"; \
+    udevadm settle; \
+    rmdir /target/opt/spare 2>/dev/null || true; \
     in-target wget -qO /var/tmp/image-baseline.sh http://bootserv01.lan/scripts/image-baseline.sh ; \
     in-target bash /var/tmp/image-baseline.sh ; \
     in-target rm /var/tmp/image-baseline.sh

@@ -19,7 +19,7 @@
     handle @sensitive {
         @off_lan not remote_ip {{ bootserv_lan_cidr }}
         respond @off_lan "Forbidden" 403
-        file_server
+        file_server browse
     }
 
     # Everything else (iPXE scripts, Debian netboot kernel/initrd,

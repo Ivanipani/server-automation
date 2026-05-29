@@ -139,5 +139,12 @@ if command -v debconf-get >/dev/null 2>&1; then
     say "  verify: grub-installer/bootdev=$(debconf-get grub-installer/bootdev 2>/dev/null || echo '?')"
 fi
 
+# Persist the resolved install_disk path to a known file so the
+# preseed/late_command (which runs in a separate process after partman
+# finishes) can pick it up. d-i's /tmp survives across the early- and
+# late-command boundaries within a single install session.
+echo "$install_disk" > /tmp/install_disk.path
+say "  install_disk persisted to /tmp/install_disk.path for late_command"
+
 say "===== resolver done at $(date) ====="
 exit 0
