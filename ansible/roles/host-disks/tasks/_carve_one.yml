@@ -1,19 +1,35 @@
 ---
-# Create a single GPT partition (type 8300) labelled `partition.label` on
-# `partition.device`, sized per `partition.size` (sgdisk +SIZE; "0" =
-# fill the rest — for a fresh whole disk that is the whole drive, for the
-# boot disk it is the unallocated tail).
+# Materialise a single GPT partition labelled `partition.label` on
+# `partition.device`. Two paths depending on whether the disk is the
+# boot disk or a data disk:
+#
+#   - Data disk (is_boot=false): sgdisk -n CREATES a new partition,
+#     sized per `partition.size` (sgdisk +SIZE; "0" = fill the rest).
+#     For a fresh whole disk that is the whole drive.
+#
+#   - Boot disk (is_boot=true): the netboot preseed (see
+#     roles/bootserv/templates/preseed.cfg.j2) carves the OS area
+#     (p1 ESP / p2 swap / p3 root = 100 GiB total) and creates an
+#     ext4-formatted PLACEHOLDER absorbent at p4 that spans the rest
+#     of the disk. This step ADOPTS that placeholder: sgdisk -c sets
+#     the GPT partlabel, then wipefs -a clears partman's ext4
+#     superblock so storage_pools.yml's pvcreate has a clean
+#     partition to claim. The boot disk's GPT is never re-laid-out
+#     by this role — the OS partitions are untouched.
 #
 # Idempotent on the GPT partlabel: an existing label is skipped, so
-# re-runs and kernel renames are no-ops. Foreign-data refusal / deliberate
-# force-wipe already happened ONCE per disk in _wipe_disk.yml; here we
-# only handle residual platter signatures bleeding through a freshly
-# created partition (sgdisk rewrites the table, never the platter).
+# re-runs and kernel renames are no-ops. Foreign-data refusal /
+# deliberate force-wipe already happened ONCE per disk in
+# _wipe_disk.yml (boot disk is excluded from that gate); here we only
+# handle residual platter signatures bleeding through a freshly created
+# data-disk partition, and the partman ext4 on a freshly adopted boot-
+# tail partition.
 #
-# `partx -u` (BLKPG) is used not `partprobe` (BLKRRPART) because the boot
-# disk has an active LVM PV; BLKRRPART is refused on busy disks.
+# `partx -u` (BLKPG) is used not `partprobe` (BLKRRPART) because the
+# boot disk has an active LVM PV; BLKRRPART is refused on busy disks.
 #
-# Loop var: `partition` (a resolved partition: pool, device, size, wipe…).
+# Loop var: `partition` (a resolved partition: pool, device, size,
+# wipe, is_boot, …).
 
 - name: "[{{ partition.label }}] Sync kernel partition table (best-effort)"
   ansible.builtin.command: "partx -u {{ partition.device }}"
@@ -23,12 +39,121 @@
   # does its own authoritative partx -u after sgdisk writes the GPT.
   failed_when: false
 
+# ── Boot-disk cleanup: drop any stray partitions past #4 ─────────────
+# UNCONDITIONAL on the boot disk (runs before the partlabel stat). The
+# inventory contract is that the boot disk's tail is partition #4 ONLY
+# — every partition past #4 is residue we are entitled to delete.
+#
+# Why unconditional (not gated on "partlabel missing"): an earlier
+# carve bug ran `sgdisk -n 0:0:0 -c 0:<label>` which created a 1-MiB
+# partition in the GPT slack past p4 AND set OUR partlabel on it. On a
+# re-run the by-partlabel symlink resolves to that tiny stray, the
+# downstream `stat` says "PRESENT", the adopt block skips, and
+# storage_pools.yml's pvcreate hits "device is too small". Doing the
+# stray sweep BEFORE the stat fixes that: deleting the stray drops the
+# partlabel too, so the stat correctly reports the partlabel missing,
+# and the adopt block re-attaches it to #4.
+#
+# Idempotent no-op on a clean boot disk (no partitions > #4).
+- name: "[{{ partition.label }}] (boot disk) List partitions past #4 on the boot disk"
+  when: partition.is_boot | bool
+  ansible.builtin.shell: |
+    set -eu
+    sgdisk -p {{ partition.device }} \
+      | awk '/^[[:space:]]+[0-9]+[[:space:]]/ && $1+0 > 4 {print $1}'
+  register: _stray_nums
+  changed_when: false
+
+- name: "[{{ partition.label }}] (boot disk) Drop each stray partition (with VG / dm tear-down)"
+  when:
+    - partition.is_boot | bool
+    - _stray_nums.stdout_lines | default([]) | length > 0
+  ansible.builtin.shell: |
+    set -u
+    dev={{ partition.device }}
+    case "$dev" in
+      *nvme*|*mmc*|*loop*) p="${dev}p{{ item }}" ;;
+      *)                    p="${dev}{{ item }}" ;;
+    esac
+    # If a VG lives ENTIRELY on the stray partition, deactivate first
+    # (never deactivate a VG that also spans another disk — that'd be
+    # the live root VG). Drop any dm holders so sgdisk --delete and
+    # the kernel re-read don't hit EBUSY.
+    if [ -b "$p" ]; then
+      pdev=$(readlink -f "$p")
+      for vg in $(pvs --noheadings -o vg_name,pv_name 2>/dev/null \
+                  | awk -v d="$pdev" '$2==d && $1!="" {print $1}' \
+                  | sort -u); do
+        outside=$(pvs --noheadings -o pv_name,vg_name 2>/dev/null \
+                  | awk -v d="$pdev" -v v="$vg" '$2==v && $1!=d {c++} END{print c+0}')
+        [ "$outside" -eq 0 ] && vgchange -an "$vg" || true
+      done
+      for h in $(lsblk -nro NAME "$pdev" 2>/dev/null | tail -n +2); do
+        dmsetup remove "/dev/mapper/$h" 2>/dev/null || true
+      done
+    fi
+    sgdisk --delete={{ item }} "$dev"
+    partx -u "$dev" || true
+    udevadm settle || true
+  loop: "{{ _stray_nums.stdout_lines | default([]) }}"
+  loop_control:
+    label: "{{ partition.device }} p{{ item }}"
+  changed_when: true
+
 - name: "[{{ partition.label }}] Check whether the partition already exists"
   ansible.builtin.stat:
     path: "/dev/disk/by-partlabel/{{ partition.label }}"
   register: part_stat
 
-- name: "[{{ partition.label }}] Create the partition and refresh the kernel"
+# ── Boot-disk path: adopt the partman tail placeholder ───────────────
+# The netboot preseed lays out p1-p4 where p4 is an unlabelled, ext4-
+# formatted absorbent. We don't create a new partition (that would land
+# in the ~1 MiB GPT slack past p4 and be too small for a PV); instead
+# we relabel partition #4 and clear its FS signature. Partition #4 is
+# hardcoded — it matches the preseed convention (p1=ESP, p2=swap,
+# p3=root, p4=placeholder).
+- name: "[{{ partition.label }}] (boot disk) Adopt the partman tail placeholder"
+  when:
+    - partition.is_boot | bool
+    - not part_stat.stat.exists
+  block:
+    - name: "[{{ partition.label }}] Set GPT partlabel + type on partition #4"
+      ansible.builtin.shell: |
+        set -eu
+        sgdisk -c 4:{{ partition.label }} -t 4:8300 {{ partition.device }}
+        partx -u {{ partition.device }}
+      changed_when: true
+
+    - name: "[{{ partition.label }}] Wait for the partlabel symlink"
+      ansible.builtin.wait_for:
+        path: "/dev/disk/by-partlabel/{{ partition.label }}"
+        timeout: 30
+
+    # If a previous host-disks run left an LVM PV on these sectors and
+    # udev autoactivated it on partlabel appearance, wipefs would hit
+    # EBUSY. Tear down any VG that lives ENTIRELY on this partition
+    # (never one that also spans another disk), drop dm holders, then
+    # wipe the partman ext4 superblock so pvcreate sees a clean device.
+    - name: "[{{ partition.label }}] Clear FS signatures left by partman (ext4 / stale LVM)"
+      ansible.builtin.shell: |
+        set -u
+        pdev=$(readlink -f /dev/disk/by-partlabel/{{ partition.label }})
+        for vg in $(pvs --noheadings -o vg_name,pv_name 2>/dev/null \
+                    | awk -v d="$pdev" '$2==d && $1!="" {print $1}' \
+                    | sort -u); do
+          outside=$(pvs --noheadings -o pv_name,vg_name 2>/dev/null \
+                    | awk -v d="$pdev" -v v="$vg" '$2==v && $1!=d {c++} END{print c+0}')
+          [ "$outside" -eq 0 ] && vgchange -an "$vg" || true
+        done
+        for h in $(lsblk -nro NAME "$pdev" 2>/dev/null | tail -n +2); do
+          dmsetup remove "/dev/mapper/$h" 2>/dev/null || true
+        done
+        wipefs -a "$pdev"
+        udevadm settle || true
+      changed_when: true
+
+# ── Data-disk path: create a fresh partition on a blank disk ─────────
+- name: "[{{ partition.label }}] (data disk) Create the partition and refresh the kernel"
   ansible.builtin.shell: |
     set -eu
     sgdisk -n 0:0:{{ '+' + (partition.size | string) if (partition.size | string) != '0' else '0' }} \
@@ -37,7 +162,9 @@
            {{ partition.device }}
     partx -u {{ partition.device }}
   changed_when: true
-  when: not part_stat.stat.exists
+  when:
+    - not (partition.is_boot | bool)
+    - not part_stat.stat.exists
 
 - name: "[{{ partition.label }}] Wait for the partition device node"
   ansible.builtin.wait_for:

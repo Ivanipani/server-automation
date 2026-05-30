@@ -21,9 +21,15 @@
 # DISK-CENTRIC + STABLE SELECTORS. Each disk is declared with a
 # `select:` that names it by *intent*, never by a kernel device name:
 #   - select: boot                 → the auto-detected host boot disk
-#     (PVE: the `pve` VG already owns ~100 GiB; the free tail is carved.
-#      Plain Debian workers: the installer typically takes the whole
-#      install_disk, so workers usually do NOT declare `select: boot`.)
+#     (PVE: the `pve` VG already owns ~100 GiB; the free tail is carved
+#      by appending a fresh partition with sgdisk -n.
+#      Plain Debian workers: the netboot preseed
+#      (roles/bootserv/templates/preseed.cfg.j2, recipe `uefi-4p`)
+#      already lays out p1/p2/p3 = 100 GiB OS area + p4 ext4
+#      placeholder absorbing the rest; host-disks ADOPTS p4 by
+#      sgdisk-c'ing its partlabel and wipefs-clearing the partman
+#      ext4 — no new partition is appended. The boot-disk OS area is
+#      never touched.)
 #   - select: { model, serial }    → one exact physical drive
 #   - select: { min_size_gib|size_gib, rotational } → attribute match
 # Each disk carries an ordered `partitions:` list; several partitions
