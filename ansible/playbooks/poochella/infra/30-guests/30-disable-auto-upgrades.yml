@@ -12,15 +12,16 @@
 # Layering:
 #   - Baremetal PVE hosts: handled earlier by the `hypervisor` role
 #     (20-hypervisor/10-bootstrap.yml) — not repeated here.
-#   - Future VMs: the kill-switch is baked into the golden template
-#     (20-hypervisor/40-templates.yml) so clones never auto-upgrade even before
-#     Ansible reaches them. This playbook additionally masks the
-#     apt-daily timers on the *running* VMs and enforces the end state
-#     idempotently on every run.
+#   - Future VMs: the kill-switch is baked into the golden template by
+#     13-foundation/95-bake-publish-images.yml (via image-baseline.sh) so
+#     clones never auto-upgrade even before Ansible reaches them
+#     (20-hypervisor/40-templates.yml only consumes the baked template).
+#     This playbook additionally masks the apt-daily timers on the
+#     *running* VMs and enforces the end state idempotently on every run.
 #
 # Pre-conditions:
-#   - 30-provision/10-opentofu.yml completed (VMs exist)
-#   - 10-bootstrap.yml completed (ansible user reachable)
+#   - 30-guests/10-opentofu.yml completed (VMs exist)
+#   - 20-bootstrap.yml completed (ansible user reachable)
 
 - name: Disable automatic apt upgrades on all VMs
   hosts: virtual-machines

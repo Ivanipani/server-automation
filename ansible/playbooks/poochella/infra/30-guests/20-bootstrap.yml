@@ -1,6 +1,18 @@
 ---
-# Establishes a user 'ansible' with SSH + sudo access.
-# All Ansible-managed nodes require this setup
+# Reconcile the baked baseline users onto every guest.
+#
+# Guests are clones of templates already baked by
+# 13-foundation/95-bake-publish-images.yml (the image-baseline.sh script
+# runs in both the VM qcow2 bake and the LXC bake), so the `ansible` and
+# `tourmanager` users — and the `ansible` user's key + NOPASSWD sudoers —
+# already exist at first boot. This playbook is the post-boot reconcile
+# pass: it feeds the SAME single source of truth (`image_baseline_users`)
+# to create-user, so on a baked guest it stays a no-op (changed=0), and on
+# a legacy/drifted guest it converges to the baseline.
+#
+# Mirrors what host-base does for physical hosts
+# (roles/host-base/tasks/main.yml feeds `host_base_users` = image_baseline_users
+# + pani) — guests get image_baseline_users only (pani is physical-only).
 
 - name: Detect SSH user for VMs
   hosts: virtual-machines
@@ -14,22 +26,41 @@
         fallback_user: temp
         ssh_extra_flags: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-- name: Bootstrap ansible user (VMs)
+- name: Reconcile baseline users (VMs)
   hosts: virtual-machines
   become: true
   remote_user: "{{ bootstrap_user }}"
   roles:
     - role: create-user
       vars:
-        users:
-          - name: ansible
-            groups: [ansible, sudo]
-            shell: /bin/bash
-            ssh_key: "~/.ssh/ansible.pub"
-            password: "{{ ansible_user_pass }}"
-            sudoers:
-              commands: ALL
-              nopassword: true
+        users: "{{ image_baseline_users }}"
+
+
+# kube nodes live in the top-level `kubernetes` group (no longer a child
+# of `virtual-machines`), so they need their own pass — same split the
+# firewall play (40-firewall.yml) uses. kube_workers may be baremetal
+# (worker-home-02), already covered by the 17-host tier; reconciling the
+# baked users here is a no-op on those too.
+- name: Detect SSH user for kubernetes nodes
+  hosts: kubernetes
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Detect bootstrap user
+      ansible.builtin.include_tasks:
+        file: ../tasks/detect-bootstrap-user.yml
+      vars:
+        fallback_user: temp
+        ssh_extra_flags: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+- name: Reconcile baseline users (kubernetes nodes)
+  hosts: kubernetes
+  become: true
+  remote_user: "{{ bootstrap_user }}"
+  roles:
+    - role: create-user
+      vars:
+        users: "{{ image_baseline_users }}"
 
 
 - name: Detect SSH user for containers
@@ -44,56 +75,11 @@
         fallback_user: root
         ssh_extra_flags: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-- name: Bootstrap ansible user (containers)
+- name: Reconcile baseline users (containers)
   hosts: containers
   remote_user: "{{ bootstrap_user }}"
   become: true
   roles:
     - role: create-user
       vars:
-        users:
-          - name: ansible
-            groups: [ansible, sudo]
-            shell: /bin/bash
-            ssh_key: "~/.ssh/ansible.pub"
-            password: "{{ ansible_user_pass }}"
-            sudoers:
-              commands: ALL
-              nopassword: true
-#
-# - name: Remove temp user (VMs)
-#   hosts: virtual-machines
-#   become: true
-#   tasks:
-#     - name: Remove temp user
-#       ansible.builtin.user:
-#         name: temp
-#         state: absent
-#         remove: true
-#         force: true
-
-# - name: Refresh known SSH host keys
-#   hosts: all
-#   gather_facts: false
-#   connection: local
-#   tasks:
-#     - name: Remove old host key
-#       ansible.builtin.command:
-#         cmd: ssh-keygen -R {{ ansible_host }}
-#       delegate_to: localhost
-#       ignore_errors: true
-#
-#     - name: Scan and add new host key
-#       ansible.builtin.command:
-#         cmd: ssh-keyscan {{ ansible_host }}
-#       delegate_to: localhost
-#       register: host_key
-#
-#     - name: Update known_hosts
-#       ansible.builtin.known_hosts:
-#         name: "{{ ansible_host }}"
-#         key: "{{ item }}"
-#         state: present
-#       delegate_to: localhost
-#       loop: "{{ host_key.stdout_lines | reject('match', '^#') | list }}"
-#
+        users: "{{ image_baseline_users }}"
