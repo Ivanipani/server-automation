@@ -7,15 +7,6 @@
 # `physical` group. This tier shrinks to the PVE-only steps and targets
 # `hypervisors`.
 #
-# Critical path (hard deps): 10-bootstrap → 20-cluster (gated off, no-op)
-# → 30-pve-storage-register (publishes the LVM-thin pool built in
-# 17-host as the PVE `lvmthin` storage under its frozen-contract name
-# `vms`) → 40-templates (consume-only: fetches the
-# centrally-baked qcow2 + vzdump tarball from http://bootserv01.lan/ and
-# `qm/pct template`s into the node-local `vms` storage). 40-templates
-# must finish before the 30-guests tier (Tofu clones each VM from
-# `template_vm_ids[its proxmox_node]`).
-#
 # The customize work (virt-customize + sysprep + LXC pct exec + vzdump
 # publish) runs ONCE on the foundation hypervisor via
 # 13-foundation/95-bake-publish-images.yml. That tier MUST complete
@@ -26,7 +17,6 @@
 # PVE clustering is no longer a supported topology in this repo. The
 # cluster task files under `roles/hypervisor/` are kept as deprecated
 # reference.
-- import_playbook: 10-bootstrap.yml
 - import_playbook: 20-cluster.yml
 - import_playbook: 30-pve-storage-register.yml
-- import_playbook: 40-templates.yml
+- import_playbook: 40-pull-templates.yml
