@@ -15,9 +15,7 @@
 # lives in 13-foundation — by the time this tier runs, bootserv01 is
 # fully configured.
 - import_playbook: 10-opentofu.yml
-- import_playbook: 20-bootstrap.yml
-- import_playbook: 30-disable-auto-upgrades.yml
-- import_playbook: 40-firewall.yml
+- import_playbook: 20-firewall.yml
 
 # Mount nas01 NFS shares onto VM groups that declare `nfs_mounts`
 # (today: kube_control_plane). Re-uses the baremetal-side
