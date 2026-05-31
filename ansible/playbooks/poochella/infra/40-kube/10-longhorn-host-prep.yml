@@ -13,12 +13,15 @@
 # stack therefore belongs cluster-wide. iSCSI lives on the VM guest OS,
 # never the Proxmox hosts (k3s ships no iscsi stack).
 #
-# Replica DATA paths (the /var/lib/longhorn ext4 mount) are realised by
-# the host-disks role on the baremetal kube_workers themselves, driven
-# from each worker's inventory `storage.disks` block by
-# 17-host/15-storage.yml. No VM ever receives a Longhorn-backed data
-# disk: the model is k3s-on-baremetal for replica state; VM control
-# planes are pure consumers via the iSCSI/NFS clients installed below.
+# Replica DATA paths are realised by the host-disks role on the baremetal
+# kube_workers themselves, driven from each worker's inventory
+# `storage.disks` block by 17-host/15-storage.yml: each physical disk is
+# its own plain-ext4 mount under /var/lib/longhorn-disks/<label>, and the
+# Flux repo registers each as an explicit Longhorn disk (the single
+# default-disk-at-/var/lib/longhorn mechanism is OFF). No VM ever receives
+# a Longhorn-backed data disk: the model is k3s-on-baremetal for replica
+# state; VM control planes are pure consumers via the iSCSI/NFS clients
+# installed below.
 #
 # OPERATIONAL CAVEAT (recorded, not an oversight): remote-attaching a
 # heavy-IO stateful pod onto a control plane puts that pod's app IO +

@@ -26,8 +26,8 @@
       {{ host_disks_inspect | default([]) + [{
            'label': item.item.label,
            'device': item.item.device,
-           'vg': item.item.vg,
-           'thinpool': item.item.thinpool,
+           'vg': item.item.vg | default('-'),
+           'thinpool': item.item.thinpool | default('-'),
            'status': (
              'MISSING (disk not found)' if item.item.device == '<unmatched>'
              else ('PRESENT' if item.stat.exists else 'MISSING')

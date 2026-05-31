@@ -46,8 +46,8 @@
       # Suggested selector skeleton for non-boot, non-removable disks.
       # Hypervisors today have no data-disk convention (Longhorn replicas
       # live on baremetal kube_workers only); the skeleton emits a worker-
-      # shaped pool member with the mount comment so the operator can
-      # repurpose it deliberately.
+      # shaped DIRECT ext4 mount (one disk = one Longhorn disk) so the
+      # operator can repurpose it deliberately.
       if [ "$base" != "$boot" ] && [ "$rm" != "1" ]; then
         floor=$(( (gib / 100) * 100 ))
         rotflag=false; [ "$rota" = "1" ] && rotflag=true
@@ -57,10 +57,8 @@
       - select: { min_size_gib: $floor, rotational: $rotflag }$wipe
         partitions:
           - label: <unique-partlabel>
-            vg: longhorndata
-            thinpool: longhornthin
             size: \"0\"
-            # mount: { path: /var/lib/longhorn, fstype: ext4 }   # on ONE partition per pool"
+            mount: { path: /var/lib/longhorn-disks/<unique-partlabel>, fstype: ext4 }"
       fi
     done
 
@@ -79,10 +77,11 @@
       echo "              size: \"0\"        # fill the boot tail"
       if [ -n "$suggest" ]; then echo "      # extra disks (decide pve_storage / mount intent before pasting):"; echo "$suggest"; fi
     else
-      echo "      # Worker convention: boot disk is owned by the Debian installer;"
-      echo "      # extra data disks combine into one longhornthin pool mounted at"
-      echo "      # /var/lib/longhorn (ext4). Declare \`mount:\` on exactly ONE"
-      echo "      # partition per pool; the role builds VG -> thinpool -> thin LV -> mount."
+      echo "      # Worker convention: each physical disk is its OWN plain-ext4"
+      echo "      # mount under /var/lib/longhorn-disks/<label> = its own Longhorn"
+      echo "      # disk (no LVM). Declare \`mount:\` with NO vg/thinpool; the role"
+      echo "      # puts ext4 straight on the bare partition. The boot tail (p4)"
+      echo "      # is also a direct mount."
       if [ -n "$suggest" ]; then echo "$suggest"; fi
     fi
     echo "-----------------------------------------------------------------"

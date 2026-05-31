@@ -104,26 +104,35 @@
 #       wipe: refuse|force                 # per-disk, default refuse;
 #                                          # `force` is DECLARED + scoped
 #                                          # (replaces the global -e flag)
-#       partitions: [ {label, vg, thinpool, size, ...} ]
+#       partitions: [ {label, size, [vg, thinpool], ...} ]
 #     Each partition declares AT MOST ONE of:
-#       pve_storage: <id>, content: <pvesm content>   # PVE-side (hypervisor)
-#       mount: { path, fstype, lv_name?, lv_size? }   # worker-side (ext4 mount)
+#       pve_storage: <id>, content: <pvesm content>   # PVE-side (hypervisor);
+#                                                     # needs vg+thinpool
+#       mount: { path, fstype } + vg/thinpool         # ext4 on a thin LV
+#       mount: { path, fstype } WITHOUT vg/thinpool   # DIRECT: plain ext4
+#                                                     # on the bare partition
+#                                                     # (no LVM). One disk =
+#                                                     # one independent mount
+#                                                     # = one Longhorn disk.
 #       (neither)                                     # bare pool member;
 #                                                     # the target is declared
 #                                                     # on another partition
 #                                                     # with the same vg+thinpool
 #     `label` is the GPT partlabel (unique per node, the idempotency
-#     key); `size` is sgdisk +SIZE ("0" = fill). `pve_storage` is a
+#     key); `size` is sgdisk +SIZE ("0" = fill). vg+thinpool are required
+#     on every partition EXCEPT a direct-mount one. `pve_storage` is a
 #     FROZEN contract (Tofu hardcodes `vms`). A non-`boot` selector
 #     MUST resolve to EXACTLY ONE non-boot, non-removable disk — 0 or
 #     >1 matches is a HARD FAILURE (the role never guesses). Several
 #     partitions, on different disks, may share one vg/thinpool → that
-#     is how a NVMe + HDD become one larger pool (e.g. `longhornthin`
-#     mounted at /var/lib/longhorn on a baremetal kube_worker).
+#     is how a NVMe + HDD become one larger LVM pool. (Workers no longer
+#     do this — each disk is its own DIRECT ext4 mount; the spanning-pool
+#     path is retained for any future LVM use.)
 #     Convention: declare the target on EXACTLY ONE partition per
 #     (vg,thinpool); the rest just declare label/vg/thinpool/size and
 #     join the pool. Preflight enforces "at least one targeted
-#     partition per pool". Selectors match hardware attributes, so
+#     partition per pool" (direct-mount partitions are their own
+#     singleton pools, excluded). Selectors match hardware attributes, so
 #     kernel renames are irrelevant and swapping a disk for an
 #     identical/larger one needs NO edit when the selector is
 #     attribute-based. Preview resolution + a paste-ready block with
@@ -139,14 +148,22 @@
 #   this model (pve-home-01 today: 256 GB NVMe, vms only).
 #   See group_vars/hypervisors.yml.
 #
-#   CONVENTION (worker side): plain Linux baremetal kube_workers
-#   combine their data disks (boot-NVMe tail + extra NVMes + HDDs)
-#   into one `longhorndata`/`longhornthin` thin pool, mounted as ext4
-#   at `/var/lib/longhorn` for Longhorn baremetal replica storage.
+#   CONVENTION (worker side): plain Linux baremetal kube_workers expose
+#   EACH physical data disk (boot-NVMe tail + extra NVMes + HDDs) as its
+#   OWN plain-ext4 mount under `/var/lib/longhorn-disks/<label>` — no LVM,
+#   no spanning pool. Each mount is registered Flux-side as its own
+#   Longhorn disk, so a single disk failure only loses that disk's
+#   replicas (Longhorn replicates across nodes). This replaced the old
+#   single `longhorndata`/`longhornthin` spanning pool at
+#   `/var/lib/longhorn` (which coupled every disk into one failure domain
+#   and stacked a redundant thin-provisioning layer under Longhorn).
 #   The worker DOES declare `select: boot` (with the `hw:` pin) so the
 #   preseed installs onto the right device AND host-disks can claim
-#   the disk's free tail post-install (preseed caps the OS LVM PV at
-#   ~120 GiB root + RAM*2 swap; the rest is host-disks' to claim).
+#   the disk's free tail post-install (preseed caps the OS at ~100 GiB;
+#   the rest, p4, becomes the boot disk's direct-ext4 Longhorn disk).
+#   NOTE: nothing is mounted at bare `/var/lib/longhorn` — the Longhorn
+#   default-disk mechanism is OFF (else it would land on the root OS
+#   partition). See group_vars/kube_workers.yml.
 #
 # VMs always DHCP-boot. The static IP comes from the reservation tied to
 # the VM's `mac_address` — not from cloud-init.
@@ -256,6 +273,14 @@ workers:
         - "e8:eb:d3:8c:86:bc"   # Mellanox ConnectX-4 Lx port 1 (10GbE)
         - "e8:eb:d3:8c:86:bd"   # Mellanox ConnectX-4 Lx port 2 (10GbE)
       storage:
+        # Each physical disk is its own independent plain-ext4 mount =
+        # its own Longhorn disk (per-disk failure isolation; Longhorn
+        # replicates across nodes). NO LVM, no spanning pool. The boot
+        # tail (part-alpha, ~900 GiB) is one of the Longhorn disks; it is
+        # reset on a reimage and rebuilt from the peer. The Flux repo
+        # registers each /var/lib/longhorn-disks/<label> mount as an
+        # explicit Longhorn disk (the default-disk mechanism is OFF — see
+        # group_vars/kube_workers.yml).
         disks:
           - select: boot
             hw:
@@ -263,26 +288,26 @@ workers:
               serial: "S64ANG0R323366R"
             partitions:
               - label: part-alpha
-                vg: longhorndata
-                thinpool: longhornthin
-                size: "0"
+                size: "0"          # boot tail (p4) — fills the rest
+                mount:
+                  path: /var/lib/longhorn-disks/part-alpha
+                  fstype: ext4
           - select: { model: "CT2000P310SSD8", serial: "254854AAD28F" }
+            wipe: force            # holds old longhorndata PV signature
             partitions:
               - label: part-beta
-                vg: longhorndata
-                thinpool: longhornthin
                 size: "0"
+                mount:
+                  path: /var/lib/longhorn-disks/part-beta
+                  fstype: ext4
           - select: { model: "WDC WD10EZEX-08WN4A0", serial: "WD-WCC6Y1LPLUY3" }
             wipe: force
             partitions:
               - label: part-gamma
-                vg: longhorndata
-                thinpool: longhornthin
                 size: "0"
                 mount:
-                  path: /var/lib/longhorn
+                  path: /var/lib/longhorn-disks/part-gamma
                   fstype: ext4
-                  lv_name: longhorn-data
     metal-home-02:
       ansible_host: metal-home-02.lan
       ip_address: 10.1.1.107
@@ -291,6 +316,8 @@ workers:
         - "38:05:25:3a:1f:09" # SFP28
         - "38:05:25:3a:16:b2"
       storage:
+        # Per-disk plain-ext4 = per-disk Longhorn disk (see metal-home-01
+        # for the rationale). NO LVM, no spanning pool.
         disks:
           - select: boot
             hw:
@@ -298,20 +325,18 @@ workers:
               serial: "25465456A1D6"
             partitions:
               - label: part-alpha
-                vg: longhorndata
-                thinpool: longhornthin
-                size: "0"
+                size: "0"          # boot tail (p4) — fills the rest
+                mount:
+                  path: /var/lib/longhorn-disks/part-alpha
+                  fstype: ext4
           - select: { model: "CT2000P310SSD8", serial: "254854AC2A9A" }
-            wipe: force
+            wipe: force            # holds old longhorndata PV signature
             partitions:
               - label: part-beta
-                vg: longhorndata
-                thinpool: longhornthin
                 size: "0"
                 mount:
-                  path: /var/lib/longhorn
+                  path: /var/lib/longhorn-disks/part-beta
                   fstype: ext4
-                  lv_name: longhorn-data
 
 
 switches:

@@ -9,21 +9,26 @@
 # kube_workers is a CHILD of `kubernetes`, so this k3s_node_labels list
 # REPLACES (does not merge) the parent's. Keep the zone label
 # (k3s_zone_label is defined in group_vars/kubernetes.yml and is in
-# scope here — workers are also in the `kubernetes` group) and add the
-# Longhorn marker so storage lands ONLY on workers.
+# scope here — workers are also in the `kubernetes` group).
 #
-# node.longhorn.io/create-default-disk=true: when the Flux-side Longhorn
-# sets `createDefaultDiskLabeledNodes: true`, Longhorn creates its
-# default disk ONLY on nodes carrying this label, at the default data
-# path /var/lib/longhorn — which on baremetal kube_workers is the
-# longhorndata/longhornthin ext4 mount that the host-disks role builds
-# from each worker's inventory `storage.disks` block (see
-# worker-home-02 in inventory.yaml; realised by 17-host/15-storage.yml).
-# Result: replica storage + rebuild IO stay on the baremetal workers
-# and OFF the schedulable etcd control plane VMs (the co-location
-# starvation risk).
-# Contract: Flux MUST set createDefaultDiskLabeledNodes=true, else
-# Longhorn would make a default disk on EVERY node, defeating this.
+# NO `node.longhorn.io/create-default-disk` label here — DELIBERATELY.
+# Each baremetal worker now exposes ONE plain-ext4 mount PER physical
+# disk under /var/lib/longhorn-disks/<label> (host-disks role, from each
+# worker's inventory `storage.disks`), instead of a single spanning pool
+# at /var/lib/longhorn. The Flux-side Longhorn registers EACH of those
+# mounts as an EXPLICIT Longhorn disk per node (replica-2 across nodes,
+# optional disk tags), and runs with the single default-disk mechanism
+# OFF (`createDefaultDiskLabeledNodes: false`).
+#
+# WHY the label is gone: if `createDefaultDiskLabeledNodes` were on and
+# this label present, Longhorn would create its default disk at
+# /var/lib/longhorn — which now has NOTHING mounted on it, i.e. the
+# worker's ROOT OS partition — and schedule replica IO onto the OS disk.
+# Removing the label (and the Flux switch) keeps storage on the explicit
+# per-disk mounts and OFF both root and the schedulable etcd CP VMs.
+#
+# Lockstep contract: this Ansible change + the Flux explicit-disk config
+# must land together. If Flux selects worker nodes by a DIFFERENT label,
+# add THAT label below (not create-default-disk).
 k3s_node_labels:
   - "{{ k3s_zone_label }}"
-  - "node.longhorn.io/create-default-disk=true"

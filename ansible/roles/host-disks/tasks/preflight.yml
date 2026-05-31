@@ -300,8 +300,15 @@
 # one. Length 0 means the whole pool is bare (no target declared
 # anywhere); length > 1 means targets disagree. Applies to pve_storage-
 # and mount-backed pools alike — both may span multiple disks (NVMe +
-# HDD → one larger longhornthin pool on a baremetal worker) and the convention is
-# to declare the target on exactly one partition per pool.
+# HDD → one larger LVM pool) and the convention is to declare the target
+# on exactly one partition per pool. (Workers use direct mounts now, not
+# spanning pools — see the __direct__ exclusion below.)
+#
+# DIRECT-mount partitions (mount, no vg/thinpool → plain ext4 on the bare
+# partition) carry a `__direct__|<label>` pool key and are NOT LVM pools,
+# so they're excluded from this accounting entirely (each is its own
+# self-targeting singleton; a length-0 filtered list would otherwise
+# trip the `== 1` assert).
 - name: "Assert every (vg,thinpool) has exactly one declared target"
   ansible.builtin.assert:
     that:
@@ -320,7 +327,10 @@
       {{ host_disks_resolved
          | selectattr('_pool_key', 'equalto', item)
          | map(attribute='_sig') | list }}.
-  loop: "{{ host_disks_resolved | map(attribute='_pool_key') | unique | list }}"
+  loop: >-
+    {{ host_disks_resolved
+       | rejectattr('_pool_key', 'match', '^__direct__\|')
+       | map(attribute='_pool_key') | unique | list }}
   when: host_disks_action == 'overwrite'
 
 # ── Hypervisor-only frozen-contract assertion ────────────────────────

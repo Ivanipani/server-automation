@@ -5,15 +5,20 @@
 # VG/thinpool. What sits ON TOP of the pool is per-partition:
 #   - pve_storage partitions → registered as PVE storage by the PVE-only
 #     playbook in 20-hypervisor/ (out of scope here)
-#   - mount partitions       → a thin LV, ext4'd and mounted via fstab —
-#     handled by the second pass below
+#   - mount partitions (vg/thinpool) → a thin LV, ext4'd and mounted via
+#     fstab — handled by Pass 3 below
+#   - DIRECT mount partitions (mount, NO vg/thinpool) → plain ext4
+#     straight on the bare GPT partition, mounted via fstab — handled by
+#     Pass 4 below. NO LVM at all. One physical disk = one independent
+#     ext4 mount = one Longhorn disk (per-disk failure isolation).
 #
 # Derives purely from inventory `storage.disks` (not preflight facts) so
 # this play is self-contained, operating on /dev/disk/by-partlabel/<label>.
 # Multiple partitions (on different physical disks) may share one
 # vg/thinpool: that VG then spans every such partition's PV and the thin
 # pool grows over all of them — this is how a NVMe + HDD present as one
-# larger pool (e.g. `longhornthin` on a baremetal kube_worker).
+# larger LVM pool. (Workers no longer use this; they use Pass 4 direct
+# mounts. Retained for the hypervisor `vms` pool and any future LVM use.)
 #
 # Requires: carve.yml has created the by-partlabel devices.
 
@@ -21,9 +26,19 @@
   ansible.builtin.set_fact:
     _parts: "{{ storage.disks | map(attribute='partitions') | flatten }}"
 
-- name: Resolve each partition's device path
+# Direct-mount partitions (a `mount:` with NO vg) never touch the LVM
+# passes — they get plain ext4 on the bare partition in Pass 4. Everything
+# else (pve_storage, LVM-backed mounts, bare pool members) is an LVM part.
+# On a pure-LVM host (every hypervisor) _direct_mounts is [] and the LVM
+# passes below are byte-for-byte unchanged.
+- name: Split direct-mount partitions out of the LVM set
+  ansible.builtin.set_fact:
+    _direct_mounts: "{{ _parts | selectattr('mount', 'defined') | rejectattr('vg', 'defined') | list }}"
+    _lvm_parts: "{{ _parts | selectattr('vg', 'defined') | list }}"
+
+- name: Resolve each LVM partition's device path
   ansible.builtin.command: "readlink -f /dev/disk/by-partlabel/{{ item.label }}"
-  loop: "{{ _parts }}"
+  loop: "{{ _lvm_parts }}"
   loop_control:
     label: "{{ item.label }}"
   register: _devpaths
@@ -57,7 +72,7 @@
       vgchange -an "$vg" 2>/dev/null || true
       vgreduce --removemissing -f --force "$vg"
     fi
-  loop: "{{ _parts | map(attribute='vg') | unique | list }}"
+  loop: "{{ _lvm_parts | map(attribute='vg') | unique | list }}"
   loop_control:
     label: "{{ item }}"
   register: _vg_clean
@@ -66,15 +81,15 @@
 - name: Create / extend the VG across all PVs that back it
   community.general.lvg:
     vg: "{{ item }}"
-    pvs: "{{ _parts | selectattr('vg', 'equalto', item) | map(attribute='label') | map('extract', _pl_dev) | list }}"
+    pvs: "{{ _lvm_parts | selectattr('vg', 'equalto', item) | map(attribute='label') | map('extract', _pl_dev) | list }}"
     state: present
-  loop: "{{ _parts | map(attribute='vg') | unique | list }}"
+  loop: "{{ _lvm_parts | map(attribute='vg') | unique | list }}"
   loop_control:
     label: "{{ item }}"
 
 - name: Inspect each thin pool LV
   ansible.builtin.command: "lvs --noheadings -o lv_name {{ item.vg }}/{{ item.thinpool }}"
-  loop: "{{ _parts | unique(attribute='vg') | list }}"
+  loop: "{{ _lvm_parts | unique(attribute='vg') | list }}"
   loop_control:
     label: "{{ item.vg }}/{{ item.thinpool }}"
   register: _thinpool_check
@@ -85,7 +100,7 @@
   ansible.builtin.command: >-
     lvcreate --type thin-pool --name {{ item.0.thinpool }}
     --extents 100%FREE --poolmetadatasize 1G {{ item.0.vg }}
-  loop: "{{ (_parts | unique(attribute='vg') | list) | zip(_thinpool_check.results) | list }}"
+  loop: "{{ (_lvm_parts | unique(attribute='vg') | list) | zip(_thinpool_check.results) | list }}"
   loop_control:
     label: "{{ item.0.vg }}/{{ item.0.thinpool }}"
   when: item.1.rc != 0
@@ -102,7 +117,7 @@
 - name: Grow an existing thin pool onto any new free VG space
   ansible.builtin.command: >-
     lvextend --extents +100%FREE {{ item.0.vg }}/{{ item.0.thinpool }}
-  loop: "{{ (_parts | unique(attribute='vg') | list) | zip(_thinpool_check.results) | list }}"
+  loop: "{{ (_lvm_parts | unique(attribute='vg') | list) | zip(_thinpool_check.results) | list }}"
   loop_control:
     label: "{{ item.0.vg }}/{{ item.0.thinpool }}"
   when: item.1.rc == 0
@@ -114,16 +129,18 @@
     and 'up to date' not in ((_thinpool_grow.stdout | default('')) ~ (_thinpool_grow.stderr | default('')))
     and 'No size change' not in ((_thinpool_grow.stdout | default('')) ~ (_thinpool_grow.stderr | default('')))
 
-# ── Pass 3 — mount partitions: thin LV → ext4 → fstab mount ──────────
-# Each unique (vg,thinpool) that has any `mount:` partition gets ONE
-# thin LV + ONE ext4 + ONE mount. Multiple partitions on the same pool
-# (NVMe + HDD → one longhornthin) collapse to one operation since the
-# preflight consistency check guarantees they declare the same target.
+# ── Pass 3 — LVM-backed mount partitions: thin LV → ext4 → fstab mount ─
+# Each unique (vg,thinpool) that has any LVM-backed `mount:` partition
+# gets ONE thin LV + ONE ext4 + ONE mount. Multiple partitions on the
+# same pool (NVMe + HDD → one longhornthin) collapse to one operation
+# since the preflight consistency check guarantees they declare the same
+# target. Direct-mount partitions (no vg) are excluded here — they are
+# handled in Pass 4.
 
 - name: Pick one representative mount-partition per (vg,thinpool)
   ansible.builtin.set_fact:
     _mounts: >-
-      {{ (_parts | selectattr('mount', 'defined') | list)
+      {{ (_lvm_parts | selectattr('mount', 'defined') | list)
          | groupby('vg')
          | map(attribute=1) | map('first') | list }}
 
@@ -205,3 +222,53 @@
   loop: "{{ _mounts | zip(_mount_uuids.results) | list }}"
   loop_control:
     label: "{{ item.0.mount.path }} ← {{ item.0.vg }}/{{ item.0.mount.lv_name | default(item.0.thinpool ~ '-data') }}"
+
+# ── Pass 4 — direct-mount partitions: ext4 ON THE BARE GPT PARTITION ──
+# No LVM. mkfs ext4 directly on /dev/disk/by-partlabel/<label>, mount by
+# UUID via fstab. One filesystem + one mount per direct-mount partition —
+# each physical disk is its own independent ext4 mount = its own Longhorn
+# disk (per-disk failure isolation). Idempotent: community.general.filesystem
+# skips when a fs already exists; mount by UUID + state=mounted is idempotent.
+# carve.yml has already left a clean, signature-free bare partition at
+# /dev/disk/by-partlabel/<label> (data-disk create path, or the boot-tail
+# adopt+wipefs path). On a host with no direct mounts (every hypervisor)
+# _direct_mounts is [] and every task below is a no-op.
+
+- name: ext4 each direct-mount partition (skips if already formatted)
+  community.general.filesystem:
+    fstype: "{{ item.mount.fstype }}"
+    dev: "/dev/disk/by-partlabel/{{ item.label }}"
+  loop: "{{ _direct_mounts }}"
+  loop_control:
+    label: "{{ item.label }} → {{ item.mount.path }}"
+
+# mkdir -p + `creates:` rather than file/state=directory: once the
+# partition is mounted, the file module's owner/mode enforcement can hit
+# EROFS on re-runs (same pattern as the LVM mount pass above).
+- name: Ensure each direct mount point directory exists
+  ansible.builtin.command:
+    cmd: "mkdir -p {{ item.mount.path | quote }}"
+    creates: "{{ item.mount.path }}"
+  loop: "{{ _direct_mounts }}"
+  loop_control:
+    label: "{{ item.mount.path }}"
+
+- name: Read each direct-mount partition's filesystem UUID
+  ansible.builtin.command: >-
+    blkid -s UUID -o value /dev/disk/by-partlabel/{{ item.label }}
+  loop: "{{ _direct_mounts }}"
+  loop_control:
+    label: "{{ item.label }}"
+  register: _direct_uuids
+  changed_when: false
+
+- name: Mount each direct ext4 partition by UUID (idempotent fstab + mount)
+  ansible.posix.mount:
+    path: "{{ item.0.mount.path }}"
+    src: "UUID={{ item.1.stdout | trim }}"
+    fstype: "{{ item.0.mount.fstype }}"
+    opts: defaults
+    state: mounted
+  loop: "{{ _direct_mounts | zip(_direct_uuids.results) | list }}"
+  loop_control:
+    label: "{{ item.0.mount.path }} ← {{ item.0.label }}"

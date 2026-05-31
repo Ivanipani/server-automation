@@ -132,9 +132,9 @@ just ssh-refresh
 just do-host-init
 ```
 
-This is safe to run cluster-wide; idempotent on every other host. The recipe runs `playbooks/poochella/infra/17-host/site.yml`, which also includes `15-storage.yml` — i.e. the host-disks role gets applied here too. Since the role defaults to `host_disks_action: info`, the longhorn-data LVM is left alone if it already exists.
+This is safe to run cluster-wide; idempotent on every other host. The recipe runs `playbooks/poochella/infra/17-host/site.yml`, which also includes `15-storage.yml` — i.e. the host-disks role gets applied here too. Since the role defaults to `host_disks_action: info`, the per-disk ext4 mounts are left alone if they already exist.
 
-### 8. Verify the longhorn-data LVM survived
+### 8. Verify the per-disk Longhorn mounts survived
 
 Read-only check:
 
@@ -142,14 +142,11 @@ Read-only check:
 just disk-plan
 ```
 
-Look at the `worker-home-02` section of the output. Expected:
-- `longhorndata` VG: **PRESENT**
-- `longhornthin` thinpool: **PRESENT**
-- `longhorn-data` LV mounted at `/var/lib/longhorn` (ext4): **PRESENT**
+Look at the worker's section of the output. Expected: each non-boot data disk's partlabel **PRESENT**, plus one ext4 mount per physical disk under `/var/lib/longhorn-disks/<label>` (no LVM, no `longhorndata` VG):
 
 ```bash
-ansible worker-home-02 -b -m shell \
-  -a 'lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT; vgs longhorndata; mount | grep /var/lib/longhorn'
+ansible <worker> -b -m shell \
+  -a 'lsblk -o NAME,SIZE,TYPE,FSTYPE,PARTLABEL,MOUNTPOINT; findmnt -t ext4 | grep longhorn-disks; vgs 2>/dev/null || true'
 ```
 
 - If everything is PRESENT and mounted → continue with step 9 (happy path).
@@ -208,7 +205,7 @@ You land here when step 8 reported MISSING for the `longhorndata` VG (a disk was
 
 1. **Confirm what's gone.** `lsblk` on the host. If physical disks are missing, stop and replace them following `docs/storage-disk-runbook.md` first.
 
-2. **Re-create the LVM substrate** (DESTRUCTIVE — wipes any residual data on the declared disks):
+2. **Re-create the disk substrate** — per-disk ext4 mounts under `/var/lib/longhorn-disks/<label>` (DESTRUCTIVE — wipes any residual data on the declared disks; if partlabels are reused, zap the old pool/signatures first per `docs/storage-disk-runbook.md`):
    ```bash
    cd ansible
    ansible-playbook --vault-password-file ansible-pass \
@@ -218,7 +215,7 @@ You land here when step 8 reported MISSING for the `longhorndata` VG (a disk was
    ```
    Only proceed if you have confirmed pre-condition 2 above (backups exist). This step does not consult Longhorn — it carves disks immediately.
 
-3. **Run step 9** (rejoin the cluster) so Longhorn sees the empty `/var/lib/longhorn`.
+3. **Run step 9** (rejoin the cluster) so Longhorn sees the empty per-disk mounts under `/var/lib/longhorn-disks/`. (Flux must register them as explicit Longhorn disks — the default-disk mechanism is OFF.)
 
 4. **Restore each volume from the NAS BackupTarget** via the Longhorn UI:
    - Longhorn UI → Backup → `<volume-name>` → Restore Latest Backup.
@@ -236,7 +233,7 @@ You land here when step 8 reported MISSING for the `longhorndata` VG (a disk was
 
 - **k3s-agent won't start.** `ansible worker-home-02 -b -m shell -a 'journalctl -u k3s-agent -n 200 --no-pager'`. Usual cause: stale token. Re-decrypt with `just secret-decrypt vault_k3s_cluster_token` and confirm it matches what the server expects; the playbook re-templates it from the vault every run.
 
-- **Longhorn volumes stuck in `Faulted` after rejoin.** `kubectl describe volume.longhorn.io <name> -n longhorn-system`. Most common: host-disks recreated the VG, replica metadata is gone. Follow the pessimistic path above (restore from backup).
+- **Longhorn volumes stuck in `Faulted` after rejoin.** `kubectl describe volume.longhorn.io <name> -n longhorn-system`. Most common: host-disks recreated the disk's ext4 mount, replica metadata is gone. Follow the pessimistic path above (restore from backup).
 
 - **`Host key verification failed`** on every ansible call after the reboot. Forgot step 6 — run `just ssh-refresh`.
 

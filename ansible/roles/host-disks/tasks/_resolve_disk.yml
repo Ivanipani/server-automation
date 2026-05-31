@@ -13,15 +13,21 @@
 #
 # Each partition declares AT MOST ONE of:
 #   - `pve_storage` + `content`      → PVE-side: thin pool registered with pvesm
-#   - `mount: { path, fstype, ... }` → worker-side: ext4 on a thin LV
+#   - `mount: { path, fstype, ... }` + vg/thinpool → ext4 on a thin LV
+#   - `mount: { path, fstype }` w/ NO vg/thinpool  → DIRECT: plain ext4 on
+#                                      the bare GPT partition (no LVM). One
+#                                      disk = one independent mount (the
+#                                      per-disk-Longhorn-disk convention).
 #   - neither (bare pool member)     → joins a (vg,thinpool) whose target is
 #                                      declared on another partition (the
 #                                      multi-disk-one-pool convention:
 #                                      NVMe + HDD → one larger longhornthin
 #                                      with the mount on exactly one of them)
-# Enforced below. label/vg/thinpool/size are required either way; the
-# "at least one target per (vg,thinpool)" invariant is asserted in the
-# cross-pool consistency pass in preflight.yml.
+# Enforced below. label/size are required either way; vg/thinpool are
+# required EXCEPT on a direct-mount partition. The "at least one target
+# per (vg,thinpool)" invariant is asserted in the cross-pool consistency
+# pass in preflight.yml (direct-mount partitions are their own singleton
+# pools and excluded there).
 
 - name: "[{{ disk.select | string }}] Validate the disk declaration"
   ansible.builtin.assert:
@@ -33,25 +39,40 @@
         disk.select is string
         or (disk.select.exclude_boot | default(true)) | bool
       - disk.partitions | map(attribute='label')        | select('undefined') | list | length == 0
-      - disk.partitions | map(attribute='vg')           | select('undefined') | list | length == 0
-      - disk.partitions | map(attribute='thinpool')     | select('undefined') | list | length == 0
       - disk.partitions | map(attribute='size')         | select('undefined') | list | length == 0
+      # vg+thinpool are required on every partition EXCEPT a direct-mount
+      # one (a `mount:` with no vg/thinpool → plain ext4 on the bare GPT
+      # partition, no LVM). A direct-mount partition must omit BOTH; that
+      # XOR is enforced in the per-partition shape assert below.
+      - >-
+        disk.partitions | rejectattr('mount', 'defined')
+        | map(attribute='vg') | select('undefined') | list | length == 0
+      - >-
+        disk.partitions | rejectattr('mount', 'defined')
+        | map(attribute='thinpool') | select('undefined') | list | length == 0
+      - >-
+        disk.partitions | selectattr('mount', 'defined') | selectattr('vg', 'defined')
+        | map(attribute='thinpool') | select('undefined') | list | length == 0
     fail_msg: >-
       Bad storage.disks entry on {{ inventory_hostname }}:
       {{ disk | to_json }}. Need `select`, a non-empty `partitions` list
-      (each with label/vg/thinpool/size, plus AT MOST ONE of
-      `pve_storage`+`content` or `mount.{path,fstype}` — bare partitions
-      that just declare label/vg/thinpool/size are allowed and join a
-      pool whose target is declared on another partition), optional
-      `wipe: refuse|force`, and `exclude_boot` may not be false (the OS
-      disk is never carved as a data disk).
+      (each with label/size, plus AT MOST ONE of `pve_storage`+`content`
+      or `mount.{path,fstype}` — bare partitions that just declare
+      label/vg/thinpool/size are allowed and join a pool whose target is
+      declared on another partition). Every partition needs vg+thinpool
+      EXCEPT a direct-mount one (`mount:` with no vg/thinpool = plain ext4
+      on the bare partition). Optional `wipe: refuse|force`, and
+      `exclude_boot` may not be false (the OS disk is never carved as a
+      data disk).
 
 - name: "[{{ disk.select | string }}] Each partition declares pve_storage, mount, or neither"
   ansible.builtin.assert:
     that:
       # Allowed shapes:
       #   pve_storage + content                  → PVE-registered thin pool
-      #   mount.{path,fstype}                    → role-mounted ext4 on a thin LV
+      #   mount.{path,fstype} + vg/thinpool      → ext4 on a thin LV
+      #   mount.{path,fstype}, no vg/thinpool    → plain ext4 on the bare
+      #                                            GPT partition (no LVM)
       #   neither pve_storage/content nor mount  → bare pool member; another
       #                                            partition with the same
       #                                            (vg,thinpool) carries the
@@ -62,13 +83,22 @@
         or (item.mount is defined and item.mount.path is defined and item.mount.fstype is defined
             and item.pve_storage is not defined and item.content is not defined)
         or (item.pve_storage is not defined and item.content is not defined and item.mount is not defined)
+      # A mount partition declares vg+thinpool TOGETHER (LVM-backed thin
+      # LV) or NEITHER (direct ext4 on the bare partition). Never exactly
+      # one.
+      - >-
+        item.mount is not defined
+        or (item.vg is defined and item.thinpool is defined)
+        or (item.vg is not defined and item.thinpool is not defined)
     fail_msg: >-
       Partition {{ item.label | default('?') }} on
       {{ inventory_hostname }} must declare EITHER `pve_storage:` +
       `content:` (PVE-registered thin pool) OR `mount:` (with `path` +
-      `fstype`, role-mounted ext4 on a thin LV) OR neither (bare pool
-      member — another partition with the same vg+thinpool carries the
-      target). Mixing the two on one partition is forbidden. Got:
+      `fstype`) OR neither (bare pool member — another partition with the
+      same vg+thinpool carries the target). A `mount:` partition is
+      ext4-on-a-thin-LV when it declares vg+thinpool, or plain ext4 on the
+      bare partition (no LVM) when it omits BOTH — never exactly one.
+      Mixing pve_storage and mount on one partition is forbidden. Got:
       {{ item | to_json }}.
   loop: "{{ disk.partitions }}"
   loop_control:
@@ -190,6 +220,9 @@
 # check (preflight.yml) filters out before its uniqueness assertion,
 # then separately asserts every pool has at least ONE targeted
 # partition. Mixed pve_storage+mount on one pool is caught there too.
+# DIRECT-mount partitions (mount, no vg/thinpool) get a per-label
+# `__direct__|<label>` pool key + a `dmnt|…` sig: each is its own
+# singleton pool, excluded from the cross-pool LVM accounting entirely.
 - name: "[{{ _dev }}] Append this disk's partitions (carve order preserved)"
   ansible.builtin.set_fact:
     host_disks_resolved: >-
@@ -199,19 +232,25 @@
              'is_boot': _is_boot,
              'wipe': _wipe,
              'size': item.size | string,
-             '_pool_key': (item.vg ~ '|' ~ item.thinpool),
+             '_pool_key': ('__direct__|' ~ item.label
+                           if (item.mount is defined and item.vg is not defined)
+                           else (item.vg ~ '|' ~ item.thinpool)),
              '_sig': (
-                'pve|' ~ item.vg ~ '|' ~ item.thinpool
-                       ~ '|' ~ item.pve_storage ~ '|' ~ item.content
-                if item.pve_storage is defined
+                'dmnt|' ~ item.label ~ '|' ~ item.mount.path ~ '|' ~ item.mount.fstype
+                if (item.mount is defined and item.vg is not defined)
                 else (
-                  'mnt|' ~ item.vg ~ '|' ~ item.thinpool
-                         ~ '|' ~ item.mount.path
-                         ~ '|' ~ item.mount.fstype
-                         ~ '|' ~ (item.mount.lv_name | default(item.thinpool ~ '-data'))
-                         ~ '|' ~ (item.mount.lv_size | default('100%FREE'))
-                  if item.mount is defined
-                  else 'bare|' ~ item.vg ~ '|' ~ item.thinpool
+                  'pve|' ~ item.vg ~ '|' ~ item.thinpool
+                         ~ '|' ~ item.pve_storage ~ '|' ~ item.content
+                  if item.pve_storage is defined
+                  else (
+                    'mnt|' ~ item.vg ~ '|' ~ item.thinpool
+                           ~ '|' ~ item.mount.path
+                           ~ '|' ~ item.mount.fstype
+                           ~ '|' ~ (item.mount.lv_name | default(item.thinpool ~ '-data'))
+                           ~ '|' ~ (item.mount.lv_size | default('100%FREE'))
+                    if item.mount is defined
+                    else 'bare|' ~ item.vg ~ '|' ~ item.thinpool
+                  )
                 )
              ),
            })

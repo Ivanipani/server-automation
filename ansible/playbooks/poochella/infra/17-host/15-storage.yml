@@ -40,19 +40,22 @@
 #   - `pve_storage:` + `content:`      → PVE-registered thin pool (the
 #                                        register step lives in
 #                                        20-hypervisor/30-pve-storage-register.yml)
-#   - `mount: { path, fstype, ... }`   → ext4 on a thin LV, fstab-mounted
-#                                        (worker convention: one
-#                                        /var/lib/longhorn mount per node)
+#   - `mount: {path,fstype}` + vg/thinpool → ext4 on a thin LV, fstab-mounted
+#   - `mount: {path,fstype}` NO vg/thinpool → DIRECT plain ext4 on the bare
+#                                        partition (no LVM), fstab-mounted.
+#                                        Worker convention: one mount per
+#                                        physical disk under
+#                                        /var/lib/longhorn-disks/<label> =
+#                                        one Longhorn disk (failure isolation).
 #   - neither                          → bare pool member: just label/vg/
 #                                        thinpool/size. Joins a
 #                                        (vg,thinpool) whose target is
-#                                        declared on another partition.
-#                                        This is the multi-disk-one-pool
-#                                        convention — NVMe + HDD share
-#                                        one longhornthin with the mount
-#                                        declared on exactly one of them.
+#                                        declared on another partition
+#                                        (the multi-disk-one-pool LVM
+#                                        convention; not used by workers now).
 # Preflight (overwrite mode only) additionally asserts every (vg,thinpool)
-# has AT LEAST ONE targeted partition. Info mode tolerates a node mid-
+# has AT LEAST ONE targeted partition (direct-mount partitions are their
+# own singleton pools and excluded). Info mode tolerates a node mid-
 # migration and reports whatever's actually present.
 #
 # DECLARED, NOT DISCOVERED: in OVERWRITE mode a selector MUST resolve to

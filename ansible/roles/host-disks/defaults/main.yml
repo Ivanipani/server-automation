@@ -8,9 +8,13 @@
 #                      lvmthin storage (hypervisors only; the actual
 #                      `pvesm add` lives in a PVE-only playbook, not in
 #                      this role)
-#   - `mount:`        → the partition's thin pool gets a thin LV, ext4'd
-#                      and mounted via /etc/fstab (workers, e.g.
-#                      /var/lib/longhorn on a kube_worker)
+#   - `mount:` + vg/thinpool → the partition's thin pool gets a thin LV,
+#                      ext4'd and mounted via /etc/fstab
+#   - `mount:` WITHOUT vg/thinpool → DIRECT: plain ext4 straight on the
+#                      bare GPT partition (no LVM), mounted via /etc/fstab.
+#                      One physical disk = one independent mount = one
+#                      Longhorn disk (today's kube_worker convention, e.g.
+#                      /var/lib/longhorn-disks/<label>).
 #   - (neither)       → bare pool member: the partition just declares
 #                      label/vg/thinpool/size and joins a (vg,thinpool)
 #                      whose target is declared on another partition.
@@ -50,9 +54,10 @@
 #
 # Multiple partitions may target ONE vg/thinpool (each with its own
 # unique `label` partlabel) — this is how two physical disks back a
-# single, larger LVM-thin pool (e.g. NVMe + HDD → one `longhorndata`/
-# `longhornthin` pool on a baremetal kube_worker that mounts at
-# /var/lib/longhorn).
+# single, larger LVM-thin pool (NVMe + HDD → one pool). The kube_workers
+# no longer use this: each data disk is its own DIRECT plain-ext4 mount
+# (no LVM) so a single disk failure is isolated to that disk's Longhorn
+# replicas. The spanning-pool path remains for any future LVM use.
 #
 # `pve_storage` (when used) is a FROZEN contract: tofu/modules/vm
 # hardcodes `vms` (every VM/LXC boot disk + cloud-init drive). Renaming
@@ -80,15 +85,17 @@
 #             pve_storage: vms         # PVE storage id (frozen contract)
 #             content: images,rootdir  # pvesm --content value
 #             size: "200G"             # sgdisk +SIZE; "0" = fill the rest
-#           # ── Worker-side (ext4 mount, single-disk pool) ─────────────
-#           - label: longhorn
-#             vg: longhorndata
-#             thinpool: longhornthin
+#           # ── ext4 mount ON A THIN LV (single-disk LVM pool) ─────────
+#           #    (generic LVM-backed mount; workers use the direct shape
+#           #     below instead — this path is retained for future use)
+#           - label: data-lv
+#             vg: datavg
+#             thinpool: datathin
 #             size: "0"
 #             mount:
-#               path: /var/lib/longhorn
+#               path: /srv/data
 #               fstype: ext4
-#               lv_name: longhorn-data   # optional; default `<thinpool>-data`
+#               lv_name: data-lv         # optional; default `<thinpool>-data`
 #               # lv_size: 100%FREE      # optional; default 100%FREE — the
 #               #                        # special sentinel "100%FREE" is
 #               #                        # resolved at runtime to the thin
@@ -99,28 +106,28 @@
 #               #                        # an absolute size ("600G", "1T", …),
 #               #                        # NOT a percentage (lvcreate rejects
 #               #                        # percentages for --virtualsize).
-#       # ── Worker-side, multi-disk pool (NVMe + HDD → one larger pool) ─
-#       # Convention: the mount lives on EXACTLY ONE partition per pool;
-#       # the other partition just declares label/vg/thinpool/size.
-#       # Partlabels are opaque ordinals (alpha, beta, gamma, …) in
-#       # disk declaration order — they are GPT idempotency keys only,
-#       # not function names. Function names live on vg/thinpool/mount.
+#       # ── Worker-side, per-disk DIRECT ext4 (no LVM) ─────────────────
+#       # Each physical disk is its own independent plain-ext4 mount =
+#       # its own Longhorn disk (per-disk failure isolation). NO vg /
+#       # thinpool / lv_name — ext4 lands straight on the bare partition.
+#       # Partlabels are opaque ordinals (alpha, beta, gamma, …) in disk
+#       # declaration order — GPT idempotency keys only.
 #       - select: { model: "CT2000P310SSD8", serial: "..." }
-#         partitions:
-#           - label: part-alpha          # bare pool member (no mount, no pve_storage)
-#             vg: longhorndata
-#             thinpool: longhornthin
-#             size: "0"
-#       - select: { model: "WDC WD10EZEX-...", serial: "..." }
+#         wipe: force                    # disposable Longhorn replica disk
 #         partitions:
 #           - label: part-beta
-#             vg: longhorndata
-#             thinpool: longhornthin
 #             size: "0"
-#             mount:                     # target declared here, once per pool
-#               path: /var/lib/longhorn
+#             mount:
+#               path: /var/lib/longhorn-disks/part-beta
 #               fstype: ext4
-#               lv_name: longhorn-data
+#       - select: { model: "WDC WD10EZEX-...", serial: "..." }
+#         wipe: force
+#         partitions:
+#           - label: part-gamma
+#             size: "0"
+#             mount:
+#               path: /var/lib/longhorn-disks/part-gamma
+#               fstype: ext4
 #
 # There is intentionally NO default `storage` here — a node with no
 # declared layout is silently skipped by the playbook-level `when:`
