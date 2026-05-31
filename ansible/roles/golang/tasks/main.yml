@@ -1,6 +1,19 @@
+# Prefer the LAN mirror (bootserv01), fall back to upstream on a miss.
+# Mirror path = upstream URL minus its scheme. See group_vars/all/vars.yml.
+- name: Probe artifact mirror for Go
+  ansible.builtin.uri:
+    url: "{{ artifact_mirror_base }}/{{ golang_url | regex_replace('^https?://', '') }}"
+    method: HEAD
+    status_code: [200, 404]
+  register: golang_mirror_probe
+  failed_when: false
+
 - name: Download Go
   ansible.builtin.get_url:
-    url: "https://go.dev/dl/go{{ golang_version }}.linux-amd64.tar.gz"
+    url: >-
+      {{ (artifact_mirror_base ~ '/' ~ (golang_url | regex_replace('^https?://', '')))
+         if (golang_mirror_probe.status | default(0)) == 200
+         else golang_url }}
     dest: /tmp/go.tar.gz
 #
 - name: Install Go

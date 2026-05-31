@@ -1,0 +1,98 @@
+---
+# Foundation tier — PRODUCER for the static-artifact mirror. Ingest pinned
+# upstream blobs (GitHub-release binaries, the Go tarball, uv) once onto the
+# NAS, then PUBLISH each to bootserv01 via `pct push` at
+# http://bootserv01.lan/artifacts/<url-minus-scheme>.
+#
+# Artifacts published (per entry in vars/artifacts.yml):
+#   /mnt/nas/build-artifacts/mirror/<rel>            durable NAS copy
+#   /mnt/nas/build-artifacts/mirror/<rel>.sha256     sidecar
+#   bootserv01:/srv/http/artifacts/<rel>             served copy
+#   bootserv01:/srv/http/artifacts/<rel>.sha256      sidecar
+# where <rel> is the upstream URL minus its scheme (the mirror path convention
+# the consumer roles resolve against artifact_mirror_base).
+#
+# Consumed by roles dev-tools / python / golang: each HEAD-probes the mirror
+# and prefers it, falling back to the upstream URL on a miss.
+#
+# Ordering: runs AFTER 90-bootserv.yml (bootserv01 up, Caddy serving,
+# bootserv_static_dirs incl. /srv/http/artifacts created) and relies on the
+# build-artifacts NFS share being mounted on the foundation node
+# (17-host/16-nfs-mounts.yml; hypervisors inherit it from `physical`).
+#
+# Idempotency: the NAS download is force:false (re-pulls only when a version
+# bump changes the path), and the publish is gated on a per-artifact
+# `pct exec test -f` check — a re-run on a fully-mirrored fleet is a no-op.
+# `-e force_rebuild=true` re-pulls + re-pushes everything.
+#
+# Auto-assembly: vars/artifacts.yml references the consumer roles' own *_url
+# vars; this play loads those role defaults via vars_files so they resolve.
+# This is the one place the producer reaches into role internals — by design,
+# so the mirror list can't drift from what the roles install.
+
+- name: Mirror static artifacts to NAS + bootserv01
+  hosts: "{{ target_hosts | default('foundation') }}"
+  gather_facts: false
+  become: true
+  vars_files:
+    - ../vars/artifacts.yml
+    - ../../../../roles/dev-tools/defaults/main.yml
+    - ../../../../roles/python/defaults/main.yml
+    - ../../../../roles/golang/defaults/main.yml
+  vars:
+    force_rebuild: false
+    nas_mirror_root: /mnt/nas/build-artifacts/mirror
+    # Mirror roles/bootserv/defaults/main.yml — keeping these explicit here so
+    # the producer doesn't depend on the bootserv role being in scope.
+    bootserv_http_root: /srv/http
+    bootserv_owner: caddy
+    bootserv_group: caddy
+
+  pre_tasks:
+    - name: Check the NAS build-artifacts share is mounted
+      ansible.builtin.command: "mountpoint -q {{ nas_mirror_root | dirname }}"
+      register: nas_mount_check
+      changed_when: false
+      failed_when: false
+
+    - name: Assert NAS build-artifacts share is mounted
+      ansible.builtin.assert:
+        that:
+          - nas_mount_check.rc == 0
+        fail_msg: >-
+          {{ nas_mirror_root | dirname }} is not a mountpoint on
+          {{ inventory_hostname }}. The build-artifacts NFS share must be
+          mounted (17-host/16-nfs-mounts.yml) before mirroring.
+
+    - name: Ensure the NAS mirror root exists
+      ansible.builtin.file:
+        path: "{{ nas_mirror_root }}"
+        state: directory
+        mode: "0755"
+
+    - name: Discover bootserv01 CTID on this foundation node
+      ansible.builtin.shell:
+        cmd: "set -o pipefail; pct list | awk '$3 == \"bootserv01\" {print $1; exit}'"
+        executable: /bin/bash
+      register: bootserv_ctid_result
+      changed_when: false
+
+    - name: Assert bootserv01 was found via pct list
+      ansible.builtin.assert:
+        that:
+          - bootserv_ctid_result.stdout | length > 0
+        fail_msg: >-
+          bootserv01 CTID not found on {{ inventory_hostname }} via
+          `pct list`. Has 80-tofu-infra-lxcs.yml + 90-bootserv.yml run?
+
+    - name: Set bootserv01 CTID as play-level fact
+      ansible.builtin.set_fact:
+        bootserv_ctid: "{{ bootserv_ctid_result.stdout | trim }}"
+
+  tasks:
+    - name: Ingest + publish each artifact
+      ansible.builtin.include_tasks: ../tasks/mirror-one-artifact.yml
+      loop: "{{ artifact_mirror_urls }}"
+      loop_control:
+        loop_var: artifact_url
+        label: "{{ artifact_url | regex_replace('^https?://', '') }}"

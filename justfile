@@ -183,6 +183,11 @@ do-bootserv-config: check
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/90-bootserv.yml
 
 
+# Ingest pinned static artifacts (dev-tools binaries, Go, uv) onto the NAS and publish them to bootserv01's HTTP mirror. Idempotent; -e force_rebuild=true re-pulls + re-pushes. Needs the foundation node up (bootserv01 + build-artifacts NFS mount).
+mirror-artifacts: check
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/96-mirror-artifacts.yml
+
+
 # Push PXE-aware dnsmasq config + Mellanox static reservations to OPNsense. Re-run anytime debian_netboot.boot_macs or bootserv01 changes.
 do-router-dhcp: check
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/10-router/20-dnsmasq.yml

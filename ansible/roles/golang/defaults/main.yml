@@ -1,1 +1,4 @@
 golang_version: "1.26.1"
+# Extracted to a var so 13-foundation/96-mirror-artifacts.yml can reference it
+# when auto-assembling the mirror manifest (vars/artifacts.yml).
+golang_url: "https://go.dev/dl/go{{ golang_version }}.linux-amd64.tar.gz"

@@ -78,3 +78,12 @@ nas_rsync_target:    "{{ hostvars['nas01'].nas.rsync_user }}@{{ hostvars['nas01'
 nas_ssh_target:      "{{ hostvars['nas01'].nas.rsync_user }}@{{ hostvars['nas01'].ansible_host }}"
 synology_dsm_password: "{{ vault_synology_dsm_password }}"
 synology_dsm_username: pani
+
+# LAN-local static-artifact mirror served by bootserv01's Caddy. Populated
+# by 13-foundation/96-mirror-artifacts.yml (ingest pinned upstream blobs to
+# the NAS, then `pct push` into /srv/http/artifacts/). Consumer roles
+# (dev-tools, python, golang) HEAD-probe this base and prefer it, falling
+# back to the upstream URL on a miss — so a brand-new fleet (mirror not yet
+# populated) still installs. Mirror path = upstream URL minus its scheme,
+# e.g. http://bootserv01.lan/artifacts/github.com/casey/just/releases/...
+artifact_mirror_base: "http://bootserv01.lan/artifacts"

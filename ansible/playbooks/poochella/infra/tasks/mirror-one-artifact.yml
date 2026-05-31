@@ -1,0 +1,81 @@
+---
+# Ingest one upstream artifact to the NAS and publish it to bootserv01.
+# Loop var: `artifact_url` (full upstream URL). Required play vars:
+#   nas_mirror_root, bootserv_ctid, bootserv_http_root,
+#   bootserv_owner, bootserv_group, force_rebuild
+#
+# Path convention: <rel> = the upstream URL minus its scheme, used verbatim
+# under both the NAS mirror root and bootserv01's /srv/http/artifacts/ — the
+# same path the consumer roles resolve against artifact_mirror_base.
+
+- name: "Derive mirror paths"
+  ansible.builtin.set_fact:
+    _rel: "{{ artifact_url | regex_replace('^https?://', '') }}"
+
+- name: "Set NAS + HTTP destinations"
+  ansible.builtin.set_fact:
+    _nas_path: "{{ nas_mirror_root }}/{{ _rel }}"
+    _http_path: "{{ bootserv_http_root }}/artifacts/{{ _rel }}"
+
+- name: "Ensure NAS parent dir for {{ _rel }}"
+  ansible.builtin.file:
+    path: "{{ _nas_path | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: "Ingest {{ _rel }} to the NAS"
+  ansible.builtin.get_url:
+    url: "{{ artifact_url }}"
+    dest: "{{ _nas_path }}"
+    mode: "0644"
+    force: "{{ force_rebuild | default(false) | bool }}"
+    timeout: 120
+  register: artifact_dl
+  until: artifact_dl is succeeded
+  retries: 5
+  delay: 15
+
+- name: "Check if {{ _rel }} is already published on bootserv01"
+  ansible.builtin.command:
+    cmd: "pct exec {{ bootserv_ctid }} -- test -f {{ _http_path }}"
+  register: artifact_published
+  failed_when: false
+  changed_when: false
+
+- name: "Publish {{ _rel }} to bootserv01"
+  when: artifact_published.rc != 0 or (force_rebuild | default(false) | bool)
+  block:
+    - name: "Compute sha256 of {{ _rel }} on the NAS copy"
+      ansible.builtin.stat:
+        path: "{{ _nas_path }}"
+        checksum_algorithm: sha256
+      register: artifact_stat
+
+    - name: "Write sha256 sidecar on the NAS for {{ _rel }}"
+      ansible.builtin.copy:
+        content: "{{ artifact_stat.stat.checksum }}  {{ _nas_path | basename }}\n"
+        dest: "{{ _nas_path }}.sha256"
+        mode: "0644"
+
+    - name: "Ensure artifacts subdir exists inside bootserv01 for {{ _rel }}"
+      ansible.builtin.command:
+        cmd: "pct exec {{ bootserv_ctid }} -- mkdir -p {{ _http_path | dirname }}"
+      changed_when: true
+
+    - name: "Push {{ _rel }} into bootserv01 docroot"
+      ansible.builtin.command:
+        cmd: >-
+          pct push {{ bootserv_ctid }}
+          {{ _nas_path }}
+          {{ _http_path }}
+          --user {{ bootserv_owner }} --group {{ bootserv_group }} --perms 0644
+      changed_when: true
+
+    - name: "Push sha256 sidecar for {{ _rel }} into bootserv01 docroot"
+      ansible.builtin.command:
+        cmd: >-
+          pct push {{ bootserv_ctid }}
+          {{ _nas_path }}.sha256
+          {{ _http_path }}.sha256
+          --user {{ bootserv_owner }} --group {{ bootserv_group }} --perms 0644
+      changed_when: true

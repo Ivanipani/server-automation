@@ -98,3 +98,8 @@
 # ── Full PRODUCER: bake VM qcow2 + snapshot LXC template, publish to ─────
 # ── bootserv01. Every hypervisor consumes via 20-hypervisor/40-templates ─
 - import_playbook: 95-bake-publish-images.yml
+
+# ── Mirror pinned static artifacts (dev-tools binaries, Go, uv) to the ───
+# ── NAS + bootserv01. Consumed by dev/python/golang roles via the LAN ────
+# ── mirror with upstream fallback. No-op when already mirrored. ──────────
+- import_playbook: 96-mirror-artifacts.yml

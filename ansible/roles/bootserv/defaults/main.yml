@@ -12,6 +12,10 @@ bootserv_http_root: /srv/http
 bootserv_static_dirs:
   - cloud-images   # virt-customize'd Debian VM qcow2s (+ .sha256 sidecars)
   - lxc-templates  # vzdump'd Debian LXC template tarballs (+ .sha256 sidecars)
+  - artifacts      # LAN mirror of pinned upstream blobs (GitHub releases, Go,
+                   # uv …) populated by 13-foundation/96-mirror-artifacts.yml.
+                   # Subtree mirrors the upstream URL path; NOT under the
+                   # @sensitive ACL — carries no secrets, LAN-servable.
 
 # LAN CIDR allowed to fetch sensitive paths (/preseed/, /scripts/).
 # Other paths (/debian-13/, /boot.ipxe, /hosts/) are open to the

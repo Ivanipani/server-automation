@@ -1,0 +1,29 @@
+---
+# Source of truth for the static-artifact mirror (13-foundation/96-mirror-artifacts.yml).
+#
+# Auto-assembled, NOT hand-maintained: each entry references the SAME *_url
+# var the consumer role uses to install the tool. 96-mirror-artifacts.yml
+# loads those role defaults via vars_files so these resolve. Bumping a version
+# in a role's defaults/main.yml therefore re-points the mirror automatically —
+# producer and consumer can't drift on the URL.
+#
+# To mirror a new artifact: add its *_url var reference here (and, if it's a
+# new role, the role's defaults to the playbook's vars_files).
+
+artifact_mirror_urls:
+  # dev-tools (roles/dev-tools/defaults/main.yml)
+  - "{{ just_url }}"
+  - "{{ zellij_url }}"
+  - "{{ neovim_url }}"
+  - "{{ jj_url }}"
+  - "{{ ripgrep_url }}"
+  - "{{ fd_url }}"
+  - "{{ fzf_url }}"
+  - "{{ direnv_url }}"
+  - "{{ atuin_url }}"
+  - "{{ difftastic_url }}"
+  - "{{ jjui_url }}"
+  # python (roles/python/defaults/main.yml)
+  - "{{ uv_url }}"
+  # golang (roles/golang/defaults/main.yml)
+  - "{{ golang_url }}"

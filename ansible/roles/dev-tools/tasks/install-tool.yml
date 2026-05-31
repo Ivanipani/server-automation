@@ -1,0 +1,81 @@
+---
+# Install one entry from dev_tools_packages (loop var: `tool`).
+# Idempotent: skips when the pinned version is already present. Prefers the
+# bootserv01 LAN mirror, falling back to the upstream URL on a miss.
+
+- name: "Check if {{ tool.name }} is installed"
+  ansible.builtin.stat:
+    path: "{{ tool.bin }}"
+  register: tool_stat
+
+- name: "Check installed {{ tool.name }} version"
+  ansible.builtin.command:
+    cmd: "{{ tool.bin }} --version"
+  register: tool_version
+  changed_when: false
+  failed_when: false
+  when: tool_stat.stat.exists
+
+- name: "Install {{ tool.name }}"
+  when: >-
+    not tool_stat.stat.exists
+    or tool.version not in (tool_version.stdout | default(''))
+  block:
+    - name: "Ensure install dir for {{ tool.name }}"
+      ansible.builtin.file:
+        path: "{{ tool.install_dir }}"
+        state: directory
+        mode: "0755"
+
+    # Mirror path = upstream URL minus its scheme. A 200 means the mirror
+    # has it; anything else (404, unreachable) falls back to upstream.
+    - name: "Probe artifact mirror for {{ tool.name }}"
+      ansible.builtin.uri:
+        url: "{{ artifact_mirror_base }}/{{ tool.url | regex_replace('^https?://', '') }}"
+        method: HEAD
+        status_code: [200, 404]
+      register: tool_mirror_probe
+      failed_when: false
+
+    - name: "Resolve source URL for {{ tool.name }}"
+      ansible.builtin.set_fact:
+        tool_src: >-
+          {{ (artifact_mirror_base ~ '/' ~ (tool.url | regex_replace('^https?://', '')))
+             if (tool_mirror_probe.status | default(0)) == 200
+             else tool.url }}
+
+    - name: "Download {{ tool.name }} binary"
+      ansible.builtin.get_url:
+        url: "{{ tool_src }}"
+        dest: "{{ tool.bin }}"
+        mode: "0755"
+      when: tool.type == 'binary'
+
+    - name: "Download {{ tool.name }} archive"
+      ansible.builtin.get_url:
+        url: "{{ tool_src }}"
+        dest: "/tmp/dev-tools-{{ tool.name }}.{{ 'zip' if tool.type == 'zip' else 'tar.gz' }}"
+      register: tool_archive
+      when: tool.type in ['tarball', 'zip']
+
+    - name: "Extract {{ tool.name }}"
+      ansible.builtin.unarchive:
+        src: "{{ tool_archive.dest }}"
+        dest: "{{ tool.install_dir }}"
+        remote_src: true
+        extra_opts: "{{ ['--strip-components=' ~ (tool.strip | int)] if (tool.strip | default(0) | int) > 0 else omit }}"
+      when: tool.type in ['tarball', 'zip']
+
+    - name: "Ensure plugins dir for {{ tool.name }}"
+      ansible.builtin.file:
+        path: "{{ tool.plugins_dir }}"
+        state: directory
+        mode: "0755"
+      when: (tool.plugins_dir | default('')) | length > 0
+
+    - name: "Symlink {{ tool.name }} into /opt/bin"
+      ansible.builtin.file:
+        src: "{{ tool.bin }}"
+        dest: "/opt/bin/{{ tool.symlink }}"
+        state: link
+      when: (tool.symlink | default('')) | length > 0

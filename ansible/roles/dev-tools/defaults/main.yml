@@ -64,3 +64,32 @@ jjui_version: "0.10.4"
 jjui_url: "https://github.com/idursun/jjui/releases/download/v{{ jjui_version }}/jjui-{{ jjui_version }}-linux-amd64.zip"
 jjui_install_dir: "/opt/jjui"
 jjui_bin: "{{ jjui_install_dir }}/jjui-{{ jjui_version }}-linux-amd64"
+
+# ── Managed-tool table ──────────────────────────────────────────────────
+# Single source of truth for the install loop (tasks/install-tool.yml).
+# Each entry reuses the per-tool *_url / *_install_dir / *_bin / *_version
+# vars above (the 96-mirror-artifacts manifest references the same *_url
+# vars, so the mirror can't drift from what's installed here).
+#
+# Per-entry fields:
+#   name         display label + tmp-archive key (unique)
+#   url          upstream download URL (mirror-resolved at install time)
+#   version      substring expected in `<bin> --version` (idempotency key)
+#   install_dir  directory to ensure + extract into
+#   bin          path checked for presence/version; also the symlink src
+#   type         tarball | zip | binary
+#   strip        (optional) tar --strip-components, omit/0 = none
+#   symlink      (optional) basename to link under /opt/bin → bin
+#   plugins_dir  (optional) extra directory to create
+dev_tools_packages:
+  - { name: just,       url: "{{ just_url }}",       version: "{{ just_version }}",       install_dir: "{{ just_install_dir }}",       bin: "{{ just_bin }}",       type: tarball }
+  - { name: zellij,     url: "{{ zellij_url }}",     version: "{{ zellij_version }}",     install_dir: "{{ zellij_install_dir }}",     bin: "{{ zellij_bin }}",     type: tarball, plugins_dir: "{{ zellij_plugins_dir }}" }
+  - { name: neovim,     url: "{{ neovim_url }}",     version: "{{ neovim_version }}",     install_dir: "{{ neovim_install_dir }}",     bin: "{{ neovim_bin }}",     type: tarball, strip: 1, symlink: nvim }
+  - { name: jj,         url: "{{ jj_url }}",         version: "{{ jj_version }}",         install_dir: "{{ jj_install_dir }}",         bin: "{{ jj_bin }}",         type: tarball }
+  - { name: ripgrep,    url: "{{ ripgrep_url }}",    version: "{{ ripgrep_version }}",    install_dir: "{{ ripgrep_install_dir }}",    bin: "{{ ripgrep_bin }}",    type: tarball, strip: 1, symlink: rg }
+  - { name: fd,         url: "{{ fd_url }}",         version: "{{ fd_version }}",         install_dir: "{{ fd_install_dir }}",         bin: "{{ fd_bin }}",         type: tarball, strip: 1, symlink: fd }
+  - { name: fzf,        url: "{{ fzf_url }}",        version: "{{ fzf_version }}",        install_dir: "{{ fzf_install_dir }}",        bin: "{{ fzf_bin }}",        type: tarball }
+  - { name: direnv,     url: "{{ direnv_url }}",     version: "{{ direnv_version }}",     install_dir: "{{ direnv_install_dir }}",     bin: "{{ direnv_bin }}",     type: binary }
+  - { name: atuin,      url: "{{ atuin_url }}",      version: "{{ atuin_version }}",      install_dir: "{{ atuin_install_dir }}",      bin: "{{ atuin_bin }}",      type: tarball, strip: 1, symlink: atuin }
+  - { name: difftastic, url: "{{ difftastic_url }}", version: "{{ difftastic_version }}", install_dir: "{{ difftastic_install_dir }}", bin: "{{ difftastic_bin }}", type: tarball }
+  - { name: jjui,       url: "{{ jjui_url }}",       version: "{{ jjui_version }}",       install_dir: "{{ jjui_install_dir }}",       bin: "{{ jjui_bin }}",       type: zip, symlink: jjui }
