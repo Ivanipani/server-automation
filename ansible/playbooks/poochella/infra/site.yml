@@ -44,9 +44,9 @@
 # `just run --limit <host>`. Each playbook self-bootstraps
 # (../tasks/detect-bootstrap-user.yml) and asserts its own
 # pre-conditions, so this ordering is the happy path, not the only one.
-- import_playbook: 10-router/site.yml
+- import_playbook: 10-networking/site.yml
+- import_playbook: 12-nas/site.yml
 - import_playbook: 13-foundation/site.yml
-- import_playbook: 15-nas/site.yml
 - import_playbook: 17-host/site.yml
 - import_playbook: 20-hypervisor/site.yml
 - import_playbook: 30-guests/site.yml
