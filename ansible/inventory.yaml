@@ -260,6 +260,24 @@ hypervisors:
                     pve_storage: vms
                     content: images,rootdir,iso,vztmpl,snippets
                     size: "0"          # fill the boot tail
+        pve-home-02:
+          ansible_host: pve-home-02.lan
+          ip_address: 10.1.1.106
+          mac_addresses:
+            - "04:0e:3c:8b:4e:4e"
+          storage:
+            disks:
+              - select: boot
+                hw:
+                  model: "THNSN51T02DU7 TOSHIBA"
+                  serial: "660S10KRTTQV"
+                partitions:
+                  - label: vm-storage
+                    vg: vmdata
+                    thinpool: vmthin
+                    pve_storage: vms
+                    content: images,rootdir,iso,vztmpl,snippets
+                    size: "0"          # fill the boot tail
     pve_cluster:
       children: {}
 
@@ -445,16 +463,16 @@ kubernetes:
             memory: 12288
             disk_size: 30
             tags: [kube, control-plane]
-    #     kube-ctl-02:
-    #       ansible_host: kube-ctl-02.lan
-    #       ip_address: 10.1.1.111
-    #       mac_address: "02:00:00:00:02:02"
-    #       vm:
-    #         proxmox_node: pve-home-01
-    #         cores: 4
-    #         memory: 8192
-    #         disk_size: 30
-    #         tags: [kube, control-plane]
+        kube-ctl-02:
+          ansible_host: kube-ctl-02.lan
+          ip_address: 10.1.1.111
+          mac_address: "02:00:00:00:02:02"
+          vm:
+            proxmox_node: pve-home-02
+            cores: 4
+            memory: 12288
+            disk_size: 30
+            tags: [kube, control-plane]
     #     kube-ctl-03:
     #       ansible_host: kube-ctl-03.lan
     #       ip_address: 10.1.1.112

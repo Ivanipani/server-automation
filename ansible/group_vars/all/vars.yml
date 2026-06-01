@@ -55,6 +55,7 @@ proxmox_api_token: "{{ vault_proxmox_api_token }}"
 # `just secret-encrypt vault_proxmox_api_token_<host>`.
 proxmox_api_tokens:
   pve-home-01: "{{ vault_proxmox_api_token_pve_home_01 }}"
+  pve-home-02: "{{ vault_proxmox_api_token_pve_home_02 }}"
 k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
 
 # NAS publish/consume coordinates, re-exported from the single source of

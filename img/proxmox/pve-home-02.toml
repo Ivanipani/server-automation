@@ -6,7 +6,7 @@ mailto = "root@localhost"
 timezone = "America/New_York"
 root-password = "changeme"
 root-ssh-keys = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9"
 ]
 reboot-on-error = false
 
@@ -17,7 +17,7 @@ source = "from-dhcp"
 enabled = true
 
 [network.interface-name-pinning.mapping]
-"3C:7C:3F:1F:96:AF" = "lan0"
+"04:0e:3c:8b:4e:4e" = "lan0"
 
 [first-boot]
 source = "from-iso"
