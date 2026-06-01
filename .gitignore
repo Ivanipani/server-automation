@@ -10,6 +10,8 @@
 tofu/secrets.auto.tfvars
 img/debian/.cache/
 img/debian/output/
+img/live/.cache/
+img/live/output/
 *tfstate*
 .playwright-mcp*
 img/bytepen/target

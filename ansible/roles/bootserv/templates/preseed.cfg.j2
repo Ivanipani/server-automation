@@ -168,8 +168,7 @@ d-i partman-auto/method string regular
 #                Fixed size; modest swap as OOM cushion.
 #   - p3 root:   102400/102400/102400 ext4, /. Fixed size.
 #   - p4 data:   1/1/-1 ext4, NO mountpoint. min=1 MiB + max=-1
-#                means "absorb the leftover" (~927 GiB on
-#                metal-home-02, ~1.78 TiB on metal-home-01).
+#                means "absorb the leftover" .
 #                Unmounted placeholder that host-disks repurposes
 #                post-install via the inventory's
 #                storage.disks[?select == 'boot'].partitions block.

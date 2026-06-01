@@ -38,6 +38,23 @@ flash-pick device:
     {{burn}} "$image" "{{device}}"
 
 
+# Build the hardware-probe live ISO (Debian 13 live-standard + auto-run probe).
+build-live:
+    "{{here}}/live/build.sh"
+
+
+# Flash the hardware-probe live ISO. Builds it first if missing.
+flash-live device:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    iso="{{here}}/live/output/debian-13-probe.iso"
+    if [ ! -f "$iso" ]; then
+        echo "ISO not found; building via live/build.sh ..."
+        "{{here}}/live/build.sh"
+    fi
+    sudo {{burn}} "$iso" "{{device}}"
+
+
 # Flash the per-host Debian 13 unattended-install ISO. Builds it first if missing.
 flash-debian host device:
     #!/usr/bin/env bash
