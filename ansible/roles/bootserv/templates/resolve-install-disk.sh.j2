@@ -59,9 +59,26 @@
 set -e
 
 # These come from inventory: storage.disks[?select == 'boot'].hw
-EXPECTED_MODEL='{{ _hw.model }}'
-EXPECTED_SERIAL='{{ _hw.serial }}'
-LOG=/tmp/install-resolver.log
+EXPECTED_MODEL_RAW='{{ _hw.model }}'
+EXPECTED_SERIAL_RAW='{{ _hw.serial }}'
+LOG=/tmp/resolve-disk.log
+
+# Normalize a device-identity string the SAME way on both sides of the
+# match: trim leading/trailing whitespace AND squeeze internal whitespace
+# runs down to a single space. This mirrors how the post-install OS
+# reports the field (lsblk -o MODEL / udev ID_MODEL): the sysfs raw value
+# "Samsung SSD 980 1TB   \n" normalizes to "Samsung SSD 980 1TB".
+#
+# The previous version used `tr -d ' \t\r\n'`, which DELETED internal
+# spaces too — "Samsung SSD 980 1TB" collapsed to "SamsungSSD9801TB" and
+# never matched an inventory model copied from the running system, so the
+# resolver halted even on a correctly-pinned disk. `awk '{$1=$1;print}'`
+# is the canonical trim-and-squeeze idiom (FS=whitespace, OFS=single
+# space) and is present in d-i's busybox awk.
+norm() { awk '{ $1 = $1; print }'; }
+
+EXPECTED_MODEL=$(printf '%s' "$EXPECTED_MODEL_RAW" | norm)
+EXPECTED_SERIAL=$(printf '%s' "$EXPECTED_SERIAL_RAW" | norm)
 
 # All our output goes to the log; `say` ALSO mirrors to tty4 so the
 # operator can watch progress on Alt+F4 in real time.
@@ -94,9 +111,9 @@ for d in /sys/block/*; do
         say "  skip /dev/$bn  (no /sys/block/$bn/device/model)"
         continue
     fi
-    m=$(tr -d ' \t\r\n' < "$d/device/model")
+    m=$(norm < "$d/device/model")
     s=""
-    [ -r "$d/device/serial" ] && s=$(tr -d ' \t\r\n' < "$d/device/serial")
+    [ -r "$d/device/serial" ] && s=$(norm < "$d/device/serial")
     say "  candidate: /dev/$bn  model='$m'  serial='$s'"
     if [ "$m" = "$EXPECTED_MODEL" ] && [ "$s" = "$EXPECTED_SERIAL" ]; then
         install_disk="/dev/$bn"
@@ -127,9 +144,11 @@ if [ -z "$install_disk" ]; then
     expected serial='$EXPECTED_SERIAL'
 
   Fix: update storage.disks[0].hw in ansible/inventory.yaml with the
-       model + serial of one of the candidates above (whitespace-
-       stripped), then \`just do-bootserv-config\` on the control node
-       and reboot the host.
+       model + serial of one of the candidates above — copy them exactly
+       as printed (already whitespace-normalized: edges trimmed, internal
+       runs collapsed to a single space, matching what the running OS
+       reports). Then \`just do-bootserv-config\` on the control node and
+       reboot the host.
 
   Exiting non-zero so partman fails loudly (d-i dialog on tty1)
   instead of hanging the install indefinitely.

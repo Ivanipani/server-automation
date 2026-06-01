@@ -295,18 +295,18 @@ workers:
           - select: { model: "CT2000P310SSD8", serial: "254854AAD28F" }
             wipe: force            # holds old longhorndata PV signature
             partitions:
-              - label: part-beta
+              - label: part-bravo
                 size: "0"
                 mount:
-                  path: /var/lib/longhorn-disks/part-beta
+                  path: /var/lib/longhorn-disks/part-bravo
                   fstype: ext4
           - select: { model: "WDC WD10EZEX-08WN4A0", serial: "WD-WCC6Y1LPLUY3" }
             wipe: force
             partitions:
-              - label: part-gamma
+              - label: part-charlie
                 size: "0"
                 mount:
-                  path: /var/lib/longhorn-disks/part-gamma
+                  path: /var/lib/longhorn-disks/part-charlie
                   fstype: ext4
     metal-home-02:
       ansible_host: metal-home-02.lan

@@ -38,7 +38,7 @@
 
 set -e
 
-LOG=/tmp/install-iface-resolver.log
+LOG=/tmp/resolve-interface.log
 LEASE=/tmp/install-iface-lease
 CARRIER_WAIT_SECONDS=30
 DHCP_TIMEOUT_SECONDS=20
@@ -283,12 +283,17 @@ if ping -c1 -W2 1.1.1.1 >/dev/null 2>&1; then
 else
     say "  WARN: WAN NOT reachable — OPNsense NAT/firewall? lease IP outside LAN?"
 fi
-# nslookup may not exist in busybox d-i; use a noisy fallback.
+# DNS sanity: resolve a hostname. `nslookup` is the busybox applet for this;
+# `getent` does NOT exist in the d-i busybox environment (it's a glibc/NSS
+# tool, not a busybox applet — calling it just errors "getent: not found").
+# Fall back to busybox `ping`, which resolves names via gethostbyname() and
+# is always present here (we already use it for the reachability probe above).
 if command -v nslookup >/dev/null 2>&1; then
-    nslookup deb.debian.org 2>&1 | sed 's/^/    /' >>"$LOG"
+    nslookup deb.debian.org 2>&1 | sed 's/^/    /' >>"$LOG" || true
+elif ping -c1 -W2 deb.debian.org >/dev/null 2>&1; then
+    say "  DNS ok: deb.debian.org resolves + responds"
 else
-    # busybox d-i usually has `getent hosts` via NSS.
-    getent hosts deb.debian.org 2>&1 | sed 's/^/    /' >>"$LOG" || true
+    say "  WARN: could not resolve/reach deb.debian.org (DNS broken?)"
 fi
 
 say ""
