@@ -1,0 +1,207 @@
+---
+# Foundation tier — PRODUCER. Bake ONE SHARED Proxmox VE auto-install PXE
+# artifact set on the foundation node and publish it to bootserv01 at
+# /srv/http/proxmox-pxe/, so every hypervisor iPXE-boots the PVE
+# auto-installer the same way fresh workers iPXE-boot Debian.
+#
+# ONE shared ISO (not per-host): per-host config is the answer.toml the
+# bootserv answer responder hands back, keyed on the booting NIC's MAC
+# (`[network] source = "from-dhcp"`). For in-installer DHCP to work on
+# slow-link NICs, the bake patches the installer's dhclient `timeout`
+# inside pve-installer.squashfs (10 s -> pve_pxe.dhcp_timeout) — Proxmox
+# bug #5583: the installer fires a single short DHCP burst before the NIC
+# link finishes coming up after the kernel driver reset, with no tunable
+# timeout, so the stock installer races and fails (iPXE works only because
+# it never drops the link). A 60 s timeout spans the link-up window.
+#
+# Artifacts published (+ .sha256 sidecars), fleet-wide flat:
+#   http://bootserv01.lan/proxmox-pxe/vmlinuz
+#   http://bootserv01.lan/proxmox-pxe/initrd.img
+#   http://bootserv01.lan/proxmox-pxe/proxmox-ve_9.1-1-pxe.iso
+#
+# Consumed by the bootserv role's shared proxmox-install.ipxe; first-boot
+# runs the canonical image-baseline.sh via the answer's [first-boot]
+# from-url. The actual bake is a single DETACHED shell script
+# (files/bake-pve-pxe.sh.j2) — the unsquashfs/mksquashfs/prepare-iso work
+# saturates this mini-PC and a held SSH channel drops (UNREACHABLE);
+# detached + a sentinel poll survives it.
+#
+# Skips entirely when no hypervisor is PVE-netbootable (a host in
+# `hypervisors` carrying a `storage.disks[] select: boot` entry with an
+# `hw: {model, serial}` pin). Today: pve-home-02/-03 (pve-home-01 has no
+# hw pin, so it is not netbootable — it is installed from USB).
+#
+# Ordering: runs AFTER 90-bootserv.yml (+ 95/96). Pre-conditions:
+# bootserv01 up; proxmox-auto-install-assistant + xorriso + squashfs-tools
+# present on foundation (host-base); outbound HTTPS to the ISO mirror.
+#
+# Flags: force_rebuild – re-bake + republish even if already on bootserv01.
+# Re-pin: bump pve_pxe.iso_url/iso_file/pxe_iso_file in ../vars/templates.yml.
+
+- name: Bake + publish the shared Proxmox VE auto-install PXE artifacts
+  hosts: "{{ target_hosts | default('foundation') }}"
+  gather_facts: false
+  become: true
+  vars_files:
+    - ../vars/templates.yml
+  vars:
+    force_rebuild: false
+    # Mirror roles/bootserv/defaults/main.yml (same convention as 95-bake).
+    bootserv_http_root: /srv/http
+    bootserv_owner: caddy
+    bootserv_group: caddy
+    bootserv_pve_answer_path: /proxmox-answer
+    # Where the booting installer POSTs its sysinfo (Caddy reverse-proxies
+    # this LAN-only path to the answer responder). Baked into initrd.img.
+    pve_answer_url: "http://bootserv01.{{ domain | default('lan') }}{{ bootserv_pve_answer_path }}"
+    # Scratch on the foundation node.
+    pve_build_dir: /var/tmp/pve-pxe-build
+    pve_build_out: /var/tmp/pve-pxe-build/out
+
+  pre_tasks:
+    - name: Discover bootserv01 CTID on this foundation node
+      ansible.builtin.shell:
+        cmd: "set -o pipefail; pct list | awk '$3 == \"bootserv01\" {print $1; exit}'"
+        executable: /bin/bash
+      register: bootserv_ctid_result
+      changed_when: false
+
+    - name: Assert bootserv01 was found via pct list
+      ansible.builtin.assert:
+        that:
+          - bootserv_ctid_result.stdout | length > 0
+        fail_msg: >-
+          bootserv01 CTID not found on {{ inventory_hostname }} via
+          `pct list`. Has 80-tofu-infra-lxcs.yml + 90-bootserv.yml run?
+
+    - name: Set bootserv01 CTID as play-level fact
+      ansible.builtin.set_fact:
+        bootserv_ctid: "{{ bootserv_ctid_result.stdout | trim }}"
+
+    # Presence check via `command -v` — NOT `<tool> --version`, because
+    # unsquashfs prints its version but exits 1, which would false-fail.
+    - name: Assert the bake toolchain is present on foundation
+      ansible.builtin.shell: "command -v {{ item }}"
+      register: pve_tool_check
+      changed_when: false
+      failed_when: pve_tool_check.rc != 0
+      loop:
+        - proxmox-auto-install-assistant
+        - xorriso
+        - unsquashfs
+        - mksquashfs
+      loop_control:
+        label: "{{ item }}"
+
+    # PVE-netbootable hypervisors: in `hypervisors` with a boot-disk hw pin.
+    # Only used to decide whether to bake at all (the artifact is shared).
+    - name: Init PVE-netbootable hypervisor list
+      ansible.builtin.set_fact:
+        pve_pxe_hosts: []
+
+    - name: Build PVE-netbootable hypervisor list
+      ansible.builtin.set_fact:
+        pve_pxe_hosts: "{{ pve_pxe_hosts + [item] }}"
+      loop: "{{ groups['hypervisors'] | default([]) }}"
+      when:
+        - hostvars[item].mac_addresses is defined
+        - hostvars[item].storage is defined
+        - hostvars[item].storage.disks is defined
+        - (hostvars[item].storage.disks
+            | selectattr('select', 'eq', 'boot')
+            | selectattr('hw', 'defined')
+            | list | length) > 0
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Show the PVE-netbootable hypervisor list
+      ansible.builtin.debug:
+        var: pve_pxe_hosts
+
+  tasks:
+    - name: Bake + publish the shared PVE PXE artifacts
+      when: pve_pxe_hosts | default([]) | length > 0
+      block:
+        - name: Already published on bootserv01?
+          ansible.builtin.command:
+            cmd: >-
+              pct exec {{ bootserv_ctid }} -- test -f
+              {{ bootserv_http_root }}/proxmox-pxe/{{ pve_pxe.initrd_file | default('initrd.img') }}
+          register: pve_published
+          failed_when: false
+          changed_when: false
+
+        - name: Produce + publish
+          when: pve_published.rc != 0 or (force_rebuild | bool)
+          block:
+            - name: Ensure a clean build dir on foundation
+              ansible.builtin.file:
+                path: "{{ pve_build_dir }}"
+                state: "{{ item }}"
+                mode: "0755"
+              loop:
+                - absent
+                - directory
+
+            - name: Render the bake script
+              ansible.builtin.template:
+                src: ../files/bake-pve-pxe.sh.j2
+                dest: "{{ pve_build_dir }}/bake-pve-pxe.sh"
+                mode: "0755"
+
+            # Detached (setsid) so the heavy bake survives an sshd keepalive
+            # drop under CPU load; the play polls the sentinel below.
+            - name: Launch the bake (detached + niced)
+              ansible.builtin.shell:
+                cmd: "setsid bash {{ pve_build_dir }}/bake-pve-pxe.sh </dev/null >/dev/null 2>&1 &"
+                executable: /bin/bash
+              changed_when: true
+
+            - name: Wait for the bake to finish (download + squashfs + prepare-iso)
+              ansible.builtin.wait_for:
+                path: "{{ pve_build_dir }}/.done"
+                timeout: 3000
+
+            - name: Read the bake exit code
+              ansible.builtin.command: "cat {{ pve_build_dir }}/.rc"
+              register: pve_bake_rc
+              changed_when: false
+
+            - name: Assert the bake succeeded
+              ansible.builtin.assert:
+                that:
+                  - (pve_bake_rc.stdout | trim) == '0'
+                fail_msg: >-
+                  PVE PXE bake exited {{ pve_bake_rc.stdout | trim }} — see
+                  {{ pve_build_dir }}/bake.log on {{ inventory_hostname }}.
+
+            - name: Ensure the flat proxmox-pxe docroot exists on bootserv01
+              ansible.builtin.command:
+                cmd: >-
+                  pct exec {{ bootserv_ctid }} -- mkdir -p
+                  {{ bootserv_http_root }}/proxmox-pxe
+              changed_when: false
+
+            - name: Publish each artifact (+ sidecar) to bootserv01
+              ansible.builtin.command:
+                cmd: >-
+                  pct push {{ bootserv_ctid }}
+                  {{ pve_build_out }}/{{ item }}
+                  {{ bootserv_http_root }}/proxmox-pxe/{{ item }}
+                  --user {{ bootserv_owner }} --group {{ bootserv_group }} --perms 0644
+              changed_when: true
+              loop:
+                - "{{ pve_pxe.kernel_file | default('vmlinuz') }}"
+                - "{{ pve_pxe.kernel_file | default('vmlinuz') }}.sha256"
+                - "{{ pve_pxe.initrd_file | default('initrd.img') }}"
+                - "{{ pve_pxe.initrd_file | default('initrd.img') }}.sha256"
+                - "{{ pve_pxe.pxe_iso_file }}"
+                - "{{ pve_pxe.pxe_iso_file }}.sha256"
+              loop_control:
+                label: "{{ item }}"
+
+  post_tasks:
+    - name: Clean up the PVE PXE build scratch on foundation
+      ansible.builtin.file:
+        path: "{{ pve_build_dir }}"
+        state: absent

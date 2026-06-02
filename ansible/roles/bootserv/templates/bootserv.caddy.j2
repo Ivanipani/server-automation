@@ -22,6 +22,19 @@
         file_server browse
     }
 
+    # PVE auto-install answer endpoint (LAN-only). The Proxmox installer
+    # POSTs its sysinfo here; the localhost responder returns the per-host
+    # answer.toml matched on MAC. The answer files live OUTSIDE the docroot
+    # ({{ bootserv_pve_answers_dir }}) so they are never file_server'd; this
+    # reverse_proxy is their only exposure, and it carries only a throwaway
+    # root pw (the first-boot image-baseline.sh locks root anyway).
+    @pve_answer path {{ bootserv_pve_answer_path }}
+    handle @pve_answer {
+        @ans_off_lan not remote_ip {{ bootserv_lan_cidr }}
+        respond @ans_off_lan "Forbidden" 403
+        reverse_proxy 127.0.0.1:{{ bootserv_pve_responder_port }}
+    }
+
     # Everything else (iPXE scripts, Debian netboot kernel/initrd,
     # the doc root index) is open to the listening interface. The
     # booting initrd may not have DNS yet; restricting these would

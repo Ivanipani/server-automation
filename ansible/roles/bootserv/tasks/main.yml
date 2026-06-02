@@ -18,6 +18,17 @@
 #                                  (LAN-only — embeds the tourmanager
 #                                  vault password hash); the preseed's
 #                                  late_command wgets + execs it
+#     /proxmox-pxe/{vmlinuz,        PVE auto-install netboot artifacts
+#       initrd.img,<pxe>.iso}      (produced on foundation by
+#                                  97-bake-publish-pve-pxe.yml)
+#     /proxmox-install.ipxe        shared iPXE that boots the PVE installer
+#     /proxmox-answer (LAN-only)   reverse-proxied to the answer responder,
+#                                  which returns the per-host answer.toml
+#                                  matched on the installer-POSTed MAC
+#
+#   The PVE answer files themselves live OUTSIDE the docroot at
+#   {{ bootserv_pve_answers_dir }} (never file_server'd); a localhost
+#   stdlib-Python service (proxmox-answer-responder) serves them by MAC.
 #
 # Pre-conditions:
 #   - this play targets a fresh Debian 13 LXC with the ansible user + sudo
@@ -42,11 +53,12 @@
     line: "127.0.1.1 {{ inventory_hostname }}.{{ domain | default('lan') }} {{ inventory_hostname }}"
     state: present
 
-- name: Install dnsmasq, ipxe
+- name: Install dnsmasq, ipxe, python3
   ansible.builtin.apt:
     name:
       - dnsmasq        # TFTP only (port=0 disables its DNS)
       - ipxe           # ships /usr/lib/ipxe/{ipxe.efi,undionly.kpxe}
+      - python3        # runtime for the PVE answer responder (stdlib only)
     state: present
     update_cache: true
     cache_valid_time: 3600
@@ -66,7 +78,8 @@
           bootserv_http_root ~ '/debian-13',
           bootserv_http_root ~ '/hosts',
           bootserv_http_root ~ '/preseed',
-          bootserv_http_root ~ '/scripts']
+          bootserv_http_root ~ '/scripts',
+          bootserv_pve_answers_dir]
          + (bootserv_static_dirs | map('regex_replace', '^', bootserv_http_root ~ '/') | list) }}
 
 # --- TFTP: iPXE chainload binaries -----------------------------------
@@ -170,6 +183,16 @@
   loop_control:
     label: "{{ item }}"
 
+# Split the netbootable hosts by role. Hypervisors get the Proxmox VE
+# auto-installer (one shared proxmox-install.ipxe + a MAC-matched
+# answer.toml); everyone else gets the per-host Debian preseed path.
+# This also corrects a latent mismatch: PVE hosts were previously offered
+# a Debian preseed by the single dispatch list.
+- name: Split netboot hosts into PVE (hypervisors) vs Debian
+  ansible.builtin.set_fact:
+    bootserv_pve_hosts: "{{ bootserv_netboot_hosts | intersect(groups.get('hypervisors', [])) | list }}"
+    bootserv_debian_hosts: "{{ bootserv_netboot_hosts | difference(groups.get('hypervisors', [])) | list }}"
+
 - name: Render the iPXE dispatcher (boot.ipxe)
   ansible.builtin.template:
     src: boot.ipxe.j2
@@ -178,27 +201,28 @@
     group: "{{ bootserv_group }}"
     mode: "0644"
   vars:
-    netboot_hosts: "{{ bootserv_netboot_hosts }}"
+    pve_hosts: "{{ bootserv_pve_hosts }}"
+    debian_hosts: "{{ bootserv_debian_hosts }}"
 
-- name: Render per-host iPXE script
+- name: Render per-host Debian iPXE script
   ansible.builtin.template:
     src: host.ipxe.j2
     dest: "{{ bootserv_http_root }}/hosts/{{ item }}.ipxe"
     owner: "{{ bootserv_owner }}"
     group: "{{ bootserv_group }}"
     mode: "0644"
-  loop: "{{ bootserv_netboot_hosts }}"
+  loop: "{{ bootserv_debian_hosts }}"
   loop_control:
     label: "{{ item }}"
 
-- name: Render per-host preseed
+- name: Render per-host Debian preseed
   ansible.builtin.template:
     src: preseed.cfg.j2
     dest: "{{ bootserv_http_root }}/preseed/{{ item }}.cfg"
     owner: "{{ bootserv_owner }}"
     group: "{{ bootserv_group }}"
     mode: "0640"
-  loop: "{{ bootserv_netboot_hosts }}"
+  loop: "{{ bootserv_debian_hosts }}"
   loop_control:
     label: "{{ item }}"
 
@@ -226,14 +250,14 @@
 # @sensitive ACL keeps it LAN-only (the script contains the host's
 # expected disk model + serial — not strictly secrets, but no reason
 # to leak them off-LAN either).
-- name: Render per-host install-disk resolver
+- name: Render per-host install-disk resolver (Debian)
   ansible.builtin.template:
     src: resolve-install-disk.sh.j2
     dest: "{{ bootserv_http_root }}/scripts/{{ item }}-resolve-install-disk.sh"
     owner: "{{ bootserv_owner }}"
     group: "{{ bootserv_group }}"
     mode: "0640"
-  loop: "{{ bootserv_netboot_hosts }}"
+  loop: "{{ bootserv_debian_hosts }}"
   loop_control:
     label: "{{ item }}"
   vars:
@@ -253,6 +277,92 @@
     owner: "{{ bootserv_owner }}"
     group: "{{ bootserv_group }}"
     mode: "0640"
+
+# PVE first-boot wrapper: installs sudo+zsh (which a fresh PVE base lacks
+# but the baseline assumes) BEFORE running image-baseline.sh. The PVE
+# answer's [first-boot] from-url points here, not at the bare baseline.
+- name: Render PVE first-boot wrapper into bootserv docroot (LAN-only)
+  ansible.builtin.template:
+    src: pve-first-boot.sh.j2
+    dest: "{{ bootserv_http_root }}/scripts/pve-first-boot.sh"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0640"
+
+# ── Proxmox VE auto-install dispatch + answers ───────────────────────
+# Hypervisors netboot the PVE auto-installer (artifacts published to
+# /proxmox-pxe/ by 13-foundation/97-bake-publish-pve-pxe.yml). One shared
+# iPXE script boots them all; per-host config is the answer.toml the
+# responder hands back, keyed on the booting NIC's MAC.
+- name: Render the shared Proxmox install iPXE script
+  ansible.builtin.template:
+    src: proxmox-install.ipxe.j2
+    dest: "{{ bootserv_http_root }}/proxmox-install.ipxe"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0644"
+
+- name: Render per-host PVE answer.toml (outside docroot — responder-served)
+  ansible.builtin.template:
+    src: proxmox-answer.toml.j2
+    dest: "{{ bootserv_pve_answers_dir }}/{{ item }}.toml"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0640"
+  loop: "{{ bootserv_pve_hosts }}"
+  loop_control:
+    label: "{{ item }}"
+
+# MAC → host index the responder consults. Keys are normalized (lowercase,
+# no separators); every NIC MAC of every PVE host maps back to that host.
+- name: Initialize PVE answer MAC map
+  ansible.builtin.set_fact:
+    bootserv_pve_mac_map: {}
+
+- name: Build PVE answer MAC map (every NIC MAC → host)
+  ansible.builtin.set_fact:
+    bootserv_pve_mac_map: >-
+      {{ bootserv_pve_mac_map | combine(dict(
+           (hostvars[item].mac_addresses
+              | map('lower') | map('regex_replace', '[^0-9a-f]', '') | list)
+           | zip([item] * (hostvars[item].mac_addresses | length))
+         )) }}
+  loop: "{{ bootserv_pve_hosts }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Render PVE answer MAC map
+  ansible.builtin.copy:
+    content: "{{ bootserv_pve_mac_map | to_nice_json }}\n"
+    dest: "{{ bootserv_pve_answers_dir }}/mac-map.json"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0640"
+
+- name: Install the PVE answer responder script
+  ansible.builtin.template:
+    src: proxmox-answer-responder.py.j2
+    dest: /usr/local/bin/proxmox-answer-responder
+    owner: root
+    group: root
+    mode: "0755"
+  notify: "Restart proxmox-answer-responder"
+
+- name: Install the PVE answer responder systemd unit
+  ansible.builtin.template:
+    src: proxmox-answer-responder.service.j2
+    dest: /etc/systemd/system/proxmox-answer-responder.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: "Restart proxmox-answer-responder"
+
+- name: Ensure the PVE answer responder is enabled and running
+  ansible.builtin.systemd:
+    name: proxmox-answer-responder
+    enabled: true
+    state: started
+    daemon_reload: true
 
 # --- dnsmasq (TFTP only) ---------------------------------------------
 - name: Configure dnsmasq for TFTP-only

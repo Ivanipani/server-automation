@@ -2,13 +2,19 @@
 # Build a Proxmox VE auto-install ISO that runs the canonical
 # image-baseline.sh as its --on-first-boot script.
 #
-# Concatenates img/proxmox/first-boot.sh (PVE-specific bits: vmbr0
-# DHCP flip, /etc/hosts oneshot for pve-cluster identity) with the
-# rendered image-baseline.sh (ansible/tourmanager users, sshd
-# hardening, apt-no-auto-upgrades, root-lock — same script every
-# other provisioning medium uses). proxmox-auto-install-assistant
-# bundles the combined script via --on-first-boot; the installer
-# wires it as a oneshot systemd service at first boot.
+# Bundles the rendered image-baseline.sh (ansible/tourmanager users,
+# sshd hardening, apt-no-auto-upgrades, root-lock — the SAME script
+# every other provisioning medium uses) via --on-first-boot; the
+# installer wires it as a oneshot systemd service at first boot. There
+# is no PVE-specific first-boot wrapper anymore: standalone nodes with
+# static DHCP reservations don't need the old vmbr0 DHCP-flip /
+# /etc/hosts fixup, so the baseline runs unmodified.
+#
+# This ISO path embeds the baseline (--on-first-boot, "from-iso"). The
+# netboot path (bootserv01 PVE PXE) instead fetches the same baseline at
+# install time via the answer.toml's `[first-boot] source = from-url`;
+# the ISO path can't, since the foundation node is installed via ISO
+# before bootserv01 exists.
 #
 # Usage:
 #   ./build.sh <answer.toml>
@@ -39,7 +45,6 @@ ANSIBLE_DIR="$REPO_DIR/ansible"
 
 OUTPUT_DIR="$SCRIPT_DIR/output"
 BUILD_DIR="$SCRIPT_DIR/.build"
-COMBINED_FIRSTBOOT="$BUILD_DIR/first-boot-combined.sh"
 mkdir -p "$OUTPUT_DIR" "$BUILD_DIR"
 
 ISO_URL="${ISO_URL:-https://enterprise.proxmox.com/iso/proxmox-ve_9.1-1.iso}"
@@ -65,23 +70,8 @@ ansible-playbook \
 BASELINE_SH="/var/tmp/poochella-image-baseline.sh"
 [ -r "$BASELINE_SH" ] || { echo "Error: $BASELINE_SH not found after render"; exit 1; }
 
-# ── 3. Concatenate first-boot.sh + image-baseline.sh ────────────
-# Order matters: PVE-specific networking fixup FIRST (the baseline
-# script can then validate sshd config; sshd is installed by the
-# PVE installer before first-boot fires).
-echo "Building combined first-boot script: $COMBINED_FIRSTBOOT"
-{
-  cat "$SCRIPT_DIR/first-boot.sh"
-  echo ""
-  echo "# ── Canonical image-baseline (group_vars/all/image-baseline.yml) ──"
-  # Skip the shebang on the second script — the outer script's #!/bin/sh
-  # is the one that runs. Strip line 1.
-  tail -n +2 "$BASELINE_SH"
-} > "$COMBINED_FIRSTBOOT"
-chmod 0755 "$COMBINED_FIRSTBOOT"
-
-# Quick sanity check
-bash -n "$COMBINED_FIRSTBOOT"
+# Quick sanity check on the rendered baseline.
+bash -n "$BASELINE_SH"
 
 # ── 4. Download upstream PVE ISO if not cached ──────────────────
 if [ ! -f "$ISO_FILE" ]; then
@@ -100,12 +90,12 @@ if [ "$FETCH_FROM" = "iso" ]; then
   proxmox-auto-install-assistant prepare-iso "$ISO_FILE" \
     --fetch-from iso \
     --answer-file "$ANSWER_FILE" \
-    --on-first-boot "$COMBINED_FIRSTBOOT" \
+    --on-first-boot "$BASELINE_SH" \
     --output "$PREPARED_ISO"
 else
   proxmox-auto-install-assistant prepare-iso "$ISO_FILE" \
     --fetch-from http \
-    --on-first-boot "$COMBINED_FIRSTBOOT" \
+    --on-first-boot "$BASELINE_SH" \
     --output "$PREPARED_ISO"
 fi
 

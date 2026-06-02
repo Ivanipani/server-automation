@@ -1,0 +1,37 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# PVE auto-install FIRST-BOOT wrapper (served LAN-only by bootserv; the
+# answer's [first-boot] from-url points here, ordering=network-online).
+#
+# The canonical cross-medium baseline image-baseline.sh ASSUMES the install
+# medium already provided `sudo` + `zsh`: the Debian preseed's pkgsel and
+# the VM/LXC bakes install them, and host-base installs them on a reconcile.
+# A fresh PVE base has NEITHER, and the PVE auto-installer can't add packages
+# via the answer — so the bare baseline aborts (its users' login shell would
+# be the nonexistent /usr/bin/zsh, and `visudo` is missing), leaving the box
+# with no ansible user and thus unreachable. We install the prerequisites
+# here FIRST, then run the unmodified baseline. network-online ordering
+# guarantees DNS + apt are up at this point.
+set -eo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+echo "pve-first-boot: installing baseline prerequisites (sudo zsh wget)…"
+
+# Fresh PVE ships the subscription-only enterprise repo, which 401s and
+# would abort `apt-get update`. Drop the sub-only lists (the 20-hypervisor
+# repo flip configures the no-subscription repo properly later); the Debian
+# base repos that carry sudo/zsh/wget stay.
+rm -f /etc/apt/sources.list.d/pve-enterprise.list \
+      /etc/apt/sources.list.d/pve-enterprise.sources \
+      /etc/apt/sources.list.d/ceph.list \
+      /etc/apt/sources.list.d/ceph.sources 2>/dev/null || true
+
+apt-get update
+apt-get install -y --no-install-recommends sudo zsh wget
+
+echo "pve-first-boot: running canonical image-baseline.sh…"
+baseline="$(mktemp)"
+wget -qO "$baseline" "http://bootserv01.{{ domain | default('lan') }}/scripts/image-baseline.sh"
+bash "$baseline"
+rm -f "$baseline"
+echo "pve-first-boot: done."

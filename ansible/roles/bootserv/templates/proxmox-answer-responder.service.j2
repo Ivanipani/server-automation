@@ -1,0 +1,27 @@
+# {{ ansible_managed }}
+# Proxmox VE auto-install answer responder (roles/bootserv).
+# Localhost-only HTTP service; Caddy reverse-proxies /proxmox-answer to it
+# behind the LAN-only ACL. Returns the per-host answer.toml matched on the
+# installer-POSTed MAC.
+
+[Unit]
+Description=Proxmox VE auto-install answer responder (MAC -> answer.toml)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/proxmox-answer-responder
+User={{ bootserv_owner }}
+Group={{ bootserv_group }}
+Restart=on-failure
+RestartSec=2
+
+# Hardening — read-only service that only needs to read the answers dir.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths={{ bootserv_pve_answers_dir }}
+
+[Install]
+WantedBy=multi-user.target

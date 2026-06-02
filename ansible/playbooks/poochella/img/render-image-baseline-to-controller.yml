@@ -1,9 +1,10 @@
 ---
 # Render the canonical image-baseline.sh to a controller-local path
 # (/var/tmp/poochella-image-baseline.sh). Used by the PVE-ISO build
-# helper (img/proxmox/build.sh) which then concatenates first-boot.sh
-# + this script into the `--on-first-boot` bundle that
-# proxmox-auto-install-assistant embeds in the ISO.
+# helper (img/proxmox/build.sh), which passes this script straight to
+# `--on-first-boot` so proxmox-auto-install-assistant embeds it in the
+# ISO. (There is no longer a PVE-specific first-boot wrapper — the
+# baseline is the SAME script every other provisioning medium runs.)
 #
 # Distinct from playbooks/poochella/infra/tasks/render-image-baseline.yml
 # which renders to /var/tmp on the play's target host (a hypervisor) for

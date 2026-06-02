@@ -2,16 +2,26 @@
 # Rendered by roles/bootserv from ansible/inventory.yaml — do not edit by hand.
 # Booted via DHCP option `filename=http://bootserv01.lan/boot.ipxe` (served to
 # clients whose DHCP user-class is "iPXE", i.e. chainloaded from ipxe.efi /
-# undionly.kpxe). Dispatches on the booting NIC's MAC to a per-host script.
-# `netboot_hosts` (passed by the role) is already filtered to hosts that
-# carry a `select: boot` disk entry with an `hw: {model, serial}` pin —
-# the marker for "installable via this bootserv preseed".
+# undionly.kpxe). Dispatches on the booting NIC's MAC.
+#
+# Two host classes (both filtered to a `select: boot` disk with an
+# `hw: {model, serial}` pin — the "installable via this bootserv" marker):
+#   - pve_hosts    (∈ groups['hypervisors'])  → Proxmox VE auto-installer
+#                    (one shared proxmox-install.ipxe; per-host answer is
+#                     selected later by the /proxmox-answer responder on MAC)
+#   - debian_hosts (everyone else)            → per-host Debian preseed
+#                    (hosts/<host>.ipxe → d-i + preseed)
 
 echo
 echo iPXE dispatcher on ${net0/mac} (ipxe ${version})
 echo
 
-{% for name in netboot_hosts %}
+{% for name in pve_hosts %}
+{% for m in hostvars[name].mac_addresses %}
+iseq ${net0/mac} {{ m | lower }} && chain proxmox-install.ipxe ||
+{% endfor %}
+{% endfor %}
+{% for name in debian_hosts %}
 {% for m in hostvars[name].mac_addresses %}
 iseq ${net0/mac} {{ m | lower }} && chain hosts/{{ name }}.ipxe ||
 {% endfor %}
@@ -19,7 +29,10 @@ iseq ${net0/mac} {{ m | lower }} && chain hosts/{{ name }}.ipxe ||
 
 echo No MAC-based dispatch matched. Falling back to the menu.
 menu Boot menu (unknown MAC ${net0/mac})
-{% for name in netboot_hosts %}
+{% for name in pve_hosts %}
+item {{ name }} Install Proxmox VE on {{ name }}
+{% endfor %}
+{% for name in debian_hosts %}
 item {{ name }} Install Debian 13 on {{ name }}
 {% endfor %}
 item --gap -- Diagnostics
@@ -28,7 +41,11 @@ item exit   Exit to firmware boot order
 choose target || goto err
 goto ${target}
 
-{% for name in netboot_hosts %}
+{% for name in pve_hosts %}
+:{{ name }}
+chain proxmox-install.ipxe
+{% endfor %}
+{% for name in debian_hosts %}
 :{{ name }}
 chain hosts/{{ name }}.ipxe
 {% endfor %}

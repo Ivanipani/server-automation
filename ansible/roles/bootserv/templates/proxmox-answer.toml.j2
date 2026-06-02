@@ -1,0 +1,64 @@
+{% set _boot = (hostvars[item].storage.disks | selectattr('select', 'eq', 'boot') | list | first) %}
+# Proxmox VE auto-install answer for {{ item }}
+# Rendered by roles/bootserv from ansible/inventory.yaml — do not edit by hand.
+# NOT served by Caddy directly: this file lives outside the docroot
+# ({{ bootserv_pve_answers_dir }}) and is returned by the MAC-matching
+# answer responder when {{ item }} POSTs its sysinfo to /proxmox-answer.
+
+[global]
+keyboard = "en-us"
+country = "us"
+fqdn = "{{ item }}.{{ hostvars[item].domain | default(domain | default('lan')) }}"
+mailto = "root@localhost"
+timezone = "{{ bootserv_timezone }}"
+# Throwaway — the first-boot image-baseline.sh runs `usermod -L root`
+# and wipes /root/.ssh before first boot completes (tourmanager@pam is
+# the sole break-glass, same as every other medium). No root-ssh-keys:
+# the baseline removes any planted root authorized_keys.
+root-password = "install-temp-locked-by-first-boot"
+reboot-on-error = false
+
+[network]
+source = "from-dhcp"
+
+# Pin the inventory NIC to a stable name so the install is deterministic
+# regardless of kernel enumeration. OPNsense holds a static reservation
+# for this MAC, so the DHCP lease the installer captures is the host's
+# permanent IP.
+[network.interface-name-pinning]
+enabled = true
+
+[network.interface-name-pinning.mapping]
+"{{ hostvars[item].mac_addresses | first | lower }}" = "lan0"
+
+# Target the inventory-pinned boot disk by its stable serial (udev
+# ID_SERIAL_SHORT) rather than a kernel device name — robust against
+# NVMe/SATA slot order, identical to the Debian preseed's hw-pin disk
+# resolution. lvm.hdsize caps the PVE install at 100 GiB; host-disks
+# later carves the remainder of the disk for the `vms` LVM-thin pool.
+[disk-setup]
+filesystem = "ext4"
+lvm = { hdsize = 100 }
+filter-match = "all"
+
+# Match the inventory-pinned boot disk by MODEL number + SERIAL, both as
+# GLOBS. Exact-string matching fails on NVMe because udev space-pads
+# ID_MODEL and ID_SERIAL_SHORT (e.g. ID_SERIAL_SHORT="          66OS10KRTTQV"),
+# which a literal filter won't equal. The leading/trailing `*` absorb the
+# padding; the model's first token (the part number, e.g. THNSN51T02DU7)
+# disambiguates the fixed disk from any removable/USB boot media.
+[disk-setup.filter]
+ID_MODEL = "*{{ _boot.hw.model.split() | first }}*"
+ID_SERIAL_SHORT = "*{{ _boot.hw.serial }}*"
+
+# First boot runs the PVE wrapper, which installs sudo+zsh (a fresh PVE
+# base lacks them, unlike every other medium) and THEN runs the canonical
+# image-baseline.sh (users, sshd hardening, apt-no-auto-upgrades, root
+# lock — the same script the preseed/VM/LXC mediums run). Both are served
+# LAN-only from bootserv01's /scripts/ path, so no vault hash is baked into
+# any PXE artifact. ordering=network-online (NOT before-network): the
+# wrapper needs DNS + apt to install the prerequisites.
+[first-boot]
+source = "from-url"
+url = "http://bootserv01.lan/scripts/pve-first-boot.sh"
+ordering = "network-online"

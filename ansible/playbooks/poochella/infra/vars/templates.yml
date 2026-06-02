@@ -27,3 +27,29 @@ lxc_templates_base:
     image: debian-13-standard_13.1-2_amd64.tar.zst
   # - hostname: ubuntu-24-lxc-template
   #   image: ubuntu-24.04-standard_24.04-2_amd64.tar.zst
+
+# PINNED Proxmox VE installer ISO for the PVE auto-install PXE path.
+# 13-foundation/97-bake-publish-pve-pxe.yml downloads this once on the
+# foundation node and bakes ONE SHARED installer for the whole hypervisor
+# fleet: it patches the installer's dhclient timeout into
+# pve-installer.squashfs (10s -> dhcp_timeout, to beat the slow-NIC-link-up
+# DHCP race — Proxmox bug #5583), rebuilds a bootable ISO, then runs
+# `prepare-iso --fetch-from http --url http://bootserv01.lan/proxmox-answer
+# --pxe-loader ipxe`. Publishes vmlinuz + initrd.img + the stripped iso to
+# bootserv01:/proxmox-pxe/ (flat, fleet-wide). Per-host selection happens at
+# install time: the booting node POSTs its MAC to the answer responder,
+# which returns that host's answer.toml (`[network] source = "from-dhcp"`).
+#
+# kernel_file/initrd_file/pxe_iso_file are the published artifact names and
+# MIRROR roles/bootserv/defaults bootserv_pve_pxe_* (keep in lockstep).
+# Re-pin = bump iso_url + iso_file (and pxe_iso_file + the role default) to
+# the new version together; the producer sees no matching artifact on
+# bootserv01 and re-bakes + republishes.
+pve_pxe:
+  iso_url: https://enterprise.proxmox.com/iso/proxmox-ve_9.1-1.iso
+  iso_file: proxmox-ve_9.1-1.iso
+  kernel_file: vmlinuz
+  initrd_file: initrd.img
+  pxe_iso_file: proxmox-ve_9.1-1-pxe.iso
+  # dhclient `timeout` (seconds) patched into pve-installer.squashfs.
+  dhcp_timeout: 60

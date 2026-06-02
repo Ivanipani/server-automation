@@ -262,7 +262,7 @@ hypervisors:
                     size: "0"          # fill the boot tail
         pve-home-02:
           ansible_host: pve-home-02.lan
-          ip_address: 10.1.1.106
+          ip_address: 10.1.1.108
           mac_addresses:
             - "04:0e:3c:8b:4e:4e"
           storage:
@@ -270,7 +270,7 @@ hypervisors:
               - select: boot
                 hw:
                   model: "THNSN51T02DU7 TOSHIBA"
-                  serial: "660S10KRTTQV"
+                  serial: "66OS10KRTTQV"
                 partitions:
                   - label: vm-storage
                     vg: vmdata
@@ -280,9 +280,9 @@ hypervisors:
                     size: "0"          # fill the boot tail
         pve-home-03:
           ansible_host: pve-home-03.lan
-          ip_address: 10.1.1.107
+          ip_address: 10.1.1.109
           mac_addresses:
-            - "f8:b4:6a:55:af"
+            - "f8:b4:6a:b8:55:af"
           storage:
             disks:
               - select: boot

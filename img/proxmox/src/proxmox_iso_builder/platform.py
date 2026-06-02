@@ -91,8 +91,14 @@ def build_bundle_cmd(
         "iso",
         "--answer-file",
         str(answer_path),
+        # Canonical baseline (users / sshd hardening / apt-no-auto-upgrades
+        # / root-lock) — the SAME script every other medium runs. Render it
+        # next to the answer with:
+        #   ansible-playbook --vault-password-file ../../ansible/ansible-pass \
+        #     ../../ansible/playbooks/poochella/img/render-image-baseline-to-controller.yml
+        #   cp /var/tmp/poochella-image-baseline.sh <answer-dir>/image-baseline.sh
         "--on-first-boot",
-        str(answer_path.parent / "first-boot.sh"),
+        str(answer_path.parent / "image-baseline.sh"),
         "--output",
         str(output_path),
     ]

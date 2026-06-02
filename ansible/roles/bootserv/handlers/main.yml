@@ -3,3 +3,10 @@
   ansible.builtin.systemd:
     name: dnsmasq
     state: restarted
+
+- name: Restart proxmox-answer-responder
+  ansible.builtin.systemd:
+    name: proxmox-answer-responder
+    state: restarted
+    daemon_reload: true
+    enabled: true

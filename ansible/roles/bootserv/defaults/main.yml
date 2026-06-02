@@ -16,6 +16,12 @@ bootserv_static_dirs:
                    # uv …) populated by 13-foundation/96-mirror-artifacts.yml.
                    # Subtree mirrors the upstream URL path; NOT under the
                    # @sensitive ACL — carries no secrets, LAN-servable.
+  - proxmox-pxe    # PVE auto-install netboot artifacts (vmlinuz + initrd.img
+                   # + stripped iso, + .sha256 sidecars) published by
+                   # 13-foundation/97-bake-publish-pve-pxe.yml. Open-served
+                   # like debian-13 — they carry no secrets (iPXE fetches
+                   # them before DNS/answer; the answer.toml is served
+                   # separately by the LAN-only responder).
 
 # LAN CIDR allowed to fetch sensitive paths (/preseed/, /scripts/).
 # Other paths (/debian-13/, /boot.ipxe, /hosts/) are open to the
@@ -54,5 +60,25 @@ bootserv_group: caddy
 # at render time — no role-local indirection needed. See
 # group_vars/all/image-baseline.yml.
 
-# Timezone baked into preseeds.
+# Timezone baked into preseeds (and PVE auto-install answer files).
 bootserv_timezone: "America/New_York"
+
+# ── Proxmox VE auto-install PXE path ─────────────────────────────────
+# Per-host PVE answer.toml files live OUTSIDE the Caddy docroot so the
+# catch-all file_server never exposes them; the MAC-matching responder
+# (proxmox-answer-responder, a localhost stdlib-Python service) reads
+# them and Caddy reverse-proxies /proxmox-answer to it behind the LAN
+# ACL. The installer POSTs its sysinfo to that path and gets back the
+# answer.toml whose host owns the booting MAC.
+bootserv_pve_answers_dir: /srv/proxmox-answers
+bootserv_pve_responder_port: 8765
+bootserv_pve_answer_path: /proxmox-answer
+
+# Published PVE PXE artifact filenames under /srv/http/proxmox-pxe/.
+# MIRROR of the `pve_pxe` manifest in
+# playbooks/poochella/infra/vars/templates.yml (the producer reads that;
+# this role reads these to render proxmox-install.ipxe). Keep them in
+# lockstep when re-pinning the PVE ISO.
+bootserv_pve_pxe_kernel_file: vmlinuz
+bootserv_pve_pxe_initrd_file: initrd.img
+bootserv_pve_pxe_iso_file: proxmox-ve_9.1-1-pxe.iso

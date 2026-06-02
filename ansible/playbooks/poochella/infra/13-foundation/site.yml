@@ -80,9 +80,6 @@
 - import_playbook: ../17-host/30-firewall.yml
   vars: { target_hosts: foundation }
 
-# ── 20-hypervisor PVE fabric on the foundation hypervisor(s) ────────────
-- import_playbook: ../20-hypervisor/10-bootstrap.yml
-  vars: { target_hosts: foundation }
 # advanceteam@pve Tofu service account — MUST exist before the targeted
 # `tofu apply` in 80-tofu-infra-lxcs.yml (the provider authenticates as it).
 - import_playbook: ../20-hypervisor/15-tofu-service-account.yml
@@ -107,3 +104,9 @@
 # ── NAS + bootserv01. Consumed by dev/python/golang roles via the LAN ────
 # ── mirror with upstream fallback. No-op when already mirrored. ──────────
 - import_playbook: 96-mirror-artifacts.yml
+
+# ── PRODUCER: prepare Proxmox VE auto-install PXE artifacts (vmlinuz + ───
+# ── initrd.img + stripped iso) and publish to bootserv01:/proxmox-pxe/. ──
+# ── Lets hypervisors iPXE-boot the PVE auto-installer like workers do ────
+# ── Debian. No-op when already published (`pct exec test -f` guard). ─────
+- import_playbook: 97-bake-publish-pve-pxe.yml

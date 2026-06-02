@@ -1,0 +1,25 @@
+#!ipxe
+# Rendered by roles/bootserv — do not edit by hand.
+# Shared Proxmox VE auto-installer boot script. boot.ipxe dispatches
+# EVERY hypervisor MAC here (per-host selection happens later inside the
+# installer: it POSTs its MAC to bootserv01's /proxmox-answer responder,
+# which returns that host's answer.toml). So one script serves the whole
+# PVE fleet — no per-host PVE iPXE files.
+#
+# Artifacts produced by `proxmox-auto-install-assistant prepare-iso
+# --pxe-loader ipxe` and published by 13-foundation/97-bake-publish-pve-pxe.yml.
+# initrd.img is NOT self-contained: the stripped ISO is overlaid as a
+# second initrd named proxmox.iso (the full installer rootfs).
+
+set base http://bootserv01.lan/proxmox-pxe
+
+echo
+echo Loading Proxmox VE auto-installer (ipxe ${version}) on ${net0/mac}
+echo
+
+kernel ${base}/{{ bootserv_pve_pxe_kernel_file }} \
+  ramdisk_size=16777216 rw quiet initrd={{ bootserv_pve_pxe_initrd_file }} \
+  splash=silent proxmox-start-auto-installer
+initrd ${base}/{{ bootserv_pve_pxe_initrd_file }}
+initrd ${base}/{{ bootserv_pve_pxe_iso_file }} proxmox.iso
+boot
