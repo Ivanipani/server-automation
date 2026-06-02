@@ -31,7 +31,10 @@
 image_baseline_users:
   - name: ansible
     groups: [sudo]
-    shell: /bin/bash
+    # zsh is the project-wide default login shell (see image_baseline_zsh
+    # below). Safe for the automation account: Ansible runs modules via
+    # /bin/sh, never the login shell.
+    shell: /usr/bin/zsh
     ssh_key: "~/.ssh/ansible.pub"
     # No `password:` — key-only automation account.
     sudoers:
@@ -39,7 +42,7 @@ image_baseline_users:
       nopassword: true
   - name: tourmanager
     groups: [sudo]
-    shell: /bin/bash
+    shell: /usr/bin/zsh
     # No `ssh_key:` — password-only break-glass by design.
     password: "{{ tourmanager_user_pass }}"
     sudoers:
@@ -66,6 +69,19 @@ image_baseline_sshd:
   # Account that retains password access. Empty string disables the
   # Match block entirely.
   password_breakglass_user: tourmanager
+
+# Baseline zsh config. zsh is the default login shell for every user
+# (see image_baseline_users above + host_base_extra_users:pani). Debian's
+# stock /etc/zsh/zshrc is empty and sources no drop-in, so we ship our
+# own fully-owned `config_path` file and append ONE idempotent source
+# hook to the package's `system_zshrc`. The config body lives in
+# roles/host-base/templates/zshrc.local.j2 and is duplicated byte-for-byte
+# in files/image-baseline.sh.j2 (same convention as the sshd drop-in) so a
+# 17-host reconcile over a baked host stays no-op.
+image_baseline_zsh:
+  config_path: /etc/zsh/zshrc.local
+  system_zshrc: /etc/zsh/zshrc
+  source_line: "[[ -r /etc/zsh/zshrc.local ]] && source /etc/zsh/zshrc.local"
 
 # Apt auto-upgrades kill-switch. File path + body must match what
 # roles/apt-no-auto-upgrades writes today so that role stays no-op

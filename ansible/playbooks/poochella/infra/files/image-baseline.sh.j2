@@ -168,6 +168,80 @@ if command -v sshd >/dev/null 2>&1 \
   sshd -t -f {{ image_baseline_sshd.drop_in_path }}
 fi
 
+# ── Baseline zsh config ──────────────────────────────────────────
+# Body matches roles/host-base/templates/zshrc.local.j2 byte-for-byte
+# (both render `{{ '{{' }} ansible_managed | comment {{ '}}' }}`). Each
+# medium installs zsh BEFORE this script runs, so /etc/zsh exists. The
+# source hook into the package's system-wide zshrc mirrors host-base's
+# lineinfile.
+cat > {{ image_baseline_zsh.config_path }} <<'__BASELINE_EOF__'
+{{ ansible_managed | comment }}
+# Baseline zsh config for every user on poochella. Managed by Ansible
+# (roles/host-base). The body below is duplicated BYTE-FOR-BYTE in the
+# heredoc of playbooks/poochella/infra/files/image-baseline.sh.j2 so a
+# 17-host reconcile over a baked host stays no-op — edit BOTH together.
+# Pure zsh builtins + coreutils only; no plugins, no oh-my-zsh.
+
+# ── History ──────────────────────────────────────────────────────
+HISTFILE="$HOME/.zsh_history"
+HISTSIZE=50000
+SAVEHIST=50000
+setopt APPEND_HISTORY          # append, never clobber, on exit
+setopt INC_APPEND_HISTORY      # write each command as it is entered
+setopt SHARE_HISTORY           # share history across live sessions
+setopt EXTENDED_HISTORY        # record start time + duration
+setopt HIST_IGNORE_DUPS        # drop a command that dups its predecessor
+setopt HIST_IGNORE_ALL_DUPS    # drop older dup when a new one is added
+setopt HIST_IGNORE_SPACE       # do not record commands starting with a space
+setopt HIST_REDUCE_BLANKS      # trim superfluous whitespace
+setopt HIST_VERIFY             # show, do not run, a history expansion
+
+# ── Usability ────────────────────────────────────────────────────
+setopt AUTO_CD                 # `foo` == `cd foo` when foo is a dir
+setopt AUTO_PUSHD              # cd pushes the old dir onto the stack
+setopt PUSHD_IGNORE_DUPS       # keep the dir stack free of duplicates
+setopt INTERACTIVE_COMMENTS    # allow `# comments` at an interactive prompt
+setopt NO_BEEP                 # no terminal bell
+setopt CORRECT                 # offer spelling correction for commands
+bindkey -e                     # emacs keybindings
+
+# Completion: case-insensitive, arrow-key menu selection.
+autoload -Uz compinit && compinit -u
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+setopt COMPLETE_IN_WORD
+setopt ALWAYS_TO_END
+
+# Colour.
+autoload -Uz colors && colors
+export CLICOLOR=1
+
+# ── Aliases ──────────────────────────────────────────────────────
+alias ls='ls --color=auto'
+alias ll='ls -alhF'
+alias la='ls -A'
+alias l='ls -CF'
+alias grep='grep --color=auto'
+alias df='df -h'
+alias du='du -h'
+alias free='free -h'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias mkdir='mkdir -pv'
+
+# ── Prompt ───────────────────────────────────────────────────────
+# Two-line, git-free: user@host in cyan, cwd in blue, `%#` (→ `#` for
+# root, `%` otherwise) on its own line. No external commands per redraw.
+setopt PROMPT_SUBST
+PROMPT='%F{cyan}%n@%m%f %F{blue}%~%f
+%# '
+__BASELINE_EOF__
+chmod 0644 {{ image_baseline_zsh.config_path }}
+chown root:root {{ image_baseline_zsh.config_path }}
+# Idempotent source hook: append once to the package's system-wide zshrc.
+grep -qxF '{{ image_baseline_zsh.source_line }}' {{ image_baseline_zsh.system_zshrc }} \
+  || echo '{{ image_baseline_zsh.source_line }}' >> {{ image_baseline_zsh.system_zshrc }}
+
 # ── Apt auto-upgrade kill-switch ─────────────────────────────────
 # File body matches roles/apt-no-auto-upgrades/tasks/main.yml:24-36
 # byte-for-byte (em-dash and all).

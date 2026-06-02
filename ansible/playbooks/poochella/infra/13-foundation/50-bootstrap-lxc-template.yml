@@ -35,7 +35,10 @@
   vars_files:
     - ../vars/templates.yml
   vars:
-    lxc_packages: openssh-server curl wget sudo rsync htop
+    # zsh: project-wide default login shell; needed before
+    # image-baseline.sh's useradd -s /usr/bin/zsh runs (pct exec installs
+    # these before the baseline script).
+    lxc_packages: openssh-server curl wget sudo zsh rsync htop
 
   pre_tasks:
     - name: Ensure ansible SSH keypair exists on controller

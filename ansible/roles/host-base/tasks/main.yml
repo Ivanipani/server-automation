@@ -39,6 +39,26 @@
     update_cache: true
     cache_valid_time: 3600
 
+# Baseline zsh config for all users. Debian's /etc/zsh/zshrc is empty and
+# sources no drop-in, so we ship a fully-owned config_path file and append
+# ONE idempotent source hook to the package's system_zshrc. Both halves are
+# duplicated byte-for-byte in files/image-baseline.sh.j2 so this stays
+# no-op on baked hosts. zsh (installed above) owns /etc/zsh.
+- name: Deploy baseline zsh config (all users)
+  ansible.builtin.template:
+    src: zshrc.local.j2
+    dest: "{{ image_baseline_zsh.config_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Source the baseline zsh config from the system-wide zshrc
+  ansible.builtin.lineinfile:
+    path: "{{ image_baseline_zsh.system_zshrc }}"
+    line: "{{ image_baseline_zsh.source_line }}"
+    state: present
+    create: false
+
 - name: Install fwupd + ensure LVFS remote is enabled
   ansible.builtin.import_role:
     name: firmware

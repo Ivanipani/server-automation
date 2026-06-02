@@ -224,7 +224,7 @@ d-i apt-setup/services-select multiselect security, updates
 
 ### Packages — minimal base + SSH; the rest is Ansible's job.
 tasksel tasksel/first multiselect standard, ssh-server
-d-i pkgsel/include string openssh-server python3 sudo curl ca-certificates gnupg
+d-i pkgsel/include string openssh-server python3 sudo zsh curl ca-certificates gnupg
 d-i pkgsel/upgrade select full-upgrade
 d-i pkgsel/update-policy select none
 popularity-contest popularity-contest/participate boolean false

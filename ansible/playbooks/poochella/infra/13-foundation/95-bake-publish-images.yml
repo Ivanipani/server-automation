@@ -45,7 +45,10 @@
   vars_files:
     - ../vars/templates.yml
   vars:
-    vm_packages: qemu-guest-agent,curl,wget,sudo,rsync,htop
+    # zsh is the project-wide default login shell + carries the baseline
+    # zsh config; it must be present before image-baseline.sh's useradd
+    # (virt-customize runs --install before --run).
+    vm_packages: qemu-guest-agent,curl,wget,sudo,zsh,rsync,htop
     build_vm_templates: true
     build_lxc_templates: true
     force_rebuild: false
