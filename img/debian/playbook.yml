@@ -45,8 +45,9 @@
     # Pull only the fields the preseed needs, one at a time. Materializing
     # the full hostvars dict (e.g. `host: "{{ hostvars[target_host] }}"`)
     # eagerly resolves every templated var in group_vars/all/vars.yml —
-    # including unrelated vault indirections like proxmox_api_token — and
-    # crashes the play if any of them is missing from the vault.
+    # including unrelated vault indirections (the Proxmox/Tailscale/etc.
+    # secrets) — and crashes the play if any of them is missing from the
+    # vault.
     - name: Assert host carries the fields the preseed needs
       ansible.builtin.assert:
         that:

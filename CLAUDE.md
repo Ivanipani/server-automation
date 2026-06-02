@@ -48,8 +48,8 @@ Full end-to-end is `playbooks/poochella/site.yml` (imports `infra/site.yml`); `i
 
 ### Vault
 
-- Indirection layer: roles/playbooks reference unprefixed names (`proxmox_api_token`, `k3s_cluster_token`, …) defined in `group_vars/all/vars.yml`, which re-export `vault_*` values from the encrypted `group_vars/all/vault.yml`. When adding a new secret, edit both files.
-- **Per-hypervisor Proxmox tokens**: standalone nodes don't share `/etc/pve`, so each PVE host has its own `tofu-lan` API token. `group_vars/all/vars.yml` exposes a `proxmox_api_tokens` map keyed by hypervisor name (workers don't run the PVE API and don't appear here). Add a hypervisor = mint with `pveum user token add root@pam tofu-lan --privsep 0` on that node, then `just secret-encrypt vault_proxmox_api_token_<host>`. See the header of `30-guests/10-opentofu.yml`. Each iteration of the Ansible loop passes ONE token via `TF_VAR_proxmox_api_token` to the matching `tofu/per-node/<host>/` workspace, which exposes a single `var.proxmox_api_token` string.
+- Indirection layer: roles/playbooks reference unprefixed names (`advanceteam_user_pass`, `k3s_cluster_token`, …) defined in `group_vars/all/vars.yml`, which re-export `vault_*` values from the encrypted `group_vars/all/vault.yml`. When adding a new secret, edit both files.
+- **Proxmox Tofu auth (shared service account)**: Tofu authenticates to EVERY standalone hypervisor as one dedicated PVE-realm user, `advanceteam@pve`, granted a scoped custom `Terraform` ACL role on `/` (the bpg/proxmox provider's recommended privilege set). The account is created identically on each node by `20-hypervisor/15-tofu-service-account.yml` (password set on create from the vault; idempotent). ONE well-known password authenticates all nodes — `advanceteam_user_pass` (re-export of `vault_advanceteam_user_pass`), passed to each `tofu/per-node/<host>/` workspace via `TF_VAR_proxmox_password`; the username is the Tofu var `proxmox_username` (default `advanceteam@pve`). Adding a hypervisor needs **no new secret** — the account already exists once the 20-hypervisor tier has run against it. Rotate by `pveum passwd advanceteam@pve` on every node + re-encrypting `vault_advanceteam_user_pass`. The legacy per-node `root@pam!tofu-lan` API tokens (old `proxmox_api_tokens` map) were retired in this cutover; the tokens + their `vault_proxmox_api_token_pve_home_*` keys still exist as an unused fallback.
 - **Break-glass account**: the `tourmanager` user is the ONLY account that can SSH with a password after `17-host/20-ssh-hardening.yml` runs (a `Match User tourmanager` block in the sshd drop-in keeps password auth for it alone). The password lives in `vault_tourmanager_user_pass`.
 
 ## Architecture
@@ -77,7 +77,7 @@ Groups define topology:
 - `kubernetes` → children `kube_control_plane` (kube-ctl-01..03) and `kube_workers` (kube-worker-01; -02/-03 commented out). All VM-based kube nodes are pinned to `pve-home-01` while it is the only hypervisor.
 - `containers` → `bootserv` (bootserv01 LXC on pve-home-01) + `webservers` placeholder
 
-`all.vars.proxmox_endpoints` is a `{hypervisor → https://…:8006}` map (one API endpoint per PVE host). Adding a hypervisor: see `tofu/README.md` — extend `proxmox_api_tokens` in `group_vars/all/vars.yml`, then `cp -r tofu/per-node/pve-home-01 tofu/per-node/<new-host>` and edit one identifier in its `main.tf`.
+`all.vars.proxmox_endpoints` is a `{hypervisor → https://…:8006}` map (one API endpoint per PVE host). Adding a hypervisor: see `tofu/README.md` — `cp -r tofu/per-node/pve-home-01 tofu/per-node/<new-host>` and edit one identifier in its `main.tf` (no per-node secret — the shared `advanceteam@pve` account authenticates everywhere).
 
 ### Provisioning flow
 
@@ -86,8 +86,8 @@ VMs are declared once in `inventory.yaml` (any host with a `vm:` block). Each Pr
 **State-per-hypervisor**: standalone hypervisors don't share an API and don't share Tofu state. Each per-node directory has a single non-aliased `proxmox` provider and is self-contained — adding a hypervisor is `cp -r` + edit one identifier (see `tofu/README.md`). No alias gymnastics, no cross-node coupling at the Terraform layer.
 
 `playbooks/poochella/infra/30-guests/10-opentofu.yml` loops over the `hypervisors` group and per-iteration:
-1. Asserts the iterated hypervisor has a token in the vault (`proxmox_api_tokens[node]`) **and** that `tofu-lan` exists on that node via its own `pveum user token list`
-2. Runs `community.general.terraform` against `tofu/per-node/<that hypervisor>/`, passing the single per-iteration token via `TF_VAR_proxmox_api_token` (sourced from `proxmox_api_tokens[item]`).
+1. Asserts the shared service-account password (`advanceteam_user_pass`) is set in the vault **and** that the `advanceteam@pve` user exists on that node via its own `pveum user list`
+2. Runs `community.general.terraform` against `tofu/per-node/<that hypervisor>/`, passing the one shared password via `TF_VAR_proxmox_password` (sourced from `advanceteam_user_pass`); the Tofu `proxmox_username` var defaults to `advanceteam@pve`.
 
 `playbooks/poochella/infra/13-foundation/80-tofu-infra-lxcs.yml` loops over the `foundation` group with the same shape, but with `targets: [module.hypervisor.module.infra_lxcs]` on the `community.general.terraform` call — so it creates bootserv01 without incurring the cost (or risk) of materializing the VMs in that hypervisor's workspace. Targeting is per-invocation against the per-node state; the later un-targeted apply reconciles everything (the LXC ends up as a no-op).
 

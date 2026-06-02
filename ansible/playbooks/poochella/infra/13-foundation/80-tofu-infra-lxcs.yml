@@ -20,49 +20,51 @@
 # Idempotent: re-running on a fully-built fleet is a no-op
 # (Tofu sees the LXC matches state, nothing to do).
 #
+# Auth: same as 30-guests/10-opentofu.yml — Tofu authenticates as the
+# shared advanceteam@pve account via TF_VAR_proxmox_password, sourced from
+# the well-known `advanceteam_user_pass` secret. The account is created by
+# the 20-hypervisor tier; on a fresh fleet this foundation tier runs
+# before that, so the account must already exist (15-tofu-service-account
+# is part of the foundation node's own 20-hypervisor pass in 13-foundation).
+#
 # Adding a foundation hypervisor:
-#   1. Add it to `foundation:` in inventory.yaml + the node's vault key
-#      to `proxmox_api_tokens` in group_vars/all/vars.yml.
+#   1. Add it to `foundation:` in inventory.yaml. No per-node secret —
+#      the shared advanceteam@pve account authenticates everywhere.
 #   2. `cp -r tofu/per-node/pve-home-01 tofu/per-node/<new-host>` and
 #      edit `local.hypervisor_name` in the new main.tf.
 #   (Nothing else: this play's loop is over `foundation`, so the new
 #   host is picked up automatically.)
 
-- name: Verify each foundation hypervisor's Proxmox API token (vault + PVE)
+- name: Verify the advanceteam Tofu service account exists on each node
   hosts: "{{ target_hosts | default('foundation') }}"
   become: true
   gather_facts: false
   vars:
-    token_user: "root@pam"
-    token_name: "tofu-lan"
-    _node_token: "{{ proxmox_api_tokens[inventory_hostname] | default('') }}"
+    sa_userid: "advanceteam@pve"
   tasks:
-    - name: Assert the vault holds a token for this node
+    - name: Assert the shared service-account password is set in the vault
       ansible.builtin.assert:
         that:
-          - inventory_hostname in proxmox_api_tokens
-          - _node_token | length > 0
+          - advanceteam_user_pass | default('') | length > 0
         fail_msg: >-
-          No Proxmox API token for {{ inventory_hostname }}. Mint it on the
-          node (`pveum user token add {{ token_user }} {{ token_name }}
-          --privsep 0`), encrypt the secret into group_vars/all/vault.yml,
-          and wire it into the `proxmox_api_tokens` map in
-          group_vars/all/vars.yml. See 30-guests/10-opentofu.yml's header.
+          advanceteam_user_pass is empty. It must re-export
+          vault_advanceteam_user_pass (group_vars/all/vars.yml ->
+          group_vars/all/vault.yml). Tofu cannot authenticate without it.
 
-    - name: List existing API tokens on this node
+    - name: List existing PVE users on this node
       ansible.builtin.command:
-        cmd: pveum user token list {{ token_user }} --output-format json
-      register: token_list
+        cmd: pveum user list --output-format json
+      register: pve_user_list
       changed_when: false
 
-    - name: Assert the PVE-side token still exists on this node
+    - name: Assert advanceteam@pve exists on this node
       ansible.builtin.assert:
         that:
-          - token_list.stdout | from_json | selectattr('tokenid', 'equalto', token_name) | list | length > 0
+          - sa_userid in (pve_user_list.stdout | from_json | map(attribute='userid') | list)
         fail_msg: >-
-          The vault has a token for {{ inventory_hostname }} but PVE on
-          {{ inventory_hostname }} doesn't list '{{ token_name }}' under
-          {{ token_user }}. Recreate it on that node and update the vault.
+          {{ sa_userid }} is missing on {{ inventory_hostname }}. The
+          15-tofu-service-account.yml step (run earlier in this tier) must
+          create it before this targeted apply.
 
 - name: Provision foundation infra LXCs (per-node targeted apply)
   hosts: localhost
@@ -82,7 +84,9 @@
         targets:
           - module.hypervisor.module.infra_lxcs
       environment:
-        TF_VAR_proxmox_api_token: "{{ proxmox_api_tokens[item] }}"
+        # Shared advanceteam@pve password, identical for every node; the
+        # workspace's proxmox_username var defaults to "advanceteam@pve".
+        TF_VAR_proxmox_password: "{{ advanceteam_user_pass }}"
       loop: "{{ groups[target_hosts | default('foundation')] }}"
       register: tofu_output
 

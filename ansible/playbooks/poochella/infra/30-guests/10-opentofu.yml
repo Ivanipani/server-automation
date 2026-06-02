@@ -4,61 +4,53 @@
 #
 # Topology: every Proxmox hypervisor is a standalone PVE host with its
 # own Tofu workspace under `tofu/per-node/<host>/` and its own state.
-# This playbook iterates the group and runs one `tofu apply` per node,
-# passing each iteration's token via `TF_VAR_proxmox_api_token` sourced
-# from the `proxmox_api_tokens` map in group_vars/all/vars.yml.
+# This playbook iterates the group and runs one `tofu apply` per node.
 #
-# Auth indirection: `proxmox_api_tokens` (group_vars/all/vars.yml) maps
-# node => `{{ vault_* }}`. No plaintext token ever hits disk — values are
-# passed to Tofu through environment variables only.
+# Auth: Tofu authenticates to EVERY node as the shared advanceteam@pve
+# service account (scoped `Terraform` ACL role), created identically on
+# each hypervisor by 20-hypervisor/15-tofu-service-account.yml. ONE
+# well-known password drives them all — `advanceteam_user_pass`
+# (group_vars/all/vars.yml, re-export of vault_advanceteam_user_pass),
+# passed to each per-node workspace via `TF_VAR_proxmox_password`. The
+# username is the Tofu var `proxmox_username` (default "advanceteam@pve").
+# No plaintext ever hits disk — the secret is passed through an env var
+# only. (Adding a hypervisor needs no new secret; the account already
+# exists on it once the 20-hypervisor tier has run.)
 #
-# Bootstrap a NEW node's token (first-time / when adding a node):
-#   ssh root@<node> 'pveum user token add root@pam tofu-lan --privsep 0'
-#   just secret-encrypt vault_proxmox_api_token_<node_with_underscores>
-#   # paste the encrypted block into group_vars/all/vault.yml, then add
-#   # the node to the `proxmox_api_tokens` map in group_vars/all/vars.yml.
-#   # Also `cp -r tofu/per-node/pve-home-01 tofu/per-node/<new-host>` and
-#   # edit local.hypervisor_name in its main.tf. See tofu/README.md.
-#
-# To rotate a token:
-#   ssh root@<node> 'pveum user token modify root@pam tofu-lan'
-#   re-encrypt the new secret over its block in group_vars/all/vault.yml
+# To rotate the password: change it on every node
+# (`pveum passwd advanceteam@pve`) and re-encrypt the new value over
+# vault_advanceteam_user_pass in group_vars/all/vault.yml.
 
-- name: Verify each node's Proxmox API token exists in PVE and the vault
+- name: Verify the advanceteam Tofu service account exists on each node
   hosts: hypervisors
   become: true
   gather_facts: false
   vars:
-    token_user: "root@pam"
-    token_name: "tofu-lan"
-    _node_token: "{{ proxmox_api_tokens[inventory_hostname] | default('') }}"
+    sa_userid: "advanceteam@pve"
   tasks:
-    - name: Assert the vault holds a token for this node
+    - name: Assert the shared service-account password is set in the vault
       ansible.builtin.assert:
         that:
-          - inventory_hostname in proxmox_api_tokens
-          - _node_token | length > 0
+          - advanceteam_user_pass | default('') | length > 0
         fail_msg: >-
-          No Proxmox API token for {{ inventory_hostname }}. Mint it on the
-          node (`pveum user token add {{ token_user }} {{ token_name }}
-          --privsep 0`), encrypt the secret into group_vars/all/vault.yml,
-          and wire it into the `proxmox_api_tokens` map in
-          group_vars/all/vars.yml. See this playbook's header.
+          advanceteam_user_pass is empty. It must re-export
+          vault_advanceteam_user_pass (group_vars/all/vars.yml ->
+          group_vars/all/vault.yml). Tofu cannot authenticate without it.
 
-    - name: List existing API tokens on this node
+    - name: List existing PVE users on this node
       ansible.builtin.command:
-        cmd: pveum user token list {{ token_user }} --output-format json
-      register: token_list
+        cmd: pveum user list --output-format json
+      register: pve_user_list
       changed_when: false
 
-    - name: Assert the PVE-side token still exists on this node
+    - name: Assert advanceteam@pve exists on this node
       ansible.builtin.assert:
         that:
-          - token_list.stdout | from_json | selectattr('tokenid', 'equalto', token_name) | list | length > 0
+          - sa_userid in (pve_user_list.stdout | from_json | map(attribute='userid') | list)
         fail_msg: >-
-          The vault has a token for {{ inventory_hostname }} but PVE on
-          {{ inventory_hostname }} doesn't list '{{ token_name }}' under
-          {{ token_user }}. Recreate it on that node and update the vault.
+          {{ sa_userid }} is missing on {{ inventory_hostname }}. Run the
+          20-hypervisor tier (15-tofu-service-account.yml) against this node
+          to create the Tofu service account before applying.
 
 - name: Provision infrastructure with OpenTofu (one apply per hypervisor)
   hosts: localhost
@@ -74,11 +66,11 @@
         state: present
         force_init: true
       environment:
-        # Per-iteration token. The per-node workspace exposes a single
-        # `proxmox_api_token` string variable; we source it from the
-        # `proxmox_api_tokens` map in group_vars/all/vars.yml. No
+        # The shared advanceteam@pve password, identical for every node.
+        # The per-node workspace's `proxmox_username` var defaults to
+        # "advanceteam@pve", so only the password needs supplying. No
         # plaintext on disk — env var only.
-        TF_VAR_proxmox_api_token: "{{ proxmox_api_tokens[item] }}"
+        TF_VAR_proxmox_password: "{{ advanceteam_user_pass }}"
       loop: "{{ groups['hypervisors'] }}"
       register: tofu_output
 

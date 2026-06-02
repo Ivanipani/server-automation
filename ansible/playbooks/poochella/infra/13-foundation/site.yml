@@ -83,6 +83,10 @@
 # ── 20-hypervisor PVE fabric on the foundation hypervisor(s) ────────────
 - import_playbook: ../20-hypervisor/10-bootstrap.yml
   vars: { target_hosts: foundation }
+# advanceteam@pve Tofu service account — MUST exist before the targeted
+# `tofu apply` in 80-tofu-infra-lxcs.yml (the provider authenticates as it).
+- import_playbook: ../20-hypervisor/15-tofu-service-account.yml
+  vars: { target_hosts: foundation }
 - import_playbook: ../20-hypervisor/30-pve-storage-register.yml
   vars: { target_hosts: foundation }
 

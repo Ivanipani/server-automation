@@ -5,12 +5,13 @@
 #
 # Adding a new hypervisor:
 #   1. Add the host to inventory.yaml (host entry + proxmox_endpoints +
-#      template_vm_ids + template_ct_ids) and to `proxmox_api_tokens`
-#      in group_vars/all/vars.yml.
+#      template_vm_ids + template_ct_ids). No per-node secret to add —
+#      auth is the shared advanceteam@pve account (same password on every
+#      node), created by 20-hypervisor/15-tofu-service-account.yml.
 #   2. `cp -r tofu/per-node/pve-home-01 tofu/per-node/<new-host>`
 #   3. Edit `local.hypervisor_name` below to the new host's inventory key.
-#      Nothing else changes — endpoint comes from inventory, token comes
-#      from Ansible at apply time.
+#      Nothing else changes — endpoint comes from inventory, password
+#      comes from Ansible at apply time (TF_VAR_proxmox_password).
 
 locals {
   hypervisor_name = "pve-home-01"

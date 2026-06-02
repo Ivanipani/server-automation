@@ -50,20 +50,18 @@ github_ssh_private_key: "{{ vault_github_ssh_private_key }}"
 github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCpJGXP2r/5bmi8MKlbtN4/mavu ivanperdomo@Ivans-MacBook-Pro.local"
 opnsense_api_key: "{{ vault_opnsense_api_key }}"
 opnsense_api_secret: "{{ vault_opnsense_api_secret }}"
-proxmox_api_token: "{{ vault_proxmox_api_token }}"
-# Per-hypervisor Proxmox API tokens (standalone nodes don't share
-# /etc/pve, so each node has its own token minted on it). Keyed by the
-# inventory node name; consumed by 30-guests/10-opentofu.yml and
-# 13-foundation/80-tofu-infra-lxcs.yml, which each loop over their
-# target hypervisor group and per-iteration pass `proxmox_api_tokens[item]`
-# as a single `TF_VAR_proxmox_api_token` to the matching
-# `tofu/per-node/<host>/` workspace. Only PVE hosts appear here —
-# workers (plain Debian) do not run the PVE API. Add a hypervisor =
-# mint a `tofu-lan` token on it and add the secret with
-# `just secret-encrypt vault_proxmox_api_token_<host>`.
-proxmox_api_tokens:
-  pve-home-01: "{{ vault_proxmox_api_token_pve_home_01 }}"
-  pve-home-02: "{{ vault_proxmox_api_token_pve_home_02 }}"
+# Tofu authenticates to EVERY hypervisor as the shared advanceteam@pve
+# service account using ONE well-known password (`advanceteam_user_pass`,
+# defined above, re-exporting vault_advanceteam_user_pass). The account is
+# created identically on each node by 20-hypervisor/15-tofu-service-account.yml
+# and the per-node Tofu workspaces receive it via TF_VAR_proxmox_password
+# (see 30-guests/10-opentofu.yml + 13-foundation/80-tofu-infra-lxcs.yml).
+#
+# The old per-hypervisor `proxmox_api_tokens` map (root@pam!tofu-lan, one
+# minted secret per node) was retired in the username/password cutover.
+# The `tofu-lan` tokens still exist on each PVE node and their encrypted
+# vault keys (vault_proxmox_api_token_pve_home_*) are kept as a fallback,
+# but nothing references them anymore.
 k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
 
 # NAS publish/consume coordinates, re-exported from the single source of
