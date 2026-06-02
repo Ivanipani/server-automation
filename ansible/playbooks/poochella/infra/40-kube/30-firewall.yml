@@ -1,0 +1,15 @@
+
+# Kubernetes nodes (kube_control_plane VMs + kube_workers, which today
+# includes the baremetal worker-home-02). `kubernetes` is its own
+# top-level group (no longer a child of `virtual-machines`) so the
+# default-deny + k3s ports + SSH-out-deny policy applies whether each
+# node is a VM or baremetal.
+- hosts: kubernetes
+  become: true
+  roles:
+    - role: firewall-basic
+      vars:
+        firewall_basic_scope: 40-kube
+        inbound_allow: "{{ firewall_inbound_allow | default([]) }}"
+        outbound_deny: "{{ firewall_outbound_deny | default([{'port': 22, 'proto': 'tcp'}]) }}"
+

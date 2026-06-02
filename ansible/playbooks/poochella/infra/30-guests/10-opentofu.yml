@@ -1,12 +1,22 @@
 ---
 # Provisions every Proxmox guest (VMs + LXCs) defined in inventory.yaml
-# by looping a per-hypervisor `tofu apply` over the `hypervisors` group.
+# by running a per-hypervisor `tofu apply`, one per host in the
+# `hypervisors` group.
+#
+# --limit aware: the hypervisor IS the play host (not a localhost loop),
+# so `ansible-playbook ... --limit pve-home-01` (or `just run --limit
+# pve-home-01`) scopes the whole run — preflight AND apply — to that one
+# node. The heavy tofu task is delegated to the control node (localhost)
+# via `delegate_to`, but host selection / --limit happens at the
+# hypervisor-host level.
 #
 # Topology: every Proxmox hypervisor is a standalone PVE host. A SINGLE
 # flat Tofu root (`tofu/node/`) serves them all; per-node state isolation
 # comes from a named tofu `workspace` per host (no per-host directories).
-# This playbook iterates the group and runs one `tofu apply` per node,
-# each in its own workspace with the node's endpoint URL passed in.
+# Because every node now shares ONE working directory, the apply task is
+# `throttle: 1` — `tofu workspace select` + `init` are cwd-global, so two
+# concurrent applies in the same dir would race. (--limit to a single
+# host sidesteps this; throttle keeps a full-fleet run correct too.)
 #
 # Auth: Tofu authenticates to EVERY node as the shared advanceteam@pve
 # service account (scoped `Terraform` ACL role), created identically on
@@ -23,13 +33,14 @@
 # (`pveum passwd advanceteam@pve`) and re-encrypt the new value over
 # vault_advanceteam_user_pass in group_vars/all/vault.yml.
 
-- name: Verify the advanceteam Tofu service account exists on each node
+- name: Provision Proxmox guests with OpenTofu (per hypervisor; --limit aware)
   hosts: hypervisors
   become: true
   gather_facts: false
   vars:
     sa_userid: "advanceteam@pve"
   tasks:
+    # ── Preflight: runs ON the hypervisor (SSH) ─────────────────────────
     - name: Assert the shared service-account password is set in the vault
       ansible.builtin.assert:
         that:
@@ -39,11 +50,21 @@
           vault_advanceteam_user_pass (group_vars/all/vars.yml ->
           group_vars/all/vault.yml). Tofu cannot authenticate without it.
 
+    - name: Assert this hypervisor has a proxmox_endpoints entry
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname in proxmox_endpoints
+        fail_msg: >-
+          {{ inventory_hostname }} is in the `hypervisors` group but has no
+          `all.vars.proxmox_endpoints` entry in inventory.yaml, so Tofu has
+          no API URL to target. Add it, or --limit to a node that has one.
+
     - name: List existing PVE users on this node
       ansible.builtin.command:
         cmd: pveum user list --output-format json
       register: pve_user_list
       changed_when: false
+      check_mode: false # read-only; must run even under --check so the assert below has data
 
     - name: Assert advanceteam@pve exists on this node
       ansible.builtin.assert:
@@ -54,12 +75,8 @@
           20-hypervisor tier (15-tofu-service-account.yml) against this node
           to create the Tofu service account before applying.
 
-- name: Provision infrastructure with OpenTofu (one apply per hypervisor)
-  hosts: localhost
-  connection: local
-  gather_facts: false
-  tasks:
-    - name: Run tofu init + apply for each hypervisor
+    # ── Apply: delegated to the control node (localhost) ────────────────
+    - name: Run tofu init + apply for this hypervisor
       community.general.terraform:
         # ONE flat Tofu root (5 levels up at tofu/node) drives every
         # hypervisor — no per-host directories. State is isolated by a
@@ -69,27 +86,25 @@
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true
-        workspace: "{{ item }}"
+        workspace: "{{ inventory_hostname }}"
         variables:
           # The node's API URL (the flat root's primary input) + which
           # inventory node to slice. Both non-secret; passed on the CLI.
-          proxmox_endpoint: "{{ proxmox_endpoints[item] }}"
-          hypervisor_name: "{{ item }}"
+          proxmox_endpoint: "{{ proxmox_endpoints[inventory_hostname] }}"
+          hypervisor_name: "{{ inventory_hostname }}"
       environment:
         # The shared advanceteam@pve password, identical for every node.
         # The root's `proxmox_username` var defaults to "advanceteam@pve",
         # so only the password needs supplying. No plaintext on disk —
         # env var only.
         TF_VAR_proxmox_password: "{{ advanceteam_user_pass }}"
-      # Only hypervisors that have a proxmox_endpoints entry are
-      # Tofu-managed; skip any group member without one (not yet wired).
-      loop: "{{ groups['hypervisors'] | select('in', proxmox_endpoints) | list }}"
+      delegate_to: localhost
+      become: false
+      throttle: 1
       register: tofu_output
 
-    - name: Show provisioned resources (per hypervisor)
+    - name: Show provisioned resources
       ansible.builtin.debug:
-        msg: |
-          {{ item.item }}: VMs={{ item.outputs.vm_ips.value | default({}) }}
-      loop: "{{ tofu_output.results }}"
-      loop_control:
-        label: "{{ item.item }}"
+        msg: "{{ inventory_hostname }}: VMs={{ tofu_output.outputs.vm_ips.value | default({}) }}"
+      delegate_to: localhost
+      become: false

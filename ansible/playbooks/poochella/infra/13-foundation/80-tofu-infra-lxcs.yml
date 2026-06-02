@@ -6,12 +6,15 @@
 # lives in 30-guests/10-opentofu.yml and creates every VM + LXC declared
 # in the inventory for each hypervisor. We don't want to incur that cost
 # (or risk) just to land bootserv01 — fresh baremetals need it BEFORE
-# the wider 17-host tier can run against them. So this play loops over
-# the `foundation` group and per-iteration runs
-# `tofu apply -target=module.hypervisor.module.infra_lxcs` against the
-# SINGLE flat Tofu root (tofu/node/), selecting that node via a named
-# tofu `workspace`, which creates ONLY the infra LXCs and never touches
-# any VM resource.
+# the wider 17-host tier can run against them. So this play runs, per
+# foundation host, `tofu apply -target=module.hypervisor.module.infra_lxcs`
+# against the SINGLE flat Tofu root (tofu/node/), selecting that node via a
+# named tofu `workspace`, which creates ONLY the infra LXCs and never
+# touches any VM resource.
+#
+# --limit aware: the foundation hypervisor IS the play host, so
+# `--limit <host>` scopes both preflight and apply to it; the tofu task is
+# delegated to localhost. throttle:1 serializes the shared tofu/node/ dir.
 #
 # State: each hypervisor has its own state in its own tofu workspace
 # (tofu/node/terraform.tfstate.d/<host>/terraform.tfstate). Targeting is
@@ -37,13 +40,14 @@
 #   (Nothing else: this play's loop is over `foundation`, so the new
 #   host is picked up automatically.)
 
-- name: Verify the advanceteam Tofu service account exists on each node
+- name: Provision foundation infra LXCs (targeted apply; --limit aware)
   hosts: "{{ target_hosts | default('foundation') }}"
   become: true
   gather_facts: false
   vars:
     sa_userid: "advanceteam@pve"
   tasks:
+    # ── Preflight: runs ON the foundation hypervisor (SSH) ──────────────
     - name: Assert the shared service-account password is set in the vault
       ansible.builtin.assert:
         that:
@@ -53,11 +57,21 @@
           vault_advanceteam_user_pass (group_vars/all/vars.yml ->
           group_vars/all/vault.yml). Tofu cannot authenticate without it.
 
+    - name: Assert this hypervisor has a proxmox_endpoints entry
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname in proxmox_endpoints
+        fail_msg: >-
+          {{ inventory_hostname }} has no `all.vars.proxmox_endpoints` entry
+          in inventory.yaml, so Tofu has no API URL to target. Add it, or
+          --limit to a node that has one.
+
     - name: List existing PVE users on this node
       ansible.builtin.command:
         cmd: pveum user list --output-format json
       register: pve_user_list
       changed_when: false
+      check_mode: false # read-only; must run even under --check so the assert below has data
 
     - name: Assert advanceteam@pve exists on this node
       ansible.builtin.assert:
@@ -68,12 +82,8 @@
           15-tofu-service-account.yml step (run earlier in this tier) must
           create it before this targeted apply.
 
-- name: Provision foundation infra LXCs (per-node targeted apply)
-  hosts: localhost
-  connection: local
-  gather_facts: false
-  tasks:
-    - name: Run tofu apply -target=module.hypervisor.module.infra_lxcs per foundation node
+    # ── Apply (infra LXCs only): delegated to the control node ──────────
+    - name: Run tofu apply -target=module.hypervisor.module.infra_lxcs for this node
       community.general.terraform:
         # ONE flat Tofu root (5 levels up at tofu/node) — no per-host
         # directories. The target node is selected by a named tofu
@@ -82,10 +92,10 @@
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true
-        workspace: "{{ item }}"
+        workspace: "{{ inventory_hostname }}"
         variables:
-          proxmox_endpoint: "{{ proxmox_endpoints[item] }}"
-          hypervisor_name: "{{ item }}"
+          proxmox_endpoint: "{{ proxmox_endpoints[inventory_hostname] }}"
+          hypervisor_name: "{{ inventory_hostname }}"
         # Targeted: ONLY the `infra_lxcs` submodule (inside the
         # `hypervisor` wrapper). Never touches the `vms` submodule.
         targets:
@@ -94,12 +104,13 @@
         # Shared advanceteam@pve password, identical for every node; the
         # root's proxmox_username var defaults to "advanceteam@pve".
         TF_VAR_proxmox_password: "{{ advanceteam_user_pass }}"
-      loop: "{{ groups[target_hosts | default('foundation')] | select('in', proxmox_endpoints) | list }}"
+      delegate_to: localhost
+      become: false
+      throttle: 1
       register: tofu_output
 
     - name: Show reconciled foundation infra LXCs
       ansible.builtin.debug:
-        msg: "Foundation infra LXCs reconciled on {{ item.item }}."
-      loop: "{{ tofu_output.results }}"
-      loop_control:
-        label: "{{ item.item }}"
+        msg: "Foundation infra LXCs reconciled on {{ inventory_hostname }}."
+      delegate_to: localhost
+      become: false
