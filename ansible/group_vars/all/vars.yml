@@ -27,6 +27,14 @@ pani_user_pass: "{{ vault_pani_user_pass }}"
 # password after 17-host/20-ssh-hardening.yml runs.
 # Add the secret with: `just secret-encrypt vault_tourmanager_user_pass`
 tourmanager_user_pass: "{{ vault_tourmanager_user_pass }}"
+# Dedicated Proxmox service account (advanceteam@pve) used to drive Tofu
+# interactions. Created on every hypervisor by
+# 20-hypervisor/15-tofu-service-account.yml and granted a scoped custom
+# `Terraform` ACL role on `/`. The Tofu provider does NOT yet authenticate
+# as this user — it still uses the root@pam!tofu-lan token; rewiring is a
+# separate, deliberate change. Add the secret with:
+#   just secret-encrypt vault_advanceteam_user_pass
+advanceteam_user_pass: "{{ vault_advanceteam_user_pass }}"
 github_pat: "{{ vault_github_pat }}"
 tailscale_auth_key: "{{ vault_tailscale_auth_key }}"
 # Separate, tagged (tag:subnet-router) auth-key used ONLY by the

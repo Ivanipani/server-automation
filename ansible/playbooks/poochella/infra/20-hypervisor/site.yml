@@ -17,6 +17,12 @@
 # PVE clustering is no longer a supported topology in this repo. The
 # cluster task files under `roles/hypervisor/` are kept as deprecated
 # reference.
+#
+# 15-tofu-service-account.yml creates the dedicated advanceteam@pve PVE
+# user (scoped `Terraform` ACL role) that will drive Tofu. It only
+# creates the account — the provider still uses the root@pam!tofu-lan
+# token for now.
+- import_playbook: 15-tofu-service-account.yml
 - import_playbook: 20-cluster.yml
 - import_playbook: 30-pve-storage-register.yml
 - import_playbook: 40-pull-templates.yml
