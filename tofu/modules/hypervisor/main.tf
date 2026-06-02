@@ -1,8 +1,8 @@
 # Wraps the `infra_lxcs` + `vms` modules for ONE standalone Proxmox
-# hypervisor. Driven from `tofu/per-node/<host>/main.tf`, which sets
+# hypervisor. Driven from the flat `tofu/node/` root, which sets
 # `hypervisor_name` and supplies the (single, non-aliased) proxmox
-# provider. Each per-node directory carries its own state — there is
-# no cross-hypervisor coupling at the Terraform layer.
+# provider. Each node has its own state via a named tofu workspace —
+# there is no cross-hypervisor coupling at the Terraform layer.
 #
 # Ordering invariant: `vms` depends_on `infra_lxcs`, so infra LXCs
 # (today: bootserv01) come up before any VM in the same `tofu apply`.

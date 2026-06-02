@@ -8,14 +8,16 @@
 # (or risk) just to land bootserv01 — fresh baremetals need it BEFORE
 # the wider 17-host tier can run against them. So this play loops over
 # the `foundation` group and per-iteration runs
-# `tofu apply -target=module.hypervisor.module.infra_lxcs` against that
-# hypervisor's per-node Tofu workspace (tofu/per-node/<host>/), which
-# creates ONLY the infra LXCs and never touches any VM resource.
+# `tofu apply -target=module.hypervisor.module.infra_lxcs` against the
+# SINGLE flat Tofu root (tofu/node/), selecting that node via a named
+# tofu `workspace`, which creates ONLY the infra LXCs and never touches
+# any VM resource.
 #
-# State: each hypervisor has its own state file under
-# tofu/per-node/<host>/terraform.tfstate. Targeting is per-invocation:
-# the later 30-guests/10-opentofu.yml runs the un-targeted apply against
-# the same state and reconciles everything (the LXC is a no-op then).
+# State: each hypervisor has its own state in its own tofu workspace
+# (tofu/node/terraform.tfstate.d/<host>/terraform.tfstate). Targeting is
+# per-invocation: the later 30-guests/10-opentofu.yml runs the un-targeted
+# apply against the same workspace and reconciles everything (the LXC is a
+# no-op then).
 #
 # Idempotent: re-running on a fully-built fleet is a no-op
 # (Tofu sees the LXC matches state, nothing to do).
@@ -28,10 +30,10 @@
 # is part of the foundation node's own 20-hypervisor pass in 13-foundation).
 #
 # Adding a foundation hypervisor:
-#   1. Add it to `foundation:` in inventory.yaml. No per-node secret —
-#      the shared advanceteam@pve account authenticates everywhere.
-#   2. `cp -r tofu/per-node/pve-home-01 tofu/per-node/<new-host>` and
-#      edit `local.hypervisor_name` in the new main.tf.
+#   1. Add it to `foundation:` in inventory.yaml (+ proxmox_endpoints).
+#      No per-node secret — the shared advanceteam@pve account
+#      authenticates everywhere; no per-host directory — the flat root
+#      creates a fresh tofu workspace for it on first apply.
 #   (Nothing else: this play's loop is over `foundation`, so the new
 #   host is picked up automatically.)
 
@@ -73,21 +75,26 @@
   tasks:
     - name: Run tofu apply -target=module.hypervisor.module.infra_lxcs per foundation node
       community.general.terraform:
-        # playbook_dir = .../infra/13-foundation; the per-node Tofu
-        # workspace lives at tofu/per-node/<host>/ (5 levels up).
-        project_path: "{{ playbook_dir }}/../../../../../tofu/per-node/{{ item }}"
+        # ONE flat Tofu root (5 levels up at tofu/node) — no per-host
+        # directories. The target node is selected by a named tofu
+        # `workspace` + the hypervisor_name/proxmox_endpoint vars.
+        project_path: "{{ playbook_dir }}/../../../../../tofu/node"
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true
-        # Targeted: ONLY the per-node `infra_lxcs` submodule (inside the
+        workspace: "{{ item }}"
+        variables:
+          proxmox_endpoint: "{{ proxmox_endpoints[item] }}"
+          hypervisor_name: "{{ item }}"
+        # Targeted: ONLY the `infra_lxcs` submodule (inside the
         # `hypervisor` wrapper). Never touches the `vms` submodule.
         targets:
           - module.hypervisor.module.infra_lxcs
       environment:
         # Shared advanceteam@pve password, identical for every node; the
-        # workspace's proxmox_username var defaults to "advanceteam@pve".
+        # root's proxmox_username var defaults to "advanceteam@pve".
         TF_VAR_proxmox_password: "{{ advanceteam_user_pass }}"
-      loop: "{{ groups[target_hosts | default('foundation')] }}"
+      loop: "{{ groups[target_hosts | default('foundation')] | select('in', proxmox_endpoints) | list }}"
       register: tofu_output
 
     - name: Show reconciled foundation infra LXCs

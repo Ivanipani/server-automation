@@ -5,9 +5,9 @@ terraform {
     proxmox = {
       source = "bpg/proxmox"
       # No configuration_aliases — the caller (modules/hypervisor) has a
-      # single default `proxmox` provider inherited from the per-node
-      # directory (tofu/per-node/<host>/provider.tf), which serves one
-      # standalone PVE host per Tofu workspace.
+      # single default `proxmox` provider inherited from the flat root
+      # (tofu/node/provider.tf), which serves one standalone PVE host per
+      # named tofu workspace.
     }
   }
 }

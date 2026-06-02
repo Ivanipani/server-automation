@@ -2,16 +2,18 @@
 # Provisions every Proxmox guest (VMs + LXCs) defined in inventory.yaml
 # by looping a per-hypervisor `tofu apply` over the `hypervisors` group.
 #
-# Topology: every Proxmox hypervisor is a standalone PVE host with its
-# own Tofu workspace under `tofu/per-node/<host>/` and its own state.
-# This playbook iterates the group and runs one `tofu apply` per node.
+# Topology: every Proxmox hypervisor is a standalone PVE host. A SINGLE
+# flat Tofu root (`tofu/node/`) serves them all; per-node state isolation
+# comes from a named tofu `workspace` per host (no per-host directories).
+# This playbook iterates the group and runs one `tofu apply` per node,
+# each in its own workspace with the node's endpoint URL passed in.
 #
 # Auth: Tofu authenticates to EVERY node as the shared advanceteam@pve
 # service account (scoped `Terraform` ACL role), created identically on
 # each hypervisor by 20-hypervisor/15-tofu-service-account.yml. ONE
 # well-known password drives them all — `advanceteam_user_pass`
 # (group_vars/all/vars.yml, re-export of vault_advanceteam_user_pass),
-# passed to each per-node workspace via `TF_VAR_proxmox_password`. The
+# passed to each workspace via `TF_VAR_proxmox_password`. The
 # username is the Tofu var `proxmox_username` (default "advanceteam@pve").
 # No plaintext ever hits disk — the secret is passed through an env var
 # only. (Adding a hypervisor needs no new secret; the account already
@@ -59,19 +61,29 @@
   tasks:
     - name: Run tofu init + apply for each hypervisor
       community.general.terraform:
-        # playbook_dir = .../infra/30-guests; the per-node Tofu workspace
-        # lives at tofu/per-node/<host>/ in the repo root (5 levels up).
-        project_path: "{{ playbook_dir }}/../../../../../tofu/per-node/{{ item }}"
+        # ONE flat Tofu root (5 levels up at tofu/node) drives every
+        # hypervisor — no per-host directories. State is isolated by a
+        # named tofu `workspace` per node; the target node is selected by
+        # `workspace` + the `hypervisor_name`/`proxmox_endpoint` vars.
+        project_path: "{{ playbook_dir }}/../../../../../tofu/node"
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true
+        workspace: "{{ item }}"
+        variables:
+          # The node's API URL (the flat root's primary input) + which
+          # inventory node to slice. Both non-secret; passed on the CLI.
+          proxmox_endpoint: "{{ proxmox_endpoints[item] }}"
+          hypervisor_name: "{{ item }}"
       environment:
         # The shared advanceteam@pve password, identical for every node.
-        # The per-node workspace's `proxmox_username` var defaults to
-        # "advanceteam@pve", so only the password needs supplying. No
-        # plaintext on disk — env var only.
+        # The root's `proxmox_username` var defaults to "advanceteam@pve",
+        # so only the password needs supplying. No plaintext on disk —
+        # env var only.
         TF_VAR_proxmox_password: "{{ advanceteam_user_pass }}"
-      loop: "{{ groups['hypervisors'] }}"
+      # Only hypervisors that have a proxmox_endpoints entry are
+      # Tofu-managed; skip any group member without one (not yet wired).
+      loop: "{{ groups['hypervisors'] | select('in', proxmox_endpoints) | list }}"
       register: tofu_output
 
     - name: Show provisioned resources (per hypervisor)

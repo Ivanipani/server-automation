@@ -1,14 +1,13 @@
 # VMs for ONE standalone Proxmox hypervisor. Instantiated by
-# tofu/modules/hypervisor, which inherits the per-node directory's
-# single proxmox provider and feeds the inventory slice pinned to that
-# hypervisor.
+# tofu/modules/hypervisor, which inherits the flat root's single proxmox
+# provider and feeds the inventory slice pinned to that hypervisor.
 resource "proxmox_virtual_environment_vm" "vm" {
   for_each = var.vms
 
   name        = each.value.hostname
   description = each.key
   # Storage is node-local LVM-thin, so each VM is created directly on its
-  # preferred node and cloned from that node's own per-node template.
+  # preferred node and cloned from that node's own local template.
   # There is no HA / live-migration — a VM lives and stays on one node.
   node_name = each.value.node
   tags      = each.value.tags
