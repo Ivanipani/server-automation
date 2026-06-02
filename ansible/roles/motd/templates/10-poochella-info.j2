@@ -1,0 +1,65 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# 10-poochella-info — host identity + live system facts. Role/cluster are
+# baked in at Ansible apply time from inventory group membership; OS,
+# load, and the reconcile age are computed live at each login.
+
+B='\033[1m'; C='\033[1;36m'; G='\033[1;32m'; Y='\033[1;33m'; D='\033[2m'; R='\033[0m'
+
+# --- static (baked by Ansible) ---
+ROLE='{{ motd_node_role | trim }}'
+CLUSTER='{{ motd_cluster | trim }}'
+STAMP='{{ motd_state_dir }}/last-reconcile'
+
+# --- live ---
+HOST="$(hostname -f 2>/dev/null || hostname)"
+
+if [ -r /etc/os-release ]; then
+    . /etc/os-release
+    OS="${PRETTY_NAME:-$NAME}"
+else
+    OS="$(uname -s)"
+fi
+KERNEL="$(uname -r) ($(uname -m))"
+
+# load average + core count
+if [ -r /proc/loadavg ]; then
+    set -- $(cat /proc/loadavg)
+    LOAD="$1 $2 $3"
+else
+    LOAD="$(uptime | sed 's/.*load average: //')"
+fi
+CORES="$(nproc 2>/dev/null || echo '?')"
+UP="$(uptime -p 2>/dev/null | sed 's/^up //')"
+
+# last-reconcile age
+RECON='unknown'
+if [ -r "$STAMP" ]; then
+    TS="$(cat "$STAMP")"
+    EPOCH="$(date -d "$TS" +%s 2>/dev/null || echo '')"
+    if [ -n "$EPOCH" ]; then
+        NOW="$(date +%s)"
+        D_SECS=$(( NOW - EPOCH ))
+        [ "$D_SECS" -lt 0 ] && D_SECS=0
+        DAYS=$(( D_SECS / 86400 ))
+        HRS=$(( (D_SECS % 86400) / 3600 ))
+        MINS=$(( (D_SECS % 3600) / 60 ))
+        if   [ "$DAYS" -gt 0 ]; then AGO="${DAYS}d ${HRS}h ago"
+        elif [ "$HRS"  -gt 0 ]; then AGO="${HRS}h ${MINS}m ago"
+        else                          AGO="${MINS}m ago"
+        fi
+        RECON="$TS  (${AGO})"
+    else
+        RECON="$TS"
+    fi
+fi
+
+printf "${B} %-12s${R} ${C}%s${R}\n"  "Host"     "$HOST"
+printf "${B} %-12s${R} ${G}%s${R}\n"  "Role"     "$ROLE"
+printf "${B} %-12s${R} ${G}%s${R}\n"  "Cluster"  "$CLUSTER"
+printf "${B} %-12s${R} %s\n"          "OS"       "$OS"
+printf "${B} %-12s${R} %s\n"          "Kernel"   "$KERNEL"
+printf "${B} %-12s${R} %s  ${D}(%s cores)${R}\n" "Load" "$LOAD" "$CORES"
+[ -n "$UP" ] && printf "${B} %-12s${R} %s\n" "Uptime" "$UP"
+printf "${B} %-12s${R} ${Y}%s${R}\n"  "Reconciled" "$RECON"
+echo

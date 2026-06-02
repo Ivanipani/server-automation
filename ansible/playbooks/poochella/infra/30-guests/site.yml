@@ -17,6 +17,11 @@
 - import_playbook: 10-opentofu.yml
 - import_playbook: 20-firewall.yml
 
+# Dynamic "poochella" MOTD on the login-shell guests (kube control-plane
+# VMs + bootserv01 LXC). Same `motd` role as 17-host/70-motd.yml; runs
+# after the firewall settles. Order-independent day-2 service.
+- import_playbook: 30-motd.yml
+
 # Mount nas01 NFS shares onto VM groups that declare `nfs_mounts`
 # (today: kube_control_plane). Re-uses the baremetal-side
 # 17-host/16-nfs-mounts.yml — same schema, same module — scoped to the

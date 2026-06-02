@@ -1,0 +1,16 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# 20-poochella-workloads — print the cached workload summary. The summary
+# is produced out-of-band by /usr/local/bin/poochella-motd-refresh on a
+# systemd timer (so logins never pay the query cost); this script only
+# displays it.
+
+CACHE='{{ motd_state_dir }}/workloads.txt'
+D='\033[2m'; R='\033[0m'
+
+if [ -r "$CACHE" ]; then
+    cat "$CACHE"
+else
+    printf "${D} (workload summary pending — first refresh not run yet)${R}\n"
+fi
+echo

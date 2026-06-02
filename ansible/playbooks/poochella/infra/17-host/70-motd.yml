@@ -1,0 +1,18 @@
+---
+# Tier 17 — Install the dynamic "poochella" MOTD on every baremetal
+# Linux host.
+#
+# Day-2 service, like 40-tailscale.yml / 50-node-exporter.yml: depends
+# only on 10-bootstrap (ansible user + facts), nothing depends on it,
+# idempotent, safe to run in isolation (`just run --limit <host>`). The
+# `motd` role is default-on; disable per-host/group with `motd_enabled:
+# false`. The companion 30-guests/30-motd.yml applies the same role to
+# the kube control-plane VMs + bootserv01 LXC.
+#
+# Pre-condition: 10-bootstrap.yml has run (ansible user exists).
+
+- name: Install the poochella MOTD on every physical host
+  hosts: "{{ target_hosts | default('physical') }}"
+  become: true
+  roles:
+    - role: motd

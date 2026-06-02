@@ -1,0 +1,57 @@
+---
+# Dynamic "poochella" message-of-the-day. Day-2 service, default-on
+# everywhere the role is applied (17-host + 30-guests tiers). Disable
+# per-host/group with `motd_enabled: false`.
+motd_enabled: true
+
+# Suppress everything stock so only our banner renders. Strips the exec
+# bit off Debian's /etc/update-motd.d/{10-uname,...} AND blanks the
+# static /etc/motd (pam_motd prints both — the dynamic dir via
+# /run/motd.dynamic and the static file via its `noupdate` line). Both
+# are reversible: `chmod +x` / `apt-get install --reinstall base-files`.
+motd_disable_stock: true
+
+# Cadence of the systemd timer that refreshes the cached cross-cluster
+# workload summary (systemd OnUnitActiveSec= syntax).
+motd_refresh_interval: "5min"
+
+# State dir: holds the cached workload summary + the last-reconcile stamp.
+motd_state_dir: /var/lib/poochella-motd
+
+# --- Identity, resolved from inventory group membership ----------------
+# All overridable per-host/group. `groups.get(..., [])` keeps a missing
+# group from erroring on a trimmed-down inventory.
+
+# Human-facing node role shown in the MOTD.
+motd_node_role: >-
+  {{ 'Proxmox hypervisor'
+       if inventory_hostname in groups.get('hypervisors', [])
+     else 'k3s control-plane'
+       if inventory_hostname in groups.get('kube_control_plane', [])
+     else 'k3s worker'
+       if inventory_hostname in (groups.get('kube_workers', []) + groups.get('workers', []))
+     else 'infra container'
+       if inventory_hostname in groups.get('containers', [])
+     else 'Generic Linux host' }}
+
+# Cluster the node belongs to.
+motd_cluster: >-
+  {{ 'poochella k3s (' ~ (k3s_cluster_name | default('doghouse')) ~ ')'
+       if inventory_hostname in groups.get('kubernetes', [])
+     else 'poochella PVE (standalone — no cluster)'
+       if inventory_hostname in groups.get('hypervisors', [])
+     else 'poochella' }}
+
+# Which workload probe the refresh timer runs. Resolved from role.
+#   k3s-server → kubectl get deploy -A   (control planes have a kubeconfig)
+#   k3s-agent  → crictl ps count         (agents have no apiserver access)
+#   pve        → qm/pct running guests    (guests ARE the node's "deployments")
+#   none       → static placeholder
+motd_workload_kind: >-
+  {{ 'k3s-server'
+       if inventory_hostname in groups.get('kube_control_plane', [])
+     else 'k3s-agent'
+       if inventory_hostname in (groups.get('kube_workers', []) + groups.get('workers', []))
+     else 'pve'
+       if inventory_hostname in groups.get('hypervisors', [])
+     else 'none' }}

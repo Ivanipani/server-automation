@@ -1,0 +1,15 @@
+---
+# Tier 30-guests — Install the dynamic "poochella" MOTD on the guests
+# that have a real Linux login shell: the kube control-plane VMs and the
+# bootserv01 infra LXC. The baremetal counterpart is 17-host/70-motd.yml;
+# both apply the same `motd` role.
+#
+# Runs after 20-firewall.yml so SSH is settled. Idempotent and safe to
+# run in isolation. Guests are reached as the cloud-init-baked `ansible`
+# user (no detect-bootstrap-user dance needed by this tier).
+
+- name: Install the poochella MOTD on login-shell guests
+  hosts: kube_control_plane:containers
+  become: true
+  roles:
+    - role: motd

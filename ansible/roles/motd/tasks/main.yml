@@ -1,0 +1,138 @@
+---
+# Dynamic "poochella" MOTD. Mirrors the node-exporter role's
+# enabled/disabled block structure.
+#
+# Hybrid model: the cheap facts (role, cluster, OS, load, last-reconcile)
+# render LIVE at each login via /etc/update-motd.d/ scripts (Debian's
+# stock pam_motd dynamic mechanism). The one expensive probe (cluster
+# deployments / running guests) is refreshed every motd_refresh_interval
+# by a systemd timer into motd_state_dir/workloads.txt, which the login
+# script just prints.
+
+- name: Disable poochella MOTD
+  when: not motd_enabled
+  block:
+    - name: Check if poochella-motd timer unit exists
+      ansible.builtin.stat:
+        path: /etc/systemd/system/poochella-motd-refresh.timer
+      register: motd_timer_unit
+
+    - name: Stop and disable poochella-motd timer
+      ansible.builtin.systemd_service:
+        name: poochella-motd-refresh.timer
+        state: stopped
+        enabled: false
+      when: motd_timer_unit.stat.exists
+
+- name: Install poochella MOTD
+  when:
+    - motd_enabled
+    - ansible_os_family == "Debian"
+  block:
+    - name: Ensure poochella-motd state dir exists
+      ansible.builtin.file:
+        path: "{{ motd_state_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install workload-refresh probe script
+      ansible.builtin.template:
+        src: poochella-motd-refresh.j2
+        dest: /usr/local/bin/poochella-motd-refresh
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install update-motd.d scripts
+      ansible.builtin.template:
+        src: "{{ item }}.j2"
+        dest: "/etc/update-motd.d/{{ item }}"
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - 00-poochella-banner
+        - 10-poochella-info
+        - 20-poochella-workloads
+
+    - name: Install poochella-motd refresh service + timer
+      ansible.builtin.template:
+        src: "{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - poochella-motd-refresh.service
+        - poochella-motd-refresh.timer
+      notify: "restart poochella-motd timer"
+
+    # Skipped under --check: the unit files above are not actually written
+    # in check mode, so systemd cannot find the timer to enable. A real
+    # run writes them first, then this daemon-reloads and starts the timer.
+    - name: Enable and start poochella-motd refresh timer
+      ansible.builtin.systemd_service:
+        name: poochella-motd-refresh.timer
+        daemon_reload: true
+        state: started
+        enabled: true
+      when: not ansible_check_mode
+
+    # The workload summary is cosmetic — a flaky probe (e.g. apiserver not
+    # yet up, pmxcfs still settling) must never fail host configuration.
+    # The systemd timer will refresh it shortly regardless.
+    - name: Prime the workload cache once (so the first login is populated)
+      ansible.builtin.command:
+        cmd: /usr/local/bin/poochella-motd-refresh
+      changed_when: false
+      failed_when: false
+
+    # Stamp written on every apply — this IS the "last reconcile" the MOTD
+    # reports, so it is intentionally `changed` each run.
+    - name: Stamp last-reconcile time
+      ansible.builtin.copy:
+        content: "{{ ansible_date_time.iso8601 }}\n"
+        dest: "{{ motd_state_dir }}/last-reconcile"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Find stock update-motd.d scripts to disable
+      ansible.builtin.find:
+        paths: /etc/update-motd.d
+        file_type: file
+        excludes: "*-poochella-*"
+      register: motd_stock_scripts
+      when: motd_disable_stock
+
+    - name: Disable stock update-motd.d scripts (strip exec bit)
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        mode: "0644"
+      loop: "{{ motd_stock_scripts.files | default([]) }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when: motd_disable_stock
+
+    - name: Check the static /etc/motd
+      ansible.builtin.stat:
+        path: /etc/motd
+      register: motd_static_file
+      when: motd_disable_stock
+
+    # pam_motd's `noupdate` line prints /etc/motd on top of our dynamic
+    # output. Blank it (only when it's a real file — never clobber a
+    # symlink some distros point at /run/motd.dynamic).
+    - name: Blank the stock /etc/motd
+      ansible.builtin.copy:
+        content: ""
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: "0644"
+      when:
+        - motd_disable_stock
+        - motd_static_file.stat.exists | default(false)
+        - not (motd_static_file.stat.islnk | default(false))

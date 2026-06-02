@@ -1,0 +1,37 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# 00-poochella-banner — a performer on the Poochella main stage, crowd roaring.
+# Static art; printed at every login by pam_motd. Colour blocks are
+# emitted with one ANSI colour per heredoc to keep the art verbatim.
+
+esc() { printf '%b' "$1"; }
+P='\033[1;35m'   # stage pink
+Y='\033[1;33m'   # spotlight yellow
+C='\033[1;36m'   # cool cyan
+D='\033[2m'      # dim
+R='\033[0m'      # reset
+
+esc "$Y"
+cat <<'EOF'
+
+                                                                             ..       ..
+                                                  .uef^"               x .d88"  x .d88"
+ .d``                u.          u.             :d88E                   5888R    5888R
+ @8Ne.   .u    ...ue888b   ...ue888b        .   `888E            .u     '888R    '888R         u
+ %8888:u@88N   888R Y888r  888R Y888r  .udR88N   888E .z8k    ud8888.    888R     888R      us888u.
+  `888I  888.  888R I888>  888R I888> <888'888k  888E~?888L :888'8888.   888R     888R   .@88 "8888"
+   888I  888I  888R I888>  888R I888> 9888 'Y"   888E  888E d888 '88%"   888R     888R   9888  9888
+   888I  888I  888R I888>  888R I888> 9888       888E  888E 8888.+"      888R     888R   9888  9888
+ uW888L  888' u8888cJ888  u8888cJ888  9888       888E  888E 8888L        888R     888R   9888  9888
+'*88888Nu88P   "*888*P"    "*888*P"   ?8888u../  888E  888E '8888c. .+  .888B .  .888B . 9888  9888
+~ '88888F`       'Y"         'Y"       "8888P'  m888N= 888>  "88888%    ^*888%   ^*888%  "888*""888"
+   888 ^                                 "P'     `Y"   888     "YP'       "%       "%     ^Y"   ^Y'
+   *8E                                                J88"
+   '8>                                                @%
+    "                                               :"
+EOF
+esc "$D"
+cat <<'EOF'
+    ‾‾‾‾‾‾‾‾‾  welcome to the poochella fleet  ‾‾‾‾‾‾‾
+EOF
+esc "$R"

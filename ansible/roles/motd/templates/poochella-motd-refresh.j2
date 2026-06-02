@@ -1,0 +1,47 @@
+#!/bin/sh
+# {{ ansible_managed }}
+# poochella-motd-refresh — produce the cached workload summary consumed by
+# /etc/update-motd.d/20-poochella-workloads. Run on a systemd timer (every
+# {{ motd_refresh_interval }}) so SSH logins never pay the query cost. Only
+# the branch for this node's role ({{ motd_workload_kind | trim }}) is baked
+# in. Writes atomically.
+set -u
+
+CACHE='{{ motd_state_dir }}/workloads.txt'
+TMP="${CACHE}.new"
+B='\033[1m'; D='\033[2m'; R='\033[0m'
+
+# Self-heal the state dir so the redirect below always has somewhere to
+# land (the block redirect only creates $TMP if its parent already exists).
+mkdir -p '{{ motd_state_dir }}' 2>/dev/null || true
+
+{
+{% if motd_workload_kind | trim == 'k3s-server' %}
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+if OUT="$(timeout 8 k3s kubectl get deploy -A --no-headers 2>/dev/null)" && [ -n "$OUT" ]; then
+    TOTAL="$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
+    READY="$(printf '%s\n' "$OUT" | awk '{ split($3,a,"/"); if (a[1]==a[2] && a[2]!="") n++ } END { print n+0 }')"
+    printf "${B} Deployments (cluster-wide):${R} %s total, %s ready\n" "$TOTAL" "$READY"
+    printf '%s\n' "$OUT" | awk '{ printf "   %-22s %-28s %s\n", $1, $2, $3 }' | head -n 8
+    if [ "$TOTAL" -gt 8 ]; then printf "${D}   ...and %s more${R}\n" "$(( TOTAL - 8 ))"; fi
+else
+    printf "${B} Deployments:${R} ${D}apiserver unreachable (timeout)${R}\n"
+fi
+{% elif motd_workload_kind | trim == 'k3s-agent' %}
+N="$(timeout 8 k3s crictl ps -q 2>/dev/null | wc -l | tr -d ' ')"
+printf "${B} Containers on this node:${R} %s running\n" "${N:-?}"
+printf "${D} (k3s agent — no cluster-wide view; check a control-plane node)${R}\n"
+{% elif motd_workload_kind | trim == 'pve' %}
+VM_RUN="$(qm list 2>/dev/null | awk 'NR>1 && $3=="running"')"
+CT_RUN="$(pct list 2>/dev/null | awk 'NR>1 && $2=="running"')"
+VM_N="$(printf '%s' "$VM_RUN" | grep -c . )"
+CT_N="$(printf '%s' "$CT_RUN" | grep -c . )"
+printf "${B} Guests on this hypervisor:${R} %s VMs + %s LXCs running\n" "$VM_N" "$CT_N"
+printf '%s\n' "$VM_RUN" | awk 'NF { printf "   VM  %-6s %s\n", $1, $2 }'
+printf '%s\n' "$CT_RUN" | awk 'NF { printf "   CT  %-6s %s\n", $1, $3 }'
+{% else %}
+printf "${D} (no workloads tracked for this role)${R}\n"
+{% endif %}
+} > "$TMP" 2>/dev/null
+
+mv -f "$TMP" "$CACHE" 2>/dev/null || true

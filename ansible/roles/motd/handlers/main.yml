@@ -1,0 +1,11 @@
+---
+# Guarded for --check: in check mode the timer unit file is not actually
+# written, so a restart would fail to find it. A real run writes + starts
+# the unit before handlers flush.
+- name: Restart poochella-motd timer
+  ansible.builtin.systemd_service:
+    name: poochella-motd-refresh.timer
+    state: restarted
+    daemon_reload: true
+  listen: "restart poochella-motd timer"
+  when: not ansible_check_mode

@@ -14,10 +14,10 @@
 # is a no-op on hosts with `nfs_mounts: []` (the default — only
 # hypervisors override to add the `proxmox` RW share).
 #
-# 30-firewall / 40-tailscale / 50-node-exporter are order-independent
-# day-2 services; they depend only on 10-bootstrap and nothing
-# depends on them — placed last in the tier so the critical chain
-# reads contiguously.
+# 30-firewall / 40-tailscale / 50-node-exporter / 70-motd are
+# order-independent day-2 services; they depend only on 10-bootstrap and
+# nothing depends on them — placed last in the tier so the critical
+# chain reads contiguously.
 #
 # 15-storage-plan.yml is the read-only `just disk-plan` companion;
 # NOT imported here on purpose.
@@ -28,3 +28,4 @@
 - import_playbook: 30-firewall.yml
 - import_playbook: 40-tailscale.yml
 - import_playbook: 50-node-exporter.yml
+- import_playbook: 70-motd.yml
