@@ -39,16 +39,18 @@ just do-flux        # -> ansible/.../40-kube/40-flux.yml
 ```
 
 That playbook:
-1. Runs `flux bootstrap git` against **this** repo (`--path=k8s/clusters/doghouse`,
-   `--token-auth` over HTTPS using `vault_github_pat`). Idempotent; it commits +
-   pushes `clusters/doghouse/flux-system/` — `git pull` afterwards.
+1. Runs `flux bootstrap git` against **this** repo (`--path=k8s/clusters/doghouse`)
+   over **SSH** using the vaulted account key — GitHub rejects PAT-over-HTTPS for
+   git operations. Idempotent; it commits + pushes
+   `clusters/doghouse/flux-system/` — `git pull` afterwards.
 2. Installs the `sops-age` Secret in `flux-system` from `vault_sops_age_key` so
    Flux can decrypt the `*.sops.yaml` manifests (see [Secrets (SOPS)](#secrets-sops)).
 3. Installs the `doghouse-apps-key` deploy-key Secret from
    `vault_doghouse_apps_deploy_key` (only when set) for the private apps import.
 
 Prereqs (see `ansible/group_vars/all/vars.yml` for the exact add commands):
-`vault_github_pat` with push access to this repo; `vault_sops_age_key`
+`vault_github_ssh_private_key` with push access to this repo (its public half is
+already registered on the GitHub account); `vault_sops_age_key`
 (the `k8s/age.agekey` contents); and `vault_doghouse_apps_deploy_key` once you
 cut apps over to the private repo. After the stack is up, set the real Proxmox
 API token (see [Proxmox API token](#proxmox-api-token-sops-managed)).

@@ -11,15 +11,16 @@
 #
 # Runs entirely from the CONTROL NODE (your laptop): flux + kubectl talk to the
 # cluster over the kubeconfig that 20-k3s.yml fetched to ansible/kubeconfig, and
-# `flux bootstrap git` clones + pushes the repo over HTTPS using the GitHub PAT.
+# `flux bootstrap git` clones + pushes the repo over SSH (GitHub rejects PAT-over-
+# HTTPS basic auth for git operations) using the vaulted account SSH key.
 #
 # Pre-conditions:
 #   - The k3s cluster is up and ansible/kubeconfig is current (run 20-k3s.yml first).
 #   - Control-node CLIs present: flux, kubectl (just check verifies them).
-#   - vault_github_pat is a PAT with push access to Ivanipani/server-automation
-#     (classic: `repo` scope; fine-grained: Contents read/write on this repo).
-#   - GitHub-side, ONE TIME: nothing — `flux bootstrap git --token-auth` stores the
-#     PAT in-cluster as the flux-system git secret; no deploy key to register here.
+#   - vault_github_ssh_private_key is an SSH key with push access to
+#     Ivanipani/server-automation. Its PUBLIC half is github_ssh_public_key, already
+#     registered on the GitHub account (account keys grant write to own repos), so
+#     no separate deploy key needs registering for the bootstrap.
 #   - For the apps import (optional now): vault_sops_age_key (the k8s/age.agekey
 #     contents) and vault_doghouse_apps_deploy_key (a read-only deploy key whose
 #     PUBLIC half is registered on the private doghouse repo). If either is unset/
@@ -45,12 +46,16 @@
     - ../../../../group_vars/all/vars.yml
   vars:
     flux_bootstrap_enabled: true
-    flux_git_url: "https://github.com/Ivanipani/server-automation"
+    # SSH, not HTTPS: GitHub rejects PAT-over-HTTPS basic auth for git ("Password
+    # authentication is not supported"). Bootstrap pushes gotk-* over SSH using the
+    # account key already in the vault (its PUBLIC half is registered on the GitHub
+    # account, which grants write to its own repos).
+    flux_git_url: "ssh://git@github.com/Ivanipani/server-automation"
     flux_git_branch: "main"
     flux_path: "k8s/clusters/doghouse"
-    # The git HTTPS username for the PAT. GitHub accepts the account name with a
-    # PAT as the password.
-    flux_git_username: "Ivanipani"
+    # Private SSH key flux uses to clone + push this repo during bootstrap. Vaulted
+    # (group_vars/all/vars.yml → github_ssh_private_key); staged to a 0600 tempfile.
+    flux_ssh_private_key: "{{ github_ssh_private_key }}"
     # kubeconfig fetched by 20-k3s.yml — same dir math as that playbook (→ ansible/).
     flux_kubeconfig: "{{ playbook_dir }}/../../../../kubeconfig"
     # The private apps repo the doghouse-apps GitRepository points at.
@@ -76,26 +81,45 @@
       register: _cli_check
       failed_when: _cli_check.rc != 0
 
-    # --- Flux bootstrap -----------------------------------------------------
-    - name: Bootstrap Flux against this repo (idempotent; commits + pushes gotk-*)
-      ansible.builtin.command:
-        argv:
-          - flux
-          - bootstrap
-          - git
-          - "--url={{ flux_git_url }}"
-          - "--branch={{ flux_git_branch }}"
-          - "--path={{ flux_path }}"
-          - "--token-auth"
-          - "--silent"
-      environment:
-        # flux bootstrap git reads these for HTTPS basic-auth git operations.
-        GIT_USERNAME: "{{ flux_git_username }}"
-        GIT_PASSWORD: "{{ github_pat }}"
-      register: _flux_bootstrap
-      changed_when: "'no changes' not in (_flux_bootstrap.stdout | default(''))"
-      # no_log: true
+    # --- Flux bootstrap (SSH) -----------------------------------------------
+    # `flux bootstrap git` over SSH clones + pushes gotk-* and stores the key as
+    # the in-cluster flux-system Secret (with auto-scanned known_hosts). The key is
+    # staged to a 0600 tempfile and removed in `always`.
+    - name: Bootstrap Flux against this repo over SSH (idempotent; commits + pushes gotk-*)
       when: flux_bootstrap_enabled | bool
+      block:
+        - name: Stage the bootstrap SSH key to a tempfile
+          ansible.builtin.tempfile:
+            state: file
+            suffix: flux-bootstrap-key
+          register: _boot_key_tmp
+
+        - name: Write the bootstrap SSH private key (single trailing newline)
+          ansible.builtin.copy:
+            dest: "{{ _boot_key_tmp.path }}"
+            content: "{{ flux_ssh_private_key | trim }}\n"
+            mode: "0600"
+          no_log: true
+
+        - name: flux bootstrap git over SSH
+          ansible.builtin.command:
+            argv:
+              - flux
+              - bootstrap
+              - git
+              - "--url={{ flux_git_url }}"
+              - "--branch={{ flux_git_branch }}"
+              - "--path={{ flux_path }}"
+              - "--private-key-file={{ _boot_key_tmp.path }}"
+              - "--silent"
+          register: _flux_bootstrap
+          changed_when: "'no changes' not in (_flux_bootstrap.stdout | default(''))"
+      always:
+        - name: Remove the bootstrap SSH key tempfile
+          ansible.builtin.file:
+            path: "{{ _boot_key_tmp.path }}"
+            state: absent
+          when: _boot_key_tmp.path is defined
 
     # --- SOPS decryption key (sops-age) -------------------------------------
     # Created with kubectl create --dry-run | kubectl apply (the idempotent
@@ -133,10 +157,10 @@
             suffix: doghouse-apps-key
           register: _apps_key_tmp
 
-        - name: Write the private key into the tempfile
+        - name: Write the private key into the tempfile (single trailing newline)
           ansible.builtin.copy:
             dest: "{{ _apps_key_tmp.path }}"
-            content: "{{ doghouse_apps_deploy_key }}"
+            content: "{{ doghouse_apps_deploy_key | trim }}\n"
             mode: "0600"
           no_log: true
 
