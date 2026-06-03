@@ -10,9 +10,13 @@
 #                THE explicit consent — set per-host or per-run.
 #   - skip       silent no-op (meta: end_host).
 #
-# PVE registration (`pvesm add lvmthin`) is a hypervisor-only follow-up in
-# 20-hypervisor/30-pve-storage-register.yml — NOT in this playbook, which
-# is PVE-free.
+# PVE registration (`pvesm add lvmthin`) is folded into the host-disks
+# role (tasks/pve_register.yml): on hypervisors it auto-publishes each
+# `pve_storage` thin pool as PVE `lvmthin` in overwrite mode, so carve +
+# pool + register happen in ONE pass of this playbook. Info mode stays
+# read-only unless the caller opts in with `host_disks_register_pve: true`
+# (the foundation tier does, to publish without re-carving). Workers run
+# no PVE and never register.
 #
 # Hosts without a `storage:` block are silently skipped by the `when:`
 # guard on the role import below, so plain physical hosts that don't run
@@ -39,8 +43,8 @@
 #
 # Per partition, declare AT MOST ONE of (enforced in preflight):
 #   - `pve_storage:` + `content:`      → PVE-registered thin pool (the
-#                                        register step lives in
-#                                        20-hypervisor/30-pve-storage-register.yml)
+#                                        register step is folded into the
+#                                        host-disks role, tasks/pve_register.yml)
 #   - `mount: {path,fstype}` + vg/thinpool → ext4 on a thin LV, fstab-mounted
 #   - `mount: {path,fstype}` NO vg/thinpool → DIRECT plain ext4 on the bare
 #                                        partition (no LVM), fstab-mounted.

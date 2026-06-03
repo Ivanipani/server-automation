@@ -4,9 +4,9 @@
 # same code path as any peer (loopback fetch from bootserv01 over vmbr0).
 #
 # Required vars:
-#   vm_template – dict with id, name, image_file (the per-node VMID
-#                 comes from template_vm_ids[inventory_hostname] anchor
-#                 + index; derived by the orchestrating playbook)
+#   vm_template – dict with id, name, image_file (the VMID comes from
+#                 the fleet-wide template_vm_id_base anchor + index;
+#                 derived by the orchestrating playbook)
 
 - name: "Check if VM template {{ vm_template.id }} exists"
   ansible.builtin.command: "qm status {{ vm_template.id }}"

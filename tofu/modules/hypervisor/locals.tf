@@ -10,8 +10,10 @@
 locals {
   inventory = yamldecode(file("${path.module}/../../../ansible/inventory.yaml"))
 
-  template_vm_ids = local.inventory.all.vars.template_vm_ids
-  template_ct_ids = local.inventory.all.vars.template_ct_ids
+  # Standalone hypervisors each own an independent VMID namespace, so the
+  # template anchor is a single fleet-wide scalar (not a per-node map).
+  template_vm_id_base = local.inventory.all.vars.template_vm_id_base
+  template_ct_id_base = local.inventory.all.vars.template_ct_id_base
 
   # Top-level groups (router, physical, hypervisors, workers, switches, virtual-machines, kubernetes, ...)
   _groups_l1 = { for k, v in local.inventory : k => v if k != "all" && can(v) && v != null }
@@ -39,8 +41,8 @@ locals {
       gateway     = ""
       tags        = try(h.vm.tags, [])
       node        = h.vm.proxmox_node
-      # Per-VM override wins; otherwise this node's anchor template.
-      template_id = try(h.vm.template_id, local.template_vm_ids[h.vm.proxmox_node])
+      # Per-VM override wins; otherwise the fleet-wide template anchor.
+      template_id = try(h.vm.template_id, local.template_vm_id_base)
     } if try(h.vm, null) != null && try(h.vm.proxmox_node, null) == var.hypervisor_name
   }
 
@@ -59,7 +61,7 @@ locals {
       nesting      = try(h.lxc.features.nesting, false)
       tags         = try(h.lxc.tags, [])
       node         = h.lxc.proxmox_node
-      template_id  = try(h.lxc.template_id, local.template_ct_ids[h.lxc.proxmox_node])
+      template_id  = try(h.lxc.template_id, local.template_ct_id_base)
     } if try(h.lxc, null) != null && try(h.lxc.proxmox_node, null) == var.hypervisor_name && contains(try(h.lxc.tags, []), "infra")
   }
 }

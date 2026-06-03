@@ -76,6 +76,11 @@
   vars:
     target_hosts: foundation
     host_disks_action: info
+    # Read-only disk inspection, but DO (re)publish the `vms` PVE storage:
+    # the foundation pool was carved by an earlier overwrite run, and this
+    # opt-in folds in the former 30-pve-storage-register step without
+    # re-carving. `just disk-plan` omits this flag, so it stays read-only.
+    host_disks_register_pve: true
 
 - import_playbook: ../17-host/30-firewall.yml
   vars: { target_hosts: foundation }
@@ -84,8 +89,8 @@
 # `tofu apply` in 80-tofu-infra-lxcs.yml (the provider authenticates as it).
 - import_playbook: ../20-hypervisor/15-tofu-service-account.yml
   vars: { target_hosts: foundation }
-- import_playbook: ../20-hypervisor/30-pve-storage-register.yml
-  vars: { target_hosts: foundation }
+# PVE `vms` storage registration now happens inside the 15-storage.yml
+# pass above (host_disks_register_pve: true) — no separate step here.
 
 # ── Bootstrap-only LXC template bake (needed by 80-tofu-infra-lxcs) ─────
 - import_playbook: 50-bootstrap-lxc-template.yml

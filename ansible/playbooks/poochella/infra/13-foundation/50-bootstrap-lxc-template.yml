@@ -6,7 +6,7 @@
 # 80-tofu-infra-lxcs.yml runs.
 #
 # This playbook produces a fully-customized, syspreped, pct-template'd
-# local LXC at template_ct_ids[foundation_node] + idx — the same CTID
+# local LXC at template_ct_id_base + idx — the same CTID
 # that the production publish/consume flow later treats as the canonical
 # local template. After 95-bake-publish-images.yml runs, peers fetch a
 # byte-identical snapshot of this template from bootserv01. Foundation
@@ -17,9 +17,9 @@
 #   13-foundation/site.yml runs this BEFORE 80-tofu-infra-lxcs.yml.
 #
 # Pre-conditions:
-#   - 17-host bootstrap + storage + 20-hypervisor bootstrap +
-#     pve-storage-register have run on the foundation node (the `vms`
-#     LVM-thin storage exists on local).
+#   - 17-host bootstrap + storage (which now also registers the PVE `vms`
+#     storage on hypervisors) + 20-hypervisor bootstrap have run on the
+#     foundation node (the `vms` LVM-thin storage exists on local).
 #
 # What gets baked: the canonical pre-bake baseline (ansible user with
 # key, tourmanager break-glass user, sshd hardening, apt-no-auto-upgrades,
@@ -54,12 +54,12 @@
 
     - name: Derive this node's LXC template list (anchor + index)
       ansible.builtin.set_fact:
-        lxc_templates: "{{ lxc_templates | default([]) + [tmpl | combine({'id': (template_ct_ids[inventory_hostname] | int) + idx})] }}"
+        lxc_templates: "{{ lxc_templates | default([]) + [tmpl | combine({'id': (template_ct_id_base | int) + idx})] }}"
       loop: "{{ lxc_templates_base }}"
       loop_control:
         loop_var: tmpl
         index_var: idx
-        label: "{{ tmpl.hostname }} → {{ (template_ct_ids[inventory_hostname] | int) + idx }}"
+        label: "{{ tmpl.hostname }} → {{ (template_ct_id_base | int) + idx }}"
 
     - name: Update PVE appliance catalog
       ansible.builtin.command: pveam update

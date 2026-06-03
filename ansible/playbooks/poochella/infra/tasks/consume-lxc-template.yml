@@ -7,9 +7,9 @@
 # status` skip — foundation never re-fetches itself.
 #
 # Required vars:
-#   lxc_template – dict with id, hostname, image (per-node CTID comes
-#                  from template_ct_ids[inventory_hostname] anchor +
-#                  index; derived by the orchestrating playbook)
+#   lxc_template – dict with id, hostname, image (the CTID comes from
+#                  the fleet-wide template_ct_id_base anchor + index;
+#                  derived by the orchestrating playbook)
 
 - name: "Check if LXC template {{ lxc_template.id }} exists"
   ansible.builtin.command: "pct status {{ lxc_template.id }}"
@@ -46,6 +46,11 @@
       retries: 5
       delay: 15
 
+    # The published vzdump tarball is snapshotted from the source CT *after*
+    # it was converted to a template (producer: create-lxc-template.yml ->
+    # bake-lxc-image.yml), so `pct restore` already restores it with the
+    # template flag set. No `pct template` step is needed (and it would error
+    # with "you can't convert a template to a template").
     - name: "Restore LXC template {{ lxc_template.id }} from artifact"
       ansible.builtin.command: >
         pct restore {{ lxc_template.id }}
@@ -53,8 +58,4 @@
         --storage vms
         --unprivileged 1
         --hostname {{ lxc_template.hostname }}
-      changed_when: true
-
-    - name: "Convert restored LXC {{ lxc_template.id }} to template"
-      ansible.builtin.command: "pct template {{ lxc_template.id }}"
       changed_when: true

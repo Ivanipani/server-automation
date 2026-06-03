@@ -1,11 +1,10 @@
 # Storage disk runbook — swap, grow, add (poochella)
 
 Operational companion to `playbooks/poochella/infra/17-host/15-storage.yml`
-(local LVM substrate, all physical hosts) plus
-`playbooks/poochella/infra/20-hypervisor/30-pve-storage-register.yml`
-(PVE-only `pvesm add lvmthin` publication step) and the `host-disks`
-role. Read each playbook header first; this doc is the *people* steps
-around the automation.
+(local LVM substrate, all physical hosts — including the PVE-only
+`pvesm add lvmthin` publication, folded into the `host-disks` role's
+`tasks/pve_register.yml`). Read the playbook + role headers first; this
+doc is the *people* steps around the automation.
 
 ## The one thing to internalise
 

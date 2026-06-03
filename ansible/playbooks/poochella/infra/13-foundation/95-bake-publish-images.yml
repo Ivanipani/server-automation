@@ -60,26 +60,27 @@
 
   pre_tasks:
     # The bake LXC half needs to know foundation's local template CTIDs
-    # (they're the ones we vzdump). Use the same anchor-map derivation
-    # as 50-bootstrap-lxc-template.yml so the VM bake half can also
-    # reference per-node IDs consistently.
+    # (they're the ones we vzdump). Use the same anchor derivation as
+    # 50-bootstrap-lxc-template.yml. The anchor is a fleet-wide scalar
+    # (template_vm_id_base / template_ct_id_base) — standalone nodes share
+    # the same template ID space-independently.
     - name: Derive this node's VM template list (anchor + index)
       ansible.builtin.set_fact:
-        vm_templates: "{{ vm_templates | default([]) + [tmpl | combine({'id': (template_vm_ids[inventory_hostname] | int) + idx})] }}"
+        vm_templates: "{{ vm_templates | default([]) + [tmpl | combine({'id': (template_vm_id_base | int) + idx})] }}"
       loop: "{{ vm_templates_base }}"
       loop_control:
         loop_var: tmpl
         index_var: idx
-        label: "{{ tmpl.name }} → {{ (template_vm_ids[inventory_hostname] | int) + idx }}"
+        label: "{{ tmpl.name }} → {{ (template_vm_id_base | int) + idx }}"
 
     - name: Derive this node's LXC template list (anchor + index)
       ansible.builtin.set_fact:
-        lxc_templates: "{{ lxc_templates | default([]) + [tmpl | combine({'id': (template_ct_ids[inventory_hostname] | int) + idx})] }}"
+        lxc_templates: "{{ lxc_templates | default([]) + [tmpl | combine({'id': (template_ct_id_base | int) + idx})] }}"
       loop: "{{ lxc_templates_base }}"
       loop_control:
         loop_var: tmpl
         index_var: idx
-        label: "{{ tmpl.hostname }} → {{ (template_ct_ids[inventory_hostname] | int) + idx }}"
+        label: "{{ tmpl.hostname }} → {{ (template_ct_id_base | int) + idx }}"
 
     - name: Discover bootserv01 CTID on this foundation node
       ansible.builtin.shell:

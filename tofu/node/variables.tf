@@ -1,5 +1,5 @@
 variable "proxmox_endpoint" {
-  description = "Proxmox API URL of the target hypervisor, e.g. https://pve-home-01.lan:8006. This is the flat root's PRIMARY input — point it at a different node to talk to a different hypervisor; no folder copy. If empty, falls back to all.vars.proxmox_endpoints[hypervisor_name] in inventory.yaml."
+  description = "OPTIONAL override for the Proxmox API URL, e.g. https://pve-home-01.lan:8006 (or an IP / alt port). Normally left empty: the endpoint is derived by convention from hypervisor_name + all.vars.domain (https://<hypervisor_name>.<domain>:8006). Set it only for manual CLI use when the convention doesn't apply."
   type        = string
   default     = ""
 }

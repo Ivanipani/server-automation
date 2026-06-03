@@ -3,8 +3,9 @@
 # inherits the flat root's single proxmox provider and feeds the
 # inventory slice (filtered to LXCs tagged `infra`).
 #
-# Each LXC is **cloned** from its node's anchor LXC template (the
-# `template_ct_ids[node]` value from inventory). The clone preserves
+# Each LXC is **cloned** from the fleet-wide anchor LXC template (the
+# `template_ct_id_base` value from inventory — same ID on every
+# standalone node). The clone preserves
 # the bake (apt sources, ansible user, key, sysprep), then this resource
 # overlays the host-specific identity (hostname, MAC, IP, resources).
 # Storage is `vms` (the only per-node pve_storage with `rootdir` content

@@ -50,15 +50,6 @@
           vault_advanceteam_user_pass (group_vars/all/vars.yml ->
           group_vars/all/vault.yml). Tofu cannot authenticate without it.
 
-    - name: Assert this hypervisor has a proxmox_endpoints entry
-      ansible.builtin.assert:
-        that:
-          - inventory_hostname in proxmox_endpoints
-        fail_msg: >-
-          {{ inventory_hostname }} is in the `hypervisors` group but has no
-          `all.vars.proxmox_endpoints` entry in inventory.yaml, so Tofu has
-          no API URL to target. Add it, or --limit to a node that has one.
-
     - name: List existing PVE users on this node
       ansible.builtin.command:
         cmd: pveum user list --output-format json
@@ -81,16 +72,15 @@
         # ONE flat Tofu root (5 levels up at tofu/node) drives every
         # hypervisor — no per-host directories. State is isolated by a
         # named tofu `workspace` per node; the target node is selected by
-        # `workspace` + the `hypervisor_name`/`proxmox_endpoint` vars.
+        # `workspace` + the `hypervisor_name` var. Tofu derives the API URL
+        # (https://<hypervisor_name>.<domain>:8006) — no endpoint to pass.
         project_path: "{{ playbook_dir }}/../../../../../tofu/node"
         binary_path: /opt/homebrew/bin/tofu
         state: present
         force_init: true
         workspace: "{{ inventory_hostname }}"
         variables:
-          # The node's API URL (the flat root's primary input) + which
-          # inventory node to slice. Both non-secret; passed on the CLI.
-          proxmox_endpoint: "{{ proxmox_endpoints[inventory_hostname] }}"
+          # Which inventory node to slice; Tofu builds the endpoint from it.
           hypervisor_name: "{{ inventory_hostname }}"
       environment:
         # The shared advanceteam@pve password, identical for every node.

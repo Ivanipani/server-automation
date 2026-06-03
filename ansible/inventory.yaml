@@ -61,8 +61,8 @@
 #     directly via `storage:` (see metal-home-01 below).
 #   - `lxc: { proxmox_node, cores, memory, disk_size, unprivileged,
 #     features, tags, ... }` → Tofu creates this LXC on Proxmox
-#     (parallels `vm:`). Cloned from `template_ct_ids[proxmox_node]`
-#     (Debian 13 LXC anchor). The `tags` list is significant beyond
+#     (parallels `vm:`). Cloned from the `template_ct_id_base` anchor
+#     (Debian 13 LXC; same ID on every standalone node). The `tags` list is significant beyond
 #     labelling: tag **`infra`** lifts the LXC into a per-node
 #     `infra_lxcs` Tofu module that VM modules `depends_on`, so infra
 #     LXCs (today: bootserv01) come up before any VM in the same
@@ -195,12 +195,18 @@ all:
     network_gateway: "10.1.1.1"
     network_cidr: "/24"
     ansible_python_interpreter: /usr/bin/python3
-    proxmox_endpoints:
-      pve-home-01: "https://pve-home-01.lan:8006"
-    template_vm_ids:
-      pve-home-01: 9001
-    template_ct_ids:
-      pve-home-01: 9101
+    # No proxmox_endpoints map: every hypervisor's API URL is derived from
+    # its hostname by convention — https://<hostname>.<domain>:8006. Tofu
+    # builds it from hypervisor_name + all.vars.domain (tofu/node/main.tf);
+    # override per-run with `-var proxmox_endpoint=...` for manual CLI use.
+    # Standalone hypervisors each have an INDEPENDENT VMID namespace (no
+    # shared cluster config DB), so the template anchors are identical on
+    # every node — a single scalar, NOT a per-host map. `qm/pct clone
+    # <id>` on each node clones that node's own local template. Real guests
+    # are auto-assigned from 100 by PVE, per node. (anchor + idx supports
+    # >1 template; there is one VM + one LXC template today.)
+    template_vm_id_base: 9001
+    template_ct_id_base: 9101
 
 router:
   hosts:

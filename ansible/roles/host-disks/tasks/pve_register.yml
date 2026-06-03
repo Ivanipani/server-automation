@@ -1,0 +1,41 @@
+---
+# Publish each declared `pve_storage` thin pool to PVE as an `lvmthin`
+# storage. The VG + thin pool were already built by storage_pools.yml (or
+# by an earlier overwrite run); this step just registers them in
+# /etc/pve/storage.cfg under their frozen contract name (`vms`) so Tofu
+# can attach VM disks. Consolidated here from the former standalone
+# 20-hypervisor/30-pve-storage-register.yml so a hypervisor's storage is
+# carved, pooled, AND published in one pass of 17-host/15-storage.yml.
+#
+# Hypervisor-only, gated by the caller (main.yml): runs automatically in
+# overwrite mode (fresh bring-up) and in info mode only when the caller
+# opts in via `host_disks_register_pve` (foundation's reconcile pass) —
+# so a plain `just disk-plan` info run stays read-only.
+#
+# Idempotent on the `lvmthin: <name>` line in /etc/pve/storage.cfg —
+# re-runs are a no-op. Scoped `--nodes <self>` because standalone nodes
+# are independent and each owns its own storage.cfg. One registration per
+# UNIQUE pve_storage (several partitions/disks may back the same storage
+# id — register it once); vg/thinpool/content are guaranteed consistent
+# across those partitions by the cross-pool preflight assert.
+
+- name: "[pve] Read the current storage.cfg"
+  ansible.builtin.command:
+    cmd: "cat /etc/pve/storage.cfg"
+  register: _pve_storage_cfg
+  changed_when: false
+
+- name: "[pve] Register each declared pve_storage as PVE lvmthin storage"
+  ansible.builtin.command: >-
+    pvesm add lvmthin {{ item.pve_storage }}
+    --vgname {{ item.vg }} --thinpool {{ item.thinpool }}
+    --content {{ item.content }}
+    --nodes {{ inventory_hostname }}
+  loop: >-
+    {{ storage.disks | map(attribute='partitions') | flatten
+       | selectattr('pve_storage', 'defined')
+       | unique(attribute='pve_storage') | list }}
+  loop_control:
+    label: "{{ item.pve_storage }} (vg={{ item.vg }})"
+  when: "'lvmthin: ' + item.pve_storage not in _pve_storage_cfg.stdout"
+  changed_when: true

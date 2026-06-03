@@ -5,9 +5,10 @@
 # uniformly; what sits on top depends on which field the partition
 # declares (at most one, enforced in preflight):
 #   - `pve_storage:` → the partition's thin pool is registered as a PVE
-#                      lvmthin storage (hypervisors only; the actual
-#                      `pvesm add` lives in a PVE-only playbook, not in
-#                      this role)
+#                      lvmthin storage (hypervisors only; the `pvesm add`
+#                      lives in this role's tasks/pve_register.yml, run
+#                      after the pool build — auto in overwrite mode,
+#                      opt-in via host_disks_register_pve in info mode)
 #   - `mount:` + vg/thinpool → the partition's thin pool gets a thin LV,
 #                      ext4'd and mounted via /etc/fstab
 #   - `mount:` WITHOUT vg/thinpool → DIRECT: plain ext4 straight on the
@@ -157,3 +158,11 @@ host_disks_action: info
 # one of our partlabels (idempotent). Keep false in group_vars/host_vars;
 # pass per-run only when you truly mean it: `-e host_disks_force_wipe=true`.
 host_disks_force_wipe: false
+
+# Opt-in: also publish each `pve_storage` thin pool to PVE (`pvesm add
+# lvmthin`) during an INFO-mode run (hypervisors only). Overwrite mode
+# always registers; info mode registers only when this is true. Lets the
+# foundation tier carve once (overwrite) elsewhere yet (re-)publish on its
+# read-only info reconcile pass, while keeping a plain `just disk-plan`
+# info run mutation-free. No effect on workers. Idempotent either way.
+host_disks_register_pve: false

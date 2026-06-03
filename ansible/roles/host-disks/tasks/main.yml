@@ -37,3 +37,17 @@
     - ansible.builtin.import_tasks: preflight.yml
     - ansible.builtin.import_tasks: carve.yml
     - ansible.builtin.import_tasks: storage_pools.yml
+
+# PVE lvmthin registration (consolidated from the old standalone
+# 20-hypervisor/30-pve-storage-register.yml). Hypervisors only — workers
+# run no PVE. Runs automatically in overwrite mode (fresh bring-up =
+# carve + pool + publish in one shot) and in info mode ONLY when the
+# caller opts in via host_disks_register_pve (foundation's reconcile pass),
+# so a plain `just disk-plan` info run stays read-only. Idempotent on the
+# storage.cfg lvmthin line. Ordered after both blocks above so the pool it
+# publishes always exists first.
+- name: "[pve] Publish thin pools as PVE lvmthin storage (hypervisors)"
+  ansible.builtin.import_tasks: pve_register.yml
+  when:
+    - inventory_hostname in groups['hypervisors']
+    - host_disks_action == 'overwrite' or (host_disks_register_pve | default(false) | bool)
