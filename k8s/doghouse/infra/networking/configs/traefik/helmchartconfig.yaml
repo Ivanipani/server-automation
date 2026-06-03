@@ -1,0 +1,15 @@
+---
+# k3s installs Traefik via a HelmChart resource in kube-system. We don't manage
+# that chart directly — we just merge value overrides via HelmChartConfig, which
+# k3s applies on top of its own defaults. This pins Traefik's LoadBalancer to a
+# stable IP from the MetalLB pool so OPNsense DNS records can point at it.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    service:
+      annotations:
+        metallb.universe.tf/loadBalancerIPs: 10.1.1.250

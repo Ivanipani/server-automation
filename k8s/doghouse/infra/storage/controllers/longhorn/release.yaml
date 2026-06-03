@@ -1,0 +1,108 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: longhorn
+  namespace: longhorn-system
+spec:
+  interval: 30m
+  # First install pulls several images and rolls out DaemonSets across every
+  # node, which routinely exceeds Helm's 5m default.
+  timeout: 15m
+  chart:
+    spec:
+      chart: longhorn
+      version: 1.11.2
+      sourceRef:
+        kind: HelmRepository
+        name: longhorn
+        namespace: longhorn-system
+      interval: 1h
+  install:
+    # Longhorn ships its CRDs in the chart; let Helm manage their lifecycle.
+    crds: CreateReplace
+    # Helm --wait is incompatible with this blip-prone substrate: longhorn-manager
+    # (and instance-manager / csi-plugin) are DaemonSets that can't reach 100%
+    # Ready while any node is NotReady. Same pattern as kube-prometheus-stack —
+    # treat HelmRelease Ready as "manifests applied" and observe Longhorn pod
+    # health out-of-band.
+    disableWait: true
+    disableWaitForJobs: true
+    remediation:
+      # Stateful storage: never uninstall-on-failure.
+      retries: 3
+      remediateLastFailure: false
+  upgrade:
+    crds: CreateReplace
+    disableWait: true
+    disableWaitForJobs: true
+    remediation:
+      retries: 3
+      remediateLastFailure: false
+      strategy: rollback
+  values:
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+      # Chart takes a single host string (not a hosts list like other charts here).
+      host: longhorn.doghouse.lan
+      path: /
+      pathType: Prefix
+      annotations:
+        # Gate the (auth-less) UI behind the Traefik BasicAuth middleware.
+        # Reference format is <namespace>-<middleware-name>@kubernetescrd.
+        traefik.ingress.kubernetes.io/router.middlewares: longhorn-system-longhorn-basic-auth@kubernetescrd
+    persistence:
+      # Replica count tracks the number of storage workers with registered
+      # Longhorn disks (each its own zone, topology.kubernetes.io/zone =
+      # inventory_hostname). HARD zone anti-affinity below means each
+      # replica needs its own zone/worker, else volumes stay Degraded.
+      #   - metal-home-02: recarved to per-disk mounts + Node CR → READY.
+      #   - metal-home-01: still pending its recarve.
+      # Keep 1 until metal-home-01 is recarved + its Node CR added
+      # (configs/longhorn/nodes.yaml), THEN bump this AND defaultReplicaCount
+      # below to 2. (3 once a third physical worker exists.)
+      defaultClassReplicaCount: 2
+      # Default StorageClass for the cluster. The k3s-shipped local-path
+      # StorageClass is disabled in k3s server config (`disable: ["local-
+      # storage"]`, Ansible-managed) so this is the only default and no
+      # one races us to set the is-default-class annotation.
+      defaultClass: true
+    # Span the CP node with the Longhorn DaemonSets even though it's tainted
+    # NoSchedule (see "Node scheduling model" in the README). longhorn-manager
+    # is a hard dep of the CSI plane on a node, so it must run wherever a pod
+    # might mount a PV — including the CP if we ever explicitly schedule one
+    # there. Data placement is gated by which nodes have registered disks:
+    # only the baremetal workers get Node CRs with disks (configs/longhorn/
+    # nodes.yaml), so no replicas land on CP. The two knobs here:
+    #   - longhornManager.tolerations: chart-templated DS pod toleration.
+    #   - defaultSettings.taintToleration: Longhorn-native runtime setting,
+    #     propagates to csi-plugin / instance-manager / engine pods that
+    #     longhorn-manager spawns dynamically.
+    longhornManager:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+    defaultSettings:
+      taintToleration: "node-role.kubernetes.io/control-plane=:NoSchedule"
+      # Kept TRUE as a SAFETY GUARD, not as the disk-provisioning mechanism.
+      # No node carries the node.longhorn.io/create-default-disk label
+      # anymore (the substrate Ansible repo removed it — see
+      # group_vars/kube_workers.yml), so with this flag TRUE Longhorn
+      # auto-creates ZERO default disks. (If it were FALSE, Longhorn would
+      # auto-create a default disk at defaultDataPath on EVERY node — incl.
+      # control planes and the root OS partition — which is exactly what we
+      # must avoid.) Worker disks are now registered EXPLICITLY, one per
+      # physical disk, via the Node CRs in configs/longhorn/nodes.yaml.
+      createDefaultDiskLabeledNodes: true
+      # Vestigial — no auto default disk uses this now (workers mount each
+      # disk at /var/lib/longhorn-disks/<label> and register them via Node
+      # CRs). Kept at the chart default so nothing lands on root if the
+      # guard above is ever misconfigured.
+      defaultDataPath: /var/lib/longhorn
+      defaultReplicaCount: 2
+      # HARD anti-affinity across zones (topology.kubernetes.io/zone=<pve node>,
+      # stamped by the k3s role). Refuses to place two replicas of one volume
+      # on the same physical Proxmox host — the actual blast radius here.
+      replicaZoneSoftAntiAffinity: "false"

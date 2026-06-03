@@ -1,0 +1,212 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: monitoring
+spec:
+  interval: 30m
+  timeout: 15m
+  chart:
+    spec:
+      chart: kube-prometheus-stack
+      version: 85.0.3
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: monitoring
+      interval: 1h
+  install:
+    crds: CreateReplace
+    disableWait: true
+    disableWaitForJobs: true
+    remediation:
+      # No destructive uninstall-on-failure; a slow rollout must not nuke data.
+      retries: 3
+      remediateLastFailure: false
+  upgrade:
+    crds: CreateReplace
+    disableWait: true
+    disableWaitForJobs: true
+    remediation:
+      retries: 3
+      remediateLastFailure: false
+      strategy: rollback
+  values:
+    fullnameOverride: kps
+    prometheus:
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hosts:
+          - prometheus.doghouse.lan
+        paths:
+          - /
+        pathType: Prefix
+      prometheusSpec:
+        # Pick up ServiceMonitors/PodMonitors/Rules/Probes from any namespace
+        # regardless of labels — so pve-exporter's ServiceMonitor is scraped.
+        serviceMonitorSelectorNilUsesHelmValues: false
+        podMonitorSelectorNilUsesHelmValues: false
+        ruleSelectorNilUsesHelmValues: false
+        probeSelectorNilUsesHelmValues: false
+        retention: 30d
+        # Cap on-disk size so Prometheus deletes old blocks BEFORE the volume
+        # actually fills — leaves headroom for the WAL and head block. Set to
+        # ~80% of the PVC size below. retention (30d) and retentionSize race;
+        # whichever trips first wins, which means a series-count explosion is
+        # bounded by disk rather than by time — Prometheus drops old samples
+        # instead of crashing on ENOSPC.
+        retentionSize: "80GB"
+        # TSDB on a Longhorn PVC. emptyDir would defeat retention: every pod
+        # restart on this blip-prone substrate would zero the history. 100 Gi
+        # is generously sized — realistic footprint at this cluster's current
+        # series count (~7k active series at 30s scrape) is ~1.5 GB/30d, so
+        # this leaves ~50x headroom for series-count growth from new exporters
+        # or apps. Longhorn supports in-place expansion if it ever fills.
+        # At defaultClassReplicaCount: 1 (current) this is 100 Gi on a single
+        # worker's longhorn-data disk; bumping replica count to 2 later will
+        # double the physical footprint as Longhorn rebuilds a 2nd replica.
+        # Pin storageClassName explicitly to longhorn rather than inheriting
+        # the cluster default. local-path remains the cluster default, and
+        # relying on the default raced us once already: this PVC was first
+        # provisioned before Longhorn existed, bound to local-path, and
+        # storageClassName is immutable — so it stayed stuck there. Naming
+        # the class makes the volume Longhorn-backed regardless of which SC
+        # is default or what order things install in.
+        storageSpec:
+          volumeClaimTemplate:
+            spec:
+              storageClassName: longhorn
+              accessModes: ["ReadWriteOnce"]
+              resources:
+                requests:
+                  storage: 100Gi
+        # Scrape the bare-metal node-exporters installed out-of-band via Ansible
+        # on every host (Proxmox CP, k3s worker, OPNsense appliance). This is the
+        # ONLY node-exporter source — the chart's bundled DaemonSet is disabled
+        # below (nodeExporter.enabled: false) to avoid the :9100 port collision
+        # with the systemd units already running on each host. Job name is
+        # `node-exporter` (not `proxmox-host-node-exporter`) so the chart's
+        # bundled rules in defaultRules.rules.node and nodeExporterAlerting —
+        # which hard-key on job="node-exporter" — fire against these targets.
+        additionalScrapeConfigs:
+          - job_name: node-exporter
+            static_configs:
+              - targets:
+                  - pve-home-01.lan:9100
+                  - pve-home-02.lan:9100
+                  - pve-home-03.lan:9100
+                  - metal-home-01.lan:9100
+                  - metal-home-02.lan:9100
+                  - heimdall.lan:9100
+                labels:
+                  layer: bare-metal
+    grafana:
+      admin:
+        existingSecret: grafana-admin
+        userKey: admin-user
+        passwordKey: admin-password
+      # emptyDir for Grafana, intentional. Longhorn is now the cluster default
+      # StorageClass and would persist grafana.db across restarts (eliminating
+      # the ~710-migration SQLite cold start replay each time the pod recreates
+      # — which is what made the startupProbe below necessary), but: nearly all
+      # of Grafana's state here is provisioned in code. Dashboards ship as
+      # ConfigMaps via the sidecar; admin user is wired through existingSecret;
+      # alert rules are PrometheusRule CRs. The only things we'd lose on a
+      # restart are click-saved dashboards and manual annotations, neither of
+      # which we use. The slow cold start is still real, but the startupProbe
+      # below absorbs it. Revisit if we start adding UI-edited state.
+      persistence:
+        enabled: false
+      # Protect the slow cold start: liveness/readiness only engage once the
+      # startupProbe passes. 60 x 10s = 10 min budget for migrations.
+      startupProbe:
+        httpGet:
+          path: /api/health
+          port: 3000
+        periodSeconds: 10
+        failureThreshold: 60
+        timeoutSeconds: 5
+      defaultDashboardsTimezone: browser
+      # Air-gapped: no grafana.com fetch. All custom/community dashboards are
+      # vendored as ConfigMaps and imported by the Grafana sidecar — see
+      # dashboards/ and the configMapGenerator in kustomization.yaml.
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hosts:
+          - grafana.doghouse.lan
+        path: /
+    alertmanager:
+      enabled: true
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hosts:
+          - alertmanager.doghouse.lan
+        paths:
+          - /
+        pathType: Prefix
+      alertmanagerSpec:
+        storage: {}
+        # Mount the SOPS-managed Slack webhook so it is read from a file and
+        # never embedded in committed Helm values. The Prometheus Operator
+        # mounts listed secrets at /etc/alertmanager/secrets/<name>/<key>.
+        secrets:
+          - alertmanager-slack
+      config:
+        global:
+          resolve_timeout: 5m
+          slack_api_url_file: /etc/alertmanager/secrets/alertmanager-slack/slack-webhook-url
+        inhibit_rules:
+          # Suppress a warning when a critical for the same alert+namespace fires.
+          - source_matchers:
+              - 'severity = critical'
+            target_matchers:
+              - 'severity = warning'
+            equal: ['namespace', 'alertname']
+        route:
+          group_by: ['alertname', 'namespace']
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
+          receiver: slack
+          routes:
+            # Watchdog is the always-firing dead-man's-switch heartbeat —
+            # never Slack it; wire it to an external heartbeat separately.
+            - receiver: 'null'
+              matchers:
+                - 'alertname = "Watchdog"'
+        receivers:
+          - name: 'null'
+          - name: slack
+            slack_configs:
+              - channel: '#alerts'
+                send_resolved: true
+                color: '{{ if eq .Status "firing" }}{{ if eq (index .Alerts 0).Labels.severity "critical" }}danger{{ else }}warning{{ end }}{{ else }}good{{ end }}'
+                title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}'
+                title_link: 'http://alertmanager.doghouse.lan/#/alerts'
+                text: |-
+                  {{ range .Alerts }}*{{ .Annotations.summary }}*
+                  {{ .Annotations.description }}
+                  • severity: `{{ .Labels.severity }}`{{ if .Labels.instance }}
+                  • instance: `{{ .Labels.instance }}`{{ end }}
+                  {{ end }}
+        templates:
+          - '/etc/alertmanager/config/*.tmpl'
+    # Trim scrape jobs that don't apply to k3s/managed-style clusters.
+    # Re-enable individually if you're on full kubeadm with these endpoints exposed.
+    kubeControllerManager:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    kubeEtcd:
+      enabled: false
+    # Disable the bundled prometheus-node-exporter DaemonSet/Service/ServiceMonitor.
+    # Every host already runs node-exporter as a systemd unit on :9100 (provisioned
+    # in Ansible); a hostNetwork DS on the same port would collide. The static
+    # scrape job above (job_name: node-exporter) takes the slot the DS would have
+    # claimed, so the chart's bundled rules in defaultRules continue to fire.
+    nodeExporter:
+      enabled: false

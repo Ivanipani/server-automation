@@ -1,0 +1,5 @@
+# age private key for SOPS decryption — MUST NOT be committed.
+# The public half is in .sops.yaml; the private half is bootstrapped into the
+# cluster as the sops-age Secret in flux-system.
+age.agekey
+*.agekey

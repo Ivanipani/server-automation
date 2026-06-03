@@ -1,0 +1,12 @@
+---
+# k3s ships Traefik v3, whose CRD group is traefik.io (the legacy
+# traefik.containo.us group was dropped in v3). Gates the Longhorn UI ingress
+# behind HTTP basic auth — the UI itself has no authentication.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: longhorn-basic-auth
+  namespace: longhorn-system
+spec:
+  basicAuth:
+    secret: longhorn-basic-auth

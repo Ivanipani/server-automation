@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: longhorn-basic-auth
+    namespace: longhorn-system
+type: Opaque
+# The Longhorn UI has no built-in auth; the Traefik BasicAuth middleware
+# (middleware.yaml) gates it using the `users` htpasswd entry below.
+#
+# IMPORTANT: Traefik's basicAuth Middleware REJECTS any Secret with more than
+# one key (error: "found N elements for secret '<ns>/<name>', must be single
+# element exactly"), so this Secret must contain ONLY `users`. We can't mirror
+# the grafana-admin convention of also storing recoverable `username`/`password`
+# fields — they break the entire Traefik route. The bcrypt hash in `users` is
+# one-way; to rotate, generate a new line with: htpasswd -nbB <user> <pass>.
+stringData:
+    users: ENC[AES256_GCM,data:piVMY4utd9rLDpYMVoA80AXMpDKC/vZZbdHNF0dD3H5bMk13tMWmiapln1c=,iv:ZEJwn7id6thN4Z1N4gb8B0jObtFWAW6hnKxGo7OSD2g=,tag:qIhVL3bOhE3JFXcUf/hCLw==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBVTXg2c3FDbjJpUjdvNnZq
+            OGZyTGs2b2cxUC9Ed1ozRDVHajJBQTQrcjNNClNySEQ1Q29nb0htOGRwVUovbTgr
+            Sy9kdGtlRGhNVy82UWxyQThjZFNwMTQKLS0tIFArdGJzbTE0cm10Mi9uRlJyekJq
+            a1ZlMnpxcEl2bmV6TnNBM2lmNmwvcDQKH9u+Bzlx8CHsxvXJNXV+RihoiywtLAfL
+            /LQEX/NaP9soPzvcvGaJfkDy3KF/TySwB1bs2HwdBQO8Cq7uD8oUUA==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age12xnm47mqs6rsw6e6fscva7s4pnaxmy2c7cvzfvx6knq497vx4s7qsp2u8g
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-05-21T04:32:20Z"
+    mac: ENC[AES256_GCM,data:z0F6k14EdLW3/idjB7a+dZq6ptCl8I7JzUYmvrnBRiDqmLWD/Fx+FuCBrwqnH9f+03zPwoPzHGzkZmK7L7XHEnkbsGjw0ENNioYMnzh+MDj8Sk8KZGmzSzjoFPUlDLp+dHpXX4jFWN0fQrf0Uyw3FExtU4CE2oPGcLyleVcEt+g=,iv:aWTg+GrShwmgTUMxOLlGz2XeXb5MKDtqTSkvgzuApak=,tag:Tk5fMfar96XW0infnd7Q0w==,type:str]
+    version: 3.13.0

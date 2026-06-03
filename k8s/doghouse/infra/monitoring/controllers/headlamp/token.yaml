@@ -1,0 +1,17 @@
+---
+# Non-expiring bearer token used to log in to the Headlamp UI. It is bound to
+# the chart-created "headlamp" ServiceAccount, which the chart's own
+# "headlamp-admin" ClusterRoleBinding grants cluster-admin. The token value is
+# minted by the Kubernetes TokenController server-side and stored only in etcd
+# — it is NEVER written to this manifest or to git, so there is nothing here
+# for SOPS to encrypt. Retrieve it with:
+#   kubectl -n headlamp get secret headlamp-token \
+#     -o jsonpath='{.data.token}' | base64 -d
+apiVersion: v1
+kind: Secret
+metadata:
+  name: headlamp-token
+  namespace: headlamp
+  annotations:
+    kubernetes.io/service-account.name: headlamp
+type: kubernetes.io/service-account-token

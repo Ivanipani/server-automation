@@ -1,0 +1,132 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: networking-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./infra/networking/controllers
+  prune: true
+  wait: true
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: networking-configs
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./infra/networking/configs
+  prune: true
+  wait: true
+  dependsOn:
+    - name: networking-controllers
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: storage-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./infra/storage/controllers
+  prune: true
+  # The Longhorn HelmRelease uses disableWait (DaemonSet-heavy chart on a
+  # blip-prone substrate), so HelmRelease readiness is "manifests applied" —
+  # actual pod health is observed via Prometheus/Alertmanager. The HelmRelease
+  # becoming Ready also gates storage-configs below: Helm installs the
+  # longhorn.io CRDs during install (crds: CreateReplace), then marks the
+  # release Ready, then Flux unblocks storage-configs and its BackupTarget /
+  # RecurringJob CRs can dry-run successfully.
+  wait: true
+  dependsOn:
+    # Longhorn UI ingress + middleware reference the traefik IngressClass and
+    # traefik.io/v1alpha1 Middleware CRD (k3s-built-in Traefik, configured via
+    # HelmChartConfig in networking-configs).
+    - name: networking-configs
+  decryption:
+    # The longhorn UI basic-auth Secret is SOPS-encrypted.
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: storage-configs
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # BackupTarget and RecurringJob are longhorn.io/v1beta2 CRs whose CRDs ship
+  # in the Longhorn Helm chart. Bundling them with the HelmRelease deadlocks:
+  # kustomize-controller dry-runs every manifest against live API discovery
+  # before applying, so the CRs fail validation, the apply aborts, the
+  # HelmRelease never runs, and the CRDs never get installed. Splitting them
+  # into a separate Kustomization that dependsOn storage-controllers (with
+  # wait: true above) gates the CR apply on HelmRelease Ready → CRDs present.
+  path: ./infra/storage/configs
+  prune: true
+  wait: true
+  dependsOn:
+    - name: storage-controllers
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./infra/monitoring/controllers
+  prune: true
+  wait: true
+  dependsOn:
+    - name: networking-controllers
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring-configs
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./infra/monitoring/configs
+  prune: true
+  wait: true
+  dependsOn:
+    - name: monitoring-controllers

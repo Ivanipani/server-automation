@@ -1,0 +1,214 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: host-availability
+  namespace: monitoring
+  labels:
+    # Picked up regardless of label (ruleSelectorNilUsesHelmValues: false),
+    # but tag it conventionally so it's obvious where it came from.
+    release: kps
+    role: alert-rules
+spec:
+  groups:
+    # ----------------------------------------------------------------------
+    # Bare-metal host availability. Targets are the Ansible-installed
+    # node-exporters on every host — currently pve-home-01 (Proxmox),
+    # worker-home-02 (Debian baremetal, the only k3s worker) and heimdall
+    # (OPNsense appliance). The job name `node-exporter` is shared with the
+    # chart's bundled rules (defaultRules.rules.node, nodeExporterAlerting)
+    # — the chart's own DaemonSet is disabled in release.yaml, so this
+    # static scrape job owns the slot. `up` is synthetic for static_configs,
+    # so it's always present even when the host is fully unreachable.
+    # ----------------------------------------------------------------------
+    - name: host-availability
+      rules:
+        - alert: HostDown
+          expr: up{job="node-exporter"} == 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host {{ $labels.instance }} is unreachable"
+            description: >-
+              Bare-metal host {{ $labels.instance }} has failed scrapes for
+              >1m. Either the host is down, node_exporter is stopped, or
+              the network path is broken.
+
+        - alert: HostFlapping
+          expr: changes(up{job="node-exporter"}[20m]) >= 4
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host {{ $labels.instance }} is flapping"
+            description: >-
+              {{ $labels.instance }} changed reachability state
+              {{ $value }} times in 20m. Retained as a safety net — the
+              chronically blip-prone nodes that originally motivated this
+              alert have been retired, so any new flap signals a fresh
+              problem (link/NIC/switch/host instability).
+
+        - alert: HostRebooted
+          expr: changes(node_boot_time_seconds{job="node-exporter"}[1h]) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host {{ $labels.instance }} rebooted in the last hour"
+            description: >-
+              Boot time of {{ $labels.instance }} changed. If this was not
+              a planned reboot, investigate — unscheduled reboots typically
+              mean a kernel panic, power event, or watchdog fire.
+
+    # ----------------------------------------------------------------------
+    # CPU/sensor temperatures. node_hwmon_temp_celsius only exists if the
+    # host has lm-sensors + coretemp/k10temp loaded so /sys/class/hwmon is
+    # populated (Ansible's job, not this repo). Where the hardware exposes
+    # a critical limit we alert relative to it (self-tuning per CPU); a
+    # coarse absolute max is the safety net for sensors that don't expose
+    # one. OPNsense (heimdall) does not expose hwmon under the same metric
+    # name — see the Temperatures dashboard for what it does export.
+    # ----------------------------------------------------------------------
+    - name: host-thermal
+      rules:
+        - alert: HostTemperatureHigh
+          expr: >-
+            node_hwmon_temp_celsius{job="node-exporter"}
+            / on(instance, chip, sensor)
+              node_hwmon_temp_crit_celsius{job="node-exporter"}
+            > 0.90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host {{ $labels.instance }} {{ $labels.sensor }} >90% of crit"
+            description: >-
+              {{ $labels.instance }} sensor {{ $labels.sensor }} ({{ $labels.chip }})
+              is at {{ $value | humanizePercentage }} of its hardware critical
+              temperature. Sustained heat throttles the CPU.
+
+        - alert: HostTemperatureCritical
+          expr: >-
+            node_hwmon_temp_celsius{job="node-exporter"}
+            / on(instance, chip, sensor)
+              node_hwmon_temp_crit_celsius{job="node-exporter"}
+            > 0.98
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Host {{ $labels.instance }} {{ $labels.sensor }} near hardware crit"
+            description: >-
+              {{ $labels.instance }} sensor {{ $labels.sensor }} is within 2% of
+              its hardware critical limit — thermal throttling or an emergency
+              shutdown is imminent. Check airflow/fans now.
+
+        - alert: HostTemperatureSensorHot
+          expr: max by (instance) (node_hwmon_temp_celsius{job="node-exporter"}) > 85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host {{ $labels.instance }} has a sensor >85°C"
+            description: >-
+              Hottest sensor on {{ $labels.instance }} is {{ $value | printf "%.0f" }}°C.
+              Absolute-threshold safety net covering sensors that expose no
+              hardware critical limit (so the crit-relative alerts miss them).
+
+    # ----------------------------------------------------------------------
+    # PSI (Linux Pressure Stall Information). rate(...waiting_seconds_total[5m])
+    # = fraction of wall-clock time at least one task was stalled on that
+    # resource (0..1); the *stalled* ("full") series means EVERY runnable
+    # task was blocked. Needs the node-exporter `pressure` collector
+    # (default-on; kernel PSI is enabled on modern Linux). FreeBSD/OPNsense
+    # (heimdall) does not produce PSI metrics, so these rules will only
+    # match the Linux hosts.
+    # ----------------------------------------------------------------------
+    - name: host-pressure
+      rules:
+        - alert: HostCPUPressure
+          expr: >-
+            rate(node_pressure_cpu_waiting_seconds_total{job="node-exporter"}[5m]) > 0.60
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host {{ $labels.instance }} under sustained CPU pressure"
+            description: >-
+              Tasks on {{ $labels.instance }} were stalled waiting for CPU
+              {{ $value | humanizePercentage }} of the time over the last 10m.
+
+        - alert: HostMemoryPressure
+          expr: >-
+            rate(node_pressure_memory_waiting_seconds_total{job="node-exporter"}[5m]) > 0.20
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Host {{ $labels.instance }} under sustained memory pressure"
+            description: >-
+              {{ $labels.instance }} spent {{ $value | humanizePercentage }} of
+              the last 10m with tasks stalled on memory. Memory PSI is rarely
+              non-trivial unless the host is heading for OOM / heavy reclaim.
+
+        - alert: HostMemoryFullStall
+          expr: >-
+            rate(node_pressure_memory_stalled_seconds_total{job="node-exporter"}[5m]) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Host {{ $labels.instance }} memory FULL stall"
+            description: >-
+              Every runnable task on {{ $labels.instance }} was blocked on
+              memory {{ $value | humanizePercentage }} of the time. The host is
+              unresponsive in bursts — OOM imminent.
+
+        - alert: HostIOPressure
+          expr: >-
+            rate(node_pressure_io_waiting_seconds_total{job="node-exporter"}[5m]) > 0.40
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host {{ $labels.instance }} under sustained IO pressure"
+            description: >-
+              Tasks on {{ $labels.instance }} stalled on IO
+              {{ $value | humanizePercentage }} of the last 10m.
+
+    # ----------------------------------------------------------------------
+    # Capacity headroom — complementary to PSI. PSI says "it hurts now";
+    # these say "you are about to run out". Linux-only metric names; the
+    # FreeBSD-based heimdall reports memory under a different schema and
+    # won't match these series.
+    # ----------------------------------------------------------------------
+    - name: host-saturation
+      rules:
+        - alert: HostMemoryHigh
+          expr: >-
+            (1 - (node_memory_MemAvailable_bytes{job="node-exporter"}
+                  / node_memory_MemTotal_bytes{job="node-exporter"})) > 0.92
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host {{ $labels.instance }} memory >92% used"
+            description: >-
+              Available memory on {{ $labels.instance }} is below 8%. Capacity
+              warning — pair with HostMemoryPressure to see whether it
+              is actually hurting yet.
+
+        - alert: HostHighLoad
+          expr: >-
+            node_load15{job="node-exporter"}
+            / on(instance)
+              count(node_cpu_seconds_total{job="node-exporter",mode="idle"}) by (instance)
+            > 3
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Host {{ $labels.instance }} load15 >3x core count"
+            description: >-
+              Sustained CPU saturation on {{ $labels.instance }}.

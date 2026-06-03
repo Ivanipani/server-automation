@@ -1,0 +1,32 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - repository.yaml
+  - grafana-admin.sops.yaml
+  - pve-exporter-token.sops.yaml
+  - alertmanager-slack.sops.yaml
+  - release.yaml
+
+# Dashboards vendored as ConfigMaps (air-gapped — no grafana.com fetch). The
+# kube-prometheus-stack Grafana sidecar imports any ConfigMap labelled
+# grafana_dashboard=1 in this namespace. Kept as separate ConfigMaps so no
+# single one approaches the ~1MiB limit.
+configMapGenerator:
+  - name: grafana-dashboard-proxmox-substrate
+    namespace: monitoring
+    files:
+      - dashboards/proxmox-substrate.json
+  - name: grafana-dashboard-node-exporter-full
+    namespace: monitoring
+    files:
+      - dashboards/node-exporter-full.json
+  - name: grafana-dashboard-temperatures
+    namespace: monitoring
+    files:
+      - dashboards/temperatures.json
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"

@@ -1,0 +1,30 @@
+---
+# BackupTarget only declares *where* backups go; without a RecurringJob no
+# backups happen automatically. This job snapshots every volume opted in to
+# the `default` group, daily at 03:00 UTC (longhorn-manager runs in UTC), and
+# uploads the new chunks to nas01.
+#
+# Opt a PVC in by labelling the resulting volume (or labelling the PVC and
+# letting Longhorn propagate). Per-workload manifests live under apps/ and
+# should include:
+#
+#   metadata:
+#     labels:
+#       recurring-job-group.longhorn.io/default: enabled
+#
+# Single-worker hazard: with one storage node and defaultClassReplicaCount=1
+# (see release.yaml), a worker loss BEFORE the next 03:00 backup means data
+# loss — the NAS-backed BackupTarget is the only durable copy until a second
+# worker comes online. Don't change retain<7 lightly.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: daily-backup
+  namespace: longhorn-system
+spec:
+  cron: "0 3 * * *"
+  task: "backup"
+  groups:
+    - default
+  retain: 7
+  concurrency: 2

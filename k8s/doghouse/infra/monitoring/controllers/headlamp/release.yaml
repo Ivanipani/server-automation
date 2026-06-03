@@ -1,0 +1,44 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: headlamp
+      version: 0.42.0
+      sourceRef:
+        kind: HelmRepository
+        name: headlamp
+        namespace: headlamp
+      interval: 1h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    # Single replica is correct for the current 1 CP + 1 worker layout: with the
+    # CP toleration below Headlamp is eligible for both nodes, but there's only
+    # one of each, so a second replica would just double-stack somewhere (no
+    # availability gain, more RAM). Bump to 2 and add topologySpreadConstraints
+    # across the kubernetes.io/hostname topology key once a 2nd worker joins.
+    replicaCount: 1
+    # Opt in to the CP taint (see "Node scheduling model" in the README) so
+    # Headlamp can be scheduled on kube-ctl-01 as well as the workers.
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+      hosts:
+        - host: headlamp.doghouse.lan
+          paths:
+            - path: /
+              type: Prefix

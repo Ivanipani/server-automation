@@ -1,0 +1,28 @@
+---
+# Where Longhorn writes volume backups. The chart auto-creates a `default`
+# BackupTarget on first install with empty fields; this manifest claims that
+# resource so Flux owns its spec going forward (server-side apply patches
+# the existing CR, no race).
+#
+# The NFS share is provisioned out-of-band by the substrate Ansible repo:
+#   nas01.storage.shares[longhorn-backup] in ansible/inventory.yaml
+#   reconciled by playbooks/poochella/infra/15-nas/30-storage.yml
+# Exports are LAN-IP-scoped (10.1.1.0/24, all_squash) so no NFS credentials
+# are needed — credentialSecret stays empty.
+#
+# Today the only storage worker is worker-home-02; it must have NFS reach to
+# nas01.lan:2049 for the mount to come up. The chart-installed longhorn-manager
+# DS pod on that node performs the mount, so connectivity is per-DS-pod, not
+# cluster-wide.
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: default
+  namespace: longhorn-system
+spec:
+  backupTargetURL: "nfs://nas01.lan:/volume1/longhorn-backup"
+  credentialSecret: ""
+  # Cadence at which Longhorn lists the remote backupstore to refresh the
+  # in-cluster Backup/BackupVolume CR inventory. Pinned to the chart default
+  # so the value is grep-able from kubectl rather than implicit.
+  pollInterval: "5m0s"

@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: pve-exporter-token
+    namespace: monitoring
+type: Opaque
+stringData:
+    tokenName: ENC[AES256_GCM,data:P4tTVH7XxY5Zsk49tMDxsVVl04uxd4qKWQ==,iv:efpdlg0QVlFbJMz/iSoCb0ujbQmNFDZrR9bk2TptfnU=,tag:+/MKV1cFrf0tb3iKCP7RWg==,type:str]
+    tokenValue: ENC[AES256_GCM,data:LJmLTbNjwGA=,iv:vfkruNkoWK/+Hds5PNFFjKGPw2lREHFn6qJIZiIDqys=,tag:ZpVq2NLwq7Fd2W0Zx7WTpQ==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBLN2FBcjJxaDFsdm91TTVG
+            cit1dnc1YUV2ZnduWkpXM3MzSzZDbEF3Vkh3CmxpQ0Q2bXZyWnZqUU1QOTgySVEy
+            bTdua041dG9LdUQrWS9LV053L25CSEUKLS0tIEovSVZWQ2hRUWQwRUtGUUxYYVN6
+            SXViY3VvdUhEVU5oN1dqQXRHeTVEYmMKbEHx/nrWP2Cv9xk0EysPklPmJCmz8ev9
+            Wj1vOa+FADrU1Cfs1n9cTpJ/wokHgoJ7Knrbdu7feGJ4x+8GIBMmlA==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age12xnm47mqs6rsw6e6fscva7s4pnaxmy2c7cvzfvx6knq497vx4s7qsp2u8g
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-05-15T05:10:32Z"
+    mac: ENC[AES256_GCM,data:+SC9smUpdVWekHBVpCqKY0HH3SciZPnf0DRvelMno6ChLFqM3aYsykS/vW++GzKGX2hWHN56dKQebaOvSGWmOaUHCMMJ5opwheIVqvHzOSre5UOM25FzBALgvEZsVF1XlGJOJSoCHXwru+rRqYanWbOG/c4uzGd+C2rUMfH/U8c=,iv:WP7F+mdun+5fojYzn4mGRGeWKYcty/lwSiiswZr61dc=,tag:XkxTIs9SwJRp5GrDk+StaQ==,type:str]
+    version: 3.13.0

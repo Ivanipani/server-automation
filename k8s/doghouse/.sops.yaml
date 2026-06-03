@@ -1,0 +1,8 @@
+# SOPS config. Files named *.sops.yaml are encrypted with the age recipient
+# below; only the `data` / `stringData` fields are encrypted so the rest of the
+# manifest stays diff-able. The matching age private key lives in the cluster
+# as the `sops-age` Secret in flux-system (see README — bootstrap step).
+creation_rules:
+  - path_regex: .*\.sops\.ya?ml$
+    encrypted_regex: ^(data|stringData)$
+    age: age12xnm47mqs6rsw6e6fscva7s4pnaxmy2c7cvzfvx6knq497vx4s7qsp2u8g

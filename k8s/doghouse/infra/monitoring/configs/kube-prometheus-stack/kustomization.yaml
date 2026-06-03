@@ -1,0 +1,8 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # PrometheusRule (monitoring.coreos.com/v1) — the CRD is installed by the
+  # kube-prometheus-stack HelmRelease in the `infrastructure` layer, so this
+  # CR lives in `infrastructure-configs` which dependsOn `infrastructure`.
+  - host-rules.yaml

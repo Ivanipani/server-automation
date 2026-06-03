@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: alertmanager-slack
+    namespace: monitoring
+type: Opaque
+stringData:
+    #ENC[AES256_GCM,data:gE1THVi6wGPscSGMS7eXp66+RU5dpMv9n+MHjl1sEICFqhRK/zfRYjO1D7KVmYXPY6LQfh4NF7E6ijL9QMqREfhYM7jR,iv:qh94XVWPGJoJoitVCX0zVLvTwd3JfFhy6LsNn3l0/nY=,tag:2xcdIRenU/iaFxmnYMU4Vg==,type:comment]
+    #ENC[AES256_GCM,data:M41XLzKeFJgBQTBBI2pYHbZqkz19LUd6y1EGO2sLiq74/8BA+yiouZjO+oBPwJcucrVh8wfZb8anth3vvjol3b7DSAR5lw0SZnXm3G9Zz7cBOdOH36GUH8ceYjcc4aXprwhBuxcFP3DmzpMDjB84j/Mx,iv:QcYOpSCrFL80rzTS9PVVmUv7vv4diLHZx5lHQdiIunA=,tag:Pdx28bK/dsZZqQ89LnvLtw==,type:comment]
+    #ENC[AES256_GCM,data:6Unh5iI7SP4doKgb5vbecEbS6qowDlYtMr1d8T8oDNh3TZePhho=,iv:RzhqSWFHU71Y66CyWq8J7P4vzVTUwmiuegnU6x4OvzU=,tag:k88Hd0lYOwHDoZ751e0J1Q==,type:comment]
+    #ENC[AES256_GCM,data:SqOJpRdV9YsoiswlvFYp7S5oqScRQ/LeQs4ZGILOx0r9Zn2z5O4gMioPSd665pwMueUV5slDND2S66MILNp1mXY=,iv:usXveHo0HnVgzMSX8p60AU6GhxAOHB62sj1cmOx6agQ=,tag:VYIsWWKJwnKymcQkxoqDAg==,type:comment]
+    slack-webhook-url: ENC[AES256_GCM,data:9XZ7Nmf4QJSh8sS30OCfjOGc13BgJFjObTSnnx9We7eYkyNv6Jn0nBTOYTHhpH+Nafr2V5Hhak9BscQMp1MCDTZzM3Ns1rRShuXak8S3WMtt,iv:q2By0QloFUPx5Hop7VKvQGcwtnfsvXlr04XGeZ0qia4=,tag:B8odg9WYaIHs9X1Wh3KAdQ==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSB0TUVDdEhJS1BzT2NxbENX
+            UHcxUnljWVc2Q3AxWXE3UkVNazVvMC9EWldVCnZ3U2dFeHF5ZU9qV3doR21lR21x
+            UFVncnlFNXdSVWFXeHZqN3lpbUdDb3cKLS0tIEFIN0RTQjVzeE42Q0JwbytTQnB1
+            QUxEWEIrY3dHcVhnN1NQcnNUOEZKVjQKMCPbgkjyO7pLu8gnDfSVVn6IWsJtdlIR
+            xLMB136dNNcumrs9i1jIhSwFuM30Kcm/Czh+KqJuQBEEI4Yn2ogIcQ==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age12xnm47mqs6rsw6e6fscva7s4pnaxmy2c7cvzfvx6knq497vx4s7qsp2u8g
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-05-15T16:37:29Z"
+    mac: ENC[AES256_GCM,data:Talw3G5+IQyANkYY5s+vyS3WnkWCR7SBPg3I8T2HtoLuPA1cAsLqhfp611UKzk2Gc49t+zOcQjvErJdGWEt5c/t6auvEDbKabPZP0dSn3qOpgOjR67O1Dc/TxJmtpcDwLfnUKYwGyImuh2QTKeFCqXYEIZBeXLqr4ZqTNyYiob8=,iv:qYUedm8/koUCU4gZfKq8ExW/C+9zGZrRPgG8bM1bh4s=,tag:7LlFLB+nc4yjzSOYaGUbPQ==,type:str]
+    version: 3.13.0

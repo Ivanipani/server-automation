@@ -1,0 +1,80 @@
+# Per-node Longhorn disk registration.
+#
+# longhorn-manager auto-creates a `nodes.longhorn.io` CR for every
+# Kubernetes node it runs on. When a node carries NO
+# `node.longhorn.io/create-default-disk` label (the substrate Ansible repo
+# deliberately leaves it OFF on workers — see group_vars/kube_workers.yml)
+# that CR is created with an EMPTY spec.disks. This manifest CLAIMS the CR
+# so Flux owns spec.disks going forward via server-side apply — the same
+# "claim the chart/manager-created CR" pattern as backup-target.yaml, no
+# race. (longhorn-manager owns status; spec.disks is user territory — the
+# UI writes the same field.)
+#
+# Model — per-disk failure isolation: each physical disk on a baremetal
+# kube_worker is a SEPARATE plain-ext4 mount under
+# /var/lib/longhorn-disks/<label> = a SEPARATE Longhorn disk. Losing one
+# disk only loses that disk's replicas (the node's other disks keep
+# serving); Longhorn rebuilds them from the peer zone. This replaced the
+# old single spanning /var/lib/longhorn pool, which coupled every disk
+# into one failure domain. The mounts are built by the substrate Ansible
+# host-disks role from each host's inventory `storage.disks`; the `path`s
+# below MUST match those mount paths exactly.
+#
+# `name` MUST equal the Kubernetes node name (kubelet hostname). Confirm
+# with `kubectl get nodes` before relying on this — the node must have
+# rejoined the cluster (Ansible 40-kube) first, else the disks sit
+# NotReady until it does.
+---
+apiVersion: longhorn.io/v1beta2
+kind: Node
+metadata:
+  name: metal-home-01
+  namespace: longhorn-system
+spec:
+  allowScheduling: true
+  disks:
+    part-alpha:
+      path: /var/lib/longhorn-disks/part-alpha
+      allowScheduling: true
+      evictionRequested: false
+      storageReserved: 0
+      tags: []
+      diskType: filesystem
+    part-beta:
+      path: /var/lib/longhorn-disks/part-bravo
+      allowScheduling: true
+      evictionRequested: false
+      storageReserved: 0
+      tags: []
+      diskType: filesystem
+    part-gamma:                                 # spinning HDD — tag to keep hot data off it
+      path: /var/lib/longhorn-disks/part-charlie
+      allowScheduling: true
+      evictionRequested: false
+      storageReserved: 0
+      tags: ["hdd"]
+      diskType: filesystem
+---
+apiVersion: longhorn.io/v1beta2
+kind: Node
+metadata:
+  name: metal-home-02
+  namespace: longhorn-system
+spec:
+  allowScheduling: true
+  disks:
+    part-alpha:                                   # boot-NVMe tail (~830 GiB)
+      path: /var/lib/longhorn-disks/part-alpha
+      allowScheduling: true
+      evictionRequested: false
+      storageReserved: 0                          # homelab: use the whole disk
+      tags: []
+      diskType: filesystem
+    part-beta:                                    # CT2000P310 NVMe (~1.8 TiB)
+      path: /var/lib/longhorn-disks/part-beta
+      allowScheduling: true
+      evictionRequested: false
+      storageReserved: 0
+      tags: []
+      diskType: filesystem
+
