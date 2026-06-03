@@ -50,6 +50,22 @@ github_ssh_private_key: "{{ vault_github_ssh_private_key }}"
 github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCpJGXP2r/5bmi8MKlbtN4/mavu ivanperdomo@Ivans-MacBook-Pro.local"
 opnsense_api_key: "{{ vault_opnsense_api_key }}"
 opnsense_api_secret: "{{ vault_opnsense_api_secret }}"
+# --- Flux / k8s GitOps (consumed by 40-kube/30-flux.yml) -------------------
+# SOPS age PRIVATE key. Installed into the cluster as the `sops-age` Secret in
+# flux-system so kustomize-controller can decrypt the *.sops.yaml manifests in
+# k8s/infra. The matching PUBLIC recipient lives in k8s/.sops.yaml. Keep the
+# canonical copy in a password manager — losing it means no committed secret
+# can ever be decrypted again. Add with: just secret-encrypt vault_sops_age_key
+#   (paste the full contents of k8s/age.agekey, incl. the `# created:` comment)
+sops_age_key: "{{ vault_sops_age_key }}"
+# Read-only SSH deploy key for the PRIVATE apps repo github.com/Ivanipani/doghouse.
+# Installed as the `doghouse-apps-key` Secret in flux-system so the dormant
+# `doghouse-apps` GitRepository (k8s/clusters/doghouse/apps.yaml) can authenticate
+# once the apps cutover happens. Generate a dedicated keypair, register the PUBLIC
+# half as a read-only deploy key on the doghouse repo, vault the PRIVATE half:
+#   ssh-keygen -t ed25519 -f /tmp/doghouse-apps -N "" -C flux-doghouse-apps-ro
+#   just secret-encrypt vault_doghouse_apps_deploy_key   # paste /tmp/doghouse-apps
+doghouse_apps_deploy_key: "{{ vault_doghouse_apps_deploy_key }}"
 # Tofu authenticates to EVERY hypervisor as the shared advanceteam@pve
 # service account using ONE well-known password (`advanceteam_user_pass`,
 # defined above, re-exporting vault_advanceteam_user_pass). The account is

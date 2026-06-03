@@ -11,7 +11,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: ./infra/networking/controllers
+  path: ./k8s/infra/networking/controllers
   prune: true
   wait: true
 ---
@@ -27,7 +27,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: ./infra/networking/configs
+  path: ./k8s/infra/networking/configs
   prune: true
   wait: true
   dependsOn:
@@ -45,7 +45,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: ./infra/storage/controllers
+  path: ./k8s/infra/storage/controllers
   prune: true
   # The Longhorn HelmRelease uses disableWait (DaemonSet-heavy chart on a
   # blip-prone substrate), so HelmRelease readiness is "manifests applied" —
@@ -85,7 +85,7 @@ spec:
   # HelmRelease never runs, and the CRDs never get installed. Splitting them
   # into a separate Kustomization that dependsOn storage-controllers (with
   # wait: true above) gates the CR apply on HelmRelease Ready → CRDs present.
-  path: ./infra/storage/configs
+  path: ./k8s/infra/storage/configs
   prune: true
   wait: true
   dependsOn:
@@ -103,7 +103,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: ./infra/monitoring/controllers
+  path: ./k8s/infra/monitoring/controllers
   prune: true
   wait: true
   dependsOn:
@@ -125,7 +125,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: ./infra/monitoring/configs
+  path: ./k8s/infra/monitoring/configs
   prune: true
   wait: true
   dependsOn:

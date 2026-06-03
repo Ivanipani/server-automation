@@ -1,0 +1,31 @@
+set dotenv-load := true
+
+pwd := absolute_path(".")
+
+# Default target
+default:
+    @just --list --unsorted
+
+# Bootstrap Flux + install the cluster secrets. This is now driven by ANSIBLE
+# (it reads the keys from the vault, not from loose files), not from this
+# justfile. Run it from the repo root:
+#   just do-flux        # -> ansible/.../40-kube/40-flux.yml
+# (The old `bootstrap-flux` / `install-age-secret` recipes were removed when the
+# bootstrap moved into Ansible. The age private key is vaulted as
+# vault_sops_age_key; the loose k8s/age.agekey is only a local convenience for
+# `edit-secret` below and is git-ignored.)
+
+# Fuzzy-pick a *.sops.yaml secret and open it decrypted in $EDITOR (re-encrypts on save).
+edit-secret:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    file=$(find . \( -name .git -o -name .jj \) -prune -o \
+        -name '*.sops.yaml' ! -name '.sops.yaml' -type f -print \
+        | sed 's|^\./||' | sort \
+        | fzf --prompt='sops> ' --height=40% --reverse --no-multi) || exit 0
+    [[ -n "${file:-}" ]] || { echo "No file selected." >&2; exit 0; }
+    SOPS_AGE_KEY_FILE="{{pwd}}/age.agekey" sops "${file}"
+
+# Headlamp admin token
+get-headlamp-secret:
+    kubectl -n headlamp get secret headlamp-token -o jsonpath='{.data.token}' | base64 -d

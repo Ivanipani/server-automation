@@ -1,2 +1,4 @@
 - import_playbook: 10-longhorn-host-prep.yml
 - import_playbook: 20-k3s.yml
+# 30-firewall.yml is intentionally NOT auto-chained here (applied separately).
+- import_playbook: 40-flux.yml

@@ -1,0 +1,168 @@
+---
+# Bootstrap Flux on the 'doghouse' k3s cluster and wire its secrets.
+#
+# This is the seam where the PUBLIC infrastructure repo (server-automation) becomes
+# the Flux GitOps root and IMPORTS the PRIVATE apps repo as an opaque source. After
+# this runs:
+#   - flux-system reconciles ./k8s/clusters/doghouse from THIS repo
+#   - infra (networking / storage / monitoring) comes up from k8s/infra
+#   - apps come up from k8s/apps (until the one-step cutover to the private repo)
+#   - the sops-age + doghouse-apps-key Secrets exist in flux-system
+#
+# Runs entirely from the CONTROL NODE (your laptop): flux + kubectl talk to the
+# cluster over the kubeconfig that 20-k3s.yml fetched to ansible/kubeconfig, and
+# `flux bootstrap git` clones + pushes the repo over HTTPS using the GitHub PAT.
+#
+# Pre-conditions:
+#   - The k3s cluster is up and ansible/kubeconfig is current (run 20-k3s.yml first).
+#   - Control-node CLIs present: flux, kubectl (just check verifies them).
+#   - vault_github_pat is a PAT with push access to Ivanipani/server-automation
+#     (classic: `repo` scope; fine-grained: Contents read/write on this repo).
+#   - GitHub-side, ONE TIME: nothing — `flux bootstrap git --token-auth` stores the
+#     PAT in-cluster as the flux-system git secret; no deploy key to register here.
+#   - For the apps import (optional now): vault_sops_age_key (the k8s/age.agekey
+#     contents) and vault_doghouse_apps_deploy_key (a read-only deploy key whose
+#     PUBLIC half is registered on the private doghouse repo). If either is unset/
+#     placeholder, its secret task is SKIPPED and flux still bootstraps — set them
+#     later and re-run. See group_vars/all/vars.yml for the add commands.
+#
+# Idempotent: re-running reconciles flux to the committed manifests and upserts the
+# two Secrets. Safe to re-run on a healthy cluster.
+#
+# Disable with -e flux_bootstrap_enabled=false (e.g. to only refresh the secrets,
+# pair with --start-at-task), or scope normally.
+
+- name: Bootstrap Flux + wire GitOps secrets on the doghouse cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars_files:
+    # localhost is not an inventory member, so it does not inherit group_vars/all;
+    # load the vault + its indirection layer explicitly (decrypted via
+    # --vault-password-file ansible-pass, which `just do-flux` passes).
+    - ../../../../group_vars/all/vault.yml
+    - ../../../../group_vars/all/vars.yml
+  vars:
+    flux_bootstrap_enabled: true
+    flux_git_url: "https://github.com/Ivanipani/server-automation"
+    flux_git_branch: "main"
+    flux_path: "k8s/clusters/doghouse"
+    # The git HTTPS username for the PAT. GitHub accepts the account name with a
+    # PAT as the password.
+    flux_git_username: "Ivanipani"
+    # kubeconfig fetched by 20-k3s.yml — same dir math as that playbook (→ ansible/).
+    flux_kubeconfig: "{{ playbook_dir }}/../../../../kubeconfig"
+    # The private apps repo the doghouse-apps GitRepository points at.
+    doghouse_apps_repo_url: "ssh://git@github.com/Ivanipani/doghouse"
+    # In-cluster Secret names (must match the manifests in k8s/).
+    sops_age_secret_name: "sops-age"
+    doghouse_apps_secret_name: "doghouse-apps-key"
+  environment:
+    KUBECONFIG: "{{ flux_kubeconfig | ansible.builtin.realpath }}"
+  tasks:
+    - name: Assert the fetched kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ flux_kubeconfig }}"
+      register: _kubeconfig_stat
+      failed_when: not _kubeconfig_stat.stat.exists
+
+    - name: Assert required control-node CLIs are present
+      ansible.builtin.command: "which {{ item }}"
+      changed_when: false
+      loop:
+        - flux
+        - kubectl
+      register: _cli_check
+      failed_when: _cli_check.rc != 0
+
+    # --- Flux bootstrap -----------------------------------------------------
+    - name: Bootstrap Flux against this repo (idempotent; commits + pushes gotk-*)
+      ansible.builtin.command:
+        argv:
+          - flux
+          - bootstrap
+          - git
+          - "--url={{ flux_git_url }}"
+          - "--branch={{ flux_git_branch }}"
+          - "--path={{ flux_path }}"
+          - "--token-auth"
+          - "--silent"
+      environment:
+        # flux bootstrap git reads these for HTTPS basic-auth git operations.
+        GIT_USERNAME: "{{ flux_git_username }}"
+        GIT_PASSWORD: "{{ github_pat }}"
+      register: _flux_bootstrap
+      changed_when: "'no changes' not in (_flux_bootstrap.stdout | default(''))"
+      # no_log: true
+      when: flux_bootstrap_enabled | bool
+
+    # --- SOPS decryption key (sops-age) -------------------------------------
+    # Created with kubectl create --dry-run | kubectl apply (the idempotent
+    # upsert pattern). The data key is `age.agekey`; Flux's kustomize-controller
+    # scans the secret for any *.agekey entry to build its age identity.
+    - name: Install the sops-age decryption Secret in flux-system
+      ansible.builtin.shell:
+        cmd: >-
+          kubectl create secret generic {{ sops_age_secret_name }}
+          --namespace=flux-system
+          --from-file=age.agekey=/dev/stdin
+          --dry-run=client -o yaml | kubectl apply -f -
+        stdin: "{{ sops_age_key }}"
+      register: _sops_age
+      changed_when: "'configured' in _sops_age.stdout or 'created' in _sops_age.stdout"
+      no_log: true
+      when:
+        - sops_age_key is defined
+        - sops_age_key | trim | length > 0
+        - "'AGE-SECRET-KEY' in sops_age_key"
+
+    # --- Read-only deploy key for the private apps repo ---------------------
+    # `flux create secret git` upserts the Secret AND auto-populates known_hosts
+    # for the repo's SSH host (so the GitRepository passes host-key verification).
+    # The private key is staged to a 0600 tempfile and removed in `always`.
+    - name: Provision the doghouse-apps deploy-key Secret
+      when:
+        - doghouse_apps_deploy_key is defined
+        - doghouse_apps_deploy_key | trim | length > 0
+        - "'PRIVATE KEY' in doghouse_apps_deploy_key"
+      block:
+        - name: Stage the deploy key to a tempfile
+          ansible.builtin.tempfile:
+            state: file
+            suffix: doghouse-apps-key
+          register: _apps_key_tmp
+
+        - name: Write the private key into the tempfile
+          ansible.builtin.copy:
+            dest: "{{ _apps_key_tmp.path }}"
+            content: "{{ doghouse_apps_deploy_key }}"
+            mode: "0600"
+          no_log: true
+
+        - name: Create/update the git deploy-key Secret (+ known_hosts) via flux
+          ansible.builtin.command:
+            argv:
+              - flux
+              - create
+              - secret
+              - git
+              - "{{ doghouse_apps_secret_name }}"
+              - "--namespace=flux-system"
+              - "--url={{ doghouse_apps_repo_url }}"
+              - "--private-key-file={{ _apps_key_tmp.path }}"
+          register: _apps_secret
+          changed_when: true
+      always:
+        - name: Remove the deploy-key tempfile
+          ansible.builtin.file:
+            path: "{{ _apps_key_tmp.path }}"
+            state: absent
+          when: _apps_key_tmp.path is defined
+
+    - name: Show how to verify
+      ansible.builtin.debug:
+        msg:
+          - "Flux bootstrapped. Verify with:"
+          - "  KUBECONFIG={{ flux_kubeconfig | ansible.builtin.realpath }} flux get kustomizations -A"
+          - "  KUBECONFIG={{ flux_kubeconfig | ansible.builtin.realpath }} flux get sources git -A"

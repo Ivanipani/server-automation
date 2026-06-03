@@ -21,7 +21,7 @@ check:
     echo "Checking control node dependencies..."
 
     # Check required CLI tools
-    for cmd in ansible ansible-playbook ansible-vault ssh fzf helm; do
+    for cmd in ansible ansible-playbook ansible-vault ssh fzf helm kubectl flux; do
         if which "$cmd" > /dev/null 2>&1; then
             echo "  ✓ $cmd"
         else
@@ -166,6 +166,11 @@ firmware-update host: check
 # Run the full 17-host tier on every physical host (users, ssh-hardening, firewall, tailscale, node-exporter). Safe to re-run.
 do-host-init: check
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/site.yml
+
+
+# Bootstrap Flux on the doghouse cluster from THIS repo + install the sops-age and doghouse-apps-key Secrets from vault. Idempotent. Needs the k3s cluster up (ansible/kubeconfig current) and vault_github_pat with push access. Pushes gotk-* to the repo.
+do-flux: check
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/40-kube/40-flux.yml
 
 
 # Build a per-host unattended Debian 13 install ISO (writes to img/debian/output/). Flash with img/burn-to-disc.sh.

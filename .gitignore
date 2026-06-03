@@ -16,3 +16,5 @@ img/live/output/
 .playwright-mcp*
 img/bytepen/target
 kubeconfig
+age.agekey
+*.agekey

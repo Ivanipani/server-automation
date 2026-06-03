@@ -1,33 +1,79 @@
-# doghouse
+# doghouse — Flux GitOps (k8s)
 
-Flux-managed Kubernetes cluster running on Proxmox.
+Flux-managed Kubernetes (k3s) cluster running on the **poochella** Proxmox fleet.
+
+This directory is the **PUBLIC infrastructure Flux root**. The wider repo
+(`server-automation`) provisions the substrate (Tofu + Ansible) and bootstraps
+Flux here; Flux then reconciles the platform layer. **Applications are private
+IP** and live in the separate, private repo `github.com/Ivanipani/doghouse`,
+imported here as an **opaque cross-repo source** (a second `GitRepository` +
+`Kustomization`) — see [Apps: the public/private split](#apps-the-publicprivate-split).
 
 ## Layout
 
 ```
-clusters/doghouse/          # Flux entrypoint: Kustomizations pointing at infra + apps
-infrastructure/controllers/ # Platform components (Prometheus, MetalLB, exporters, ...)
-infrastructure/configs/     # CRs that depend on installed controllers (IP pools, ingress config, ...)
-apps/doghouse/              # Application workloads (placeholder)
+clusters/doghouse/          # Flux entrypoint
+  flux-system/              #   gotk-components + gotk-sync (points at THIS repo, path ./k8s/clusters/doghouse)
+  infra.yaml               #   the infra Kustomizations (paths under ./k8s/infra)
+  apps.yaml                #   the apps Kustomization + the dormant doghouse-apps GitRepository
+infra/networking/          # MetalLB + Traefik config            (controllers / configs)
+infra/storage/             # Longhorn + backup targets           (controllers / configs)
+infra/monitoring/          # kube-prometheus-stack + Headlamp     (controllers / configs)
+apps/doghouse/             # Application workloads (home-assistant) — destined for the PRIVATE repo
 ```
+
+> **Flux path gotcha.** A Kustomization's `spec.path` is resolved from the
+> **repo root**, not from the cluster dir. Because this tree lives under `k8s/`
+> in a larger repo, every `path:` is prefixed `./k8s/…` (and the flux-system
+> sync path is `./k8s/clusters/doghouse`). Keep that prefix on any new
+> Kustomization you add here.
 
 ## Bootstrap
 
-One-time setup against a fresh cluster.
+Bootstrap is **Ansible-driven** — it reads the cluster secrets from the
+ansible-vault, not from loose files. One command from the repo root, after the
+k3s cluster is up (`ansible/kubeconfig` current):
 
-1. Create an SSH key and register the **public** half as a deploy key with **write** access on `github.com/Ivanipani/doghouse`:
-   ```sh
-   ssh-keygen -t ed25519 -f ~/.ssh/github -N ""
-   cat ~/.ssh/github.pub  # paste into GitHub → repo → Settings → Deploy keys
-   ```
-2. Point `kubectl` at the cluster: `kubectl config use-context doghouse`.
-3. Bootstrap Flux:
-   ```sh
-   just bootstrap-flux
-   ```
-   Flux installs itself, commits `clusters/doghouse/flux-system/` to this repo, and pushes. Run `git pull` afterwards.
-4. Install the SOPS age key so Flux can decrypt secrets (see [Secrets (SOPS)](#secrets-sops)).
-5. Set the real Proxmox API token value in the encrypted secret (see [Proxmox API token](#proxmox-api-token-sops-managed)). Flux then reconciles the monitoring stack automatically.
+```sh
+just do-flux        # -> ansible/.../40-kube/40-flux.yml
+```
+
+That playbook:
+1. Runs `flux bootstrap git` against **this** repo (`--path=k8s/clusters/doghouse`,
+   `--token-auth` over HTTPS using `vault_github_pat`). Idempotent; it commits +
+   pushes `clusters/doghouse/flux-system/` — `git pull` afterwards.
+2. Installs the `sops-age` Secret in `flux-system` from `vault_sops_age_key` so
+   Flux can decrypt the `*.sops.yaml` manifests (see [Secrets (SOPS)](#secrets-sops)).
+3. Installs the `doghouse-apps-key` deploy-key Secret from
+   `vault_doghouse_apps_deploy_key` (only when set) for the private apps import.
+
+Prereqs (see `ansible/group_vars/all/vars.yml` for the exact add commands):
+`vault_github_pat` with push access to this repo; `vault_sops_age_key`
+(the `k8s/age.agekey` contents); and `vault_doghouse_apps_deploy_key` once you
+cut apps over to the private repo. After the stack is up, set the real Proxmox
+API token (see [Proxmox API token](#proxmox-api-token-sops-managed)).
+
+## Apps: the public/private split
+
+`server-automation` is public and infrastructure-only. App manifests are private
+and never enter this repo's history. The mechanism is Flux multi-source:
+`clusters/doghouse/apps.yaml` carries a `doghouse-apps` `GitRepository` pointing
+at `ssh://git@github.com/Ivanipani/doghouse` (authenticated by the read-only
+`doghouse-apps-key` Secret), and the `apps` `Kustomization` reconciles from it.
+
+**Current state:** apps still live here at `k8s/apps/doghouse` and the `apps`
+Kustomization sources the public root, so the cluster works today. The
+`doghouse-apps` GitRepository is wired but dormant.
+
+**One-step cutover** (when ready to make apps private):
+1. Move `k8s/apps/doghouse` into the private repo at `apps/doghouse`, then
+   `git rm -r k8s/apps` here.
+2. In `apps.yaml`, flip the `apps` Kustomization's `sourceRef.name`
+   `flux-system → doghouse-apps` and `path` `./k8s/apps/doghouse → ./apps/doghouse`
+   (and uncomment its `decryption` block if the private apps carry SOPS secrets).
+
+The deploy-key Secret is already installed by `just do-flux`, so no other change
+is needed. The full procedure is also documented inline at the top of `apps.yaml`.
 
 ## Node scheduling model
 
@@ -84,20 +130,11 @@ If the workload should *only* run on CP, pair it with a `nodeAffinity` on `node-
 
 ## Secrets (SOPS)
 
-Secrets are committed to this repo encrypted with [SOPS](https://github.com/getsops/sops) + [age](https://github.com/FiloSottile/age). Only the `data` / `stringData` fields are encrypted (config in `.sops.yaml`), so the rest of each manifest stays diff-able. Flux's `kustomize-controller` decrypts them in-cluster using the age private key — wired via `spec.decryption` on the `infrastructure` Kustomization (`clusters/doghouse/infrastructure.yaml`).
+Secrets are committed to this PUBLIC repo encrypted with [SOPS](https://github.com/getsops/sops) + [age](https://github.com/FiloSottile/age) — safe to publish, since only the `data` / `stringData` fields are AES-encrypted (config in `.sops.yaml`) and only the age **public** key is exposed. The rest of each manifest stays diff-able. Flux's `kustomize-controller` decrypts them in-cluster using the age private key — wired via `spec.decryption` on the Kustomizations that consume SOPS Secrets (`storage-controllers` and `monitoring-controllers` in `clusters/doghouse/infra.yaml`).
 
-The age **public** key lives in `.sops.yaml`. The **private** key must never be committed (`age.agekey` is git-ignored) and is bootstrapped into the cluster once:
+The age **private** key must never be committed (`*.agekey` is git-ignored) and is held in the **ansible-vault** as `vault_sops_age_key`. `just do-flux` installs it into the cluster as the `sops-age` Secret in `flux-system` — there is no manual `kubectl create secret` step anymore. Keep the canonical copy of the key in a password manager: losing it means no committed secret can ever be decrypted again.
 
-```sh
-# Generate the key pair once (keep age.agekey somewhere safe — a password
-# manager — losing it means no committed secret can ever be decrypted again):
-age-keygen -o age.agekey
-
-# Load the private half into the cluster so kustomize-controller can decrypt:
-cat age.agekey | kubectl create secret generic sops-age \
-  --namespace=flux-system \
-  --from-file=age.agekey=/dev/stdin
-```
+> The loose `k8s/age.agekey` file (git-ignored) is only a local convenience for `just edit-secret` below; the cluster gets the key from the vault, not this file.
 
 To author a new encrypted secret, name the file `*.sops.yaml`, write the plaintext `Secret`, then encrypt in place before committing:
 
@@ -109,7 +146,7 @@ SOPS_AGE_KEY_FILE=age.agekey sops -d path/to/whatever.sops.yaml
 
 ## Proxmox API token (SOPS-managed)
 
-`prometheus-pve-exporter` needs an API token to talk to PVE. The Secret lives encrypted in this repo at `infrastructure/controllers/kube-prometheus-stack/pve-exporter-token.sops.yaml` and is decrypted in-cluster by Flux (see [Secrets (SOPS)](#secrets-sops)).
+`prometheus-pve-exporter` needs an API token to talk to PVE. The Secret lives encrypted in this repo at `infra/monitoring/controllers/kube-prometheus-stack/pve-exporter-token.sops.yaml` and is decrypted in-cluster by Flux (see [Secrets (SOPS)](#secrets-sops)).
 
 On Proxmox: Datacenter → Permissions → API Tokens → Add. Recommended setup:
 - User: dedicated `monitoring@pve` with role `PVEAuditor` on path `/`.
@@ -119,13 +156,13 @@ On Proxmox: Datacenter → Permissions → API Tokens → Add. Recommended setup
 
 The committed file ships with a `REPLACE_WITH_PVE_API_TOKEN_UUID` placeholder. Set the real value in place (opens the decrypted Secret in `$EDITOR`, re-encrypts on save — needs the age private key):
 ```sh
-SOPS_AGE_KEY_FILE=age.agekey sops infrastructure/controllers/kube-prometheus-stack/pve-exporter-token.sops.yaml
+SOPS_AGE_KEY_FILE=age.agekey sops infra/monitoring/controllers/kube-prometheus-stack/pve-exporter-token.sops.yaml
 ```
 Replace the placeholder under `stringData.tokenValue`, save, then commit the re-encrypted file. Flux applies and prunes it like any other tracked resource — no manual re-run after a cluster rebuild.
 
 Also update the host address lists in two places before committing:
-- `infrastructure/controllers/prometheus-pve-exporter/release.yaml` → `pveTargets` (for the PVE API exporter).
-- `infrastructure/controllers/kube-prometheus-stack/release.yaml` → `additionalScrapeConfigs[].static_configs[].targets` (for the bare-metal `node-exporter` installed on each Proxmox host via Ansible — port `9100`).
+- `infra/monitoring/controllers/kube-prometheus-stack/release.yaml` → `pveTargets` (for the PVE API exporter).
+- `infra/monitoring/controllers/kube-prometheus-stack/release.yaml` → `additionalScrapeConfigs[].static_configs[].targets` (for the bare-metal `node-exporter` installed on each Proxmox host via Ansible — port `9100`).
 
 ## Accessing the monitoring UIs
 
@@ -140,7 +177,7 @@ All three services are fronted by the k3s-shipped Traefik ingress, pinned to `10
 Grafana login user is `admin`; the password is a random value in the SOPS-encrypted `grafana-admin` Secret (wired via `grafana.admin.existingSecret`). Read it with:
 ```sh
 SOPS_AGE_KEY_FILE=age.agekey sops -d \
-  infrastructure/controllers/kube-prometheus-stack/grafana-admin.sops.yaml
+  infra/monitoring/controllers/kube-prometheus-stack/grafana-admin.sops.yaml
 ```
 
 DNS prerequisite: add a host override (or wildcard `*.doghouse.lan`) in OPNsense Unbound resolving to `10.1.1.250`. This lives in the Ansible repo, not here.

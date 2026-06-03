@@ -1,0 +1,72 @@
+# Application workloads — the private/public visibility boundary.
+#
+# This repo (server-automation) is the PUBLIC infrastructure Flux root. Apps are
+# the user's private IP and belong in the private repo
+# github.com/Ivanipani/doghouse, imported here as an OPAQUE cross-repo source: a
+# second GitRepository (`doghouse-apps`, below) plus a Kustomization that pulls
+# from it. The public repo never sees app manifests — only a URL + branch + path
+# behind a read-only deploy key.
+#
+# MIGRATION STATE (see plan / k8s/README.md): apps currently still live in THIS
+# repo at k8s/apps/doghouse so the cluster keeps working. The `apps` Kustomization
+# below sources `flux-system` (this repo). The `doghouse-apps` GitRepository is
+# already wired but dormant (nothing consumes it yet) so the cutover is one move.
+#
+# ┌── ONE-STEP CUTOVER to the private repo ──────────────────────────────────────┐
+# │ 1. Move the app tree into the private repo:                                   │
+# │      (in github.com/Ivanipani/doghouse)  apps/doghouse/...  ← k8s/apps/doghouse│
+# │    then `git rm -r k8s/apps` here.                                            │
+# │ 2. In the `apps` Kustomization below, flip:                                   │
+# │      sourceRef.name: flux-system   →   doghouse-apps                          │
+# │      path: ./k8s/apps/doghouse     →   ./apps/doghouse                        │
+# │    (the doghouse-apps GitRepository's repo root is that private repo).        │
+# │ 3. If the private apps carry SOPS secrets, uncomment the `decryption` block.  │
+# │ The deploy-key Secret (`doghouse-apps-key`) is already installed by Ansible   │
+# │ (40-kube/30-flux.yml), so no other change is needed.                          │
+# └──────────────────────────────────────────────────────────────────────────────┘
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  # Opaque handle to the private apps repo. Dormant until the `apps` Kustomization
+  # above is flipped to source it (see CUTOVER). Harmless while unconsumed: it
+  # just reconciles as a Ready source once its deploy key + repo exist.
+  name: doghouse-apps
+  namespace: flux-system
+spec:
+  interval: 10m
+  ref:
+    branch: main
+  # Read-only deploy key for github.com/Ivanipani/doghouse, installed into
+  # flux-system by Ansible (40-kube/30-flux.yml) from vault_doghouse_apps_deploy_key.
+  secretRef:
+    name: doghouse-apps-key
+  url: ssh://git@github.com/Ivanipani/doghouse
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  # PRE-CUTOVER: apps still live in this repo, so source the public root.
+  # POST-CUTOVER: set name -> doghouse-apps and path -> ./apps/doghouse.
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./k8s/apps/doghouse
+  prune: true
+  dependsOn:
+    # HA's ingress wants the traefik IngressClass (networking-configs) and its
+    # PVC wants the Longhorn default StorageClass (storage).
+    - name: networking-configs
+    - name: storage-configs
+  # Uncomment once the private apps repo carries SOPS-encrypted secrets — the
+  # sops-age Secret is already installed in flux-system by Ansible.
+  # decryption:
+  #   provider: sops
+  #   secretRef:
+  #     name: sops-age
