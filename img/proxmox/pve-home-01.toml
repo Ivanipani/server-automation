@@ -26,4 +26,4 @@ ordering = "before-network"
 [disk-setup]
 filesystem = "ext4"
 disk-list = ["sda"]
-lvm = { hdsize = 100 }
+lvm = { hdsize = 100, maxvz = 0 }

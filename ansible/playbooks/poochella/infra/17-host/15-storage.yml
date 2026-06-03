@@ -21,8 +21,9 @@
 # DISK-CENTRIC + STABLE SELECTORS. Each disk is declared with a
 # `select:` that names it by *intent*, never by a kernel device name:
 #   - select: boot                 → the auto-detected host boot disk
-#     (PVE: the `pve` VG already owns ~100 GiB; the free tail is carved
-#      by appending a fresh partition with sgdisk -n.
+#     (PVE: the `pve` VG already owns ~100 GiB (lvm.hdsize=100) and the
+#      free tail is UNPARTITIONED; host-disks appends a fresh partition
+#      #4 over it with sgdisk -n.
 #      Plain Debian workers: the netboot preseed
 #      (roles/bootserv/templates/preseed.cfg.j2, recipe `uefi-4p`)
 #      already lays out p1/p2/p3 = 100 GiB OS area + p4 ext4
@@ -92,9 +93,11 @@
 #
 # Pre-conditions:
 #   - 17-host/10-bootstrap.yml completed (ansible user, repos staged)
-#   - PVE hosts: installed with LVM/ext4 root AND `lvm.hdsize = 100` so
-#     the boot disk has an unpartitioned tail for the boot pool. See the
-#     answer files under scripts/images/proxmox/pve-home-0X.toml.
+#   - PVE hosts: installed with LVM/ext4 root AND `lvm = { hdsize = 100,
+#     maxvz = 0 }` so the boot disk has an unpartitioned tail for the
+#     `vms` pool and no junk `local-lvm` thin pool inside the `pve` VG.
+#     See the answer files under img/proxmox/pve-home-0X.toml (foundation
+#     ISO) and roles/bootserv/templates/proxmox-answer.toml.j2 (PXE).
 #   - `storage.disks` declared for each participating host in
 #     inventory.yaml (preview compliance with `just disk-plan`)
 #   - Overwrite mode only: no real (non-template) VMs or containers exist

@@ -105,23 +105,41 @@
     path: "/dev/disk/by-partlabel/{{ partition.label }}"
   register: part_stat
 
-# ── Boot-disk path: adopt the partman tail placeholder ───────────────
-# The netboot preseed lays out p1-p4 where p4 is an unlabelled, ext4-
-# formatted absorbent. We don't create a new partition (that would land
-# in the ~1 MiB GPT slack past p4 and be too small for a PV); instead
-# we relabel partition #4 and clear its FS signature. Partition #4 is
-# hardcoded — it matches the preseed convention (p1=ESP, p2=swap,
-# p3=root, p4=placeholder).
-- name: "[{{ partition.label }}] (boot disk) Adopt the partman tail placeholder"
+# ── Boot-disk path: carve OR adopt the tail partition #4 ─────────────
+# Two install media produce two different boot-disk shapes, and #4 is the
+# agreed tail-partition slot for both (p1=ESP/BIOS, p2, p3=OS, p4=pool):
+#
+#   - Netboot Debian preseed (`uefi-4p`): lays out p1-p4 where p4 is an
+#     unlabelled, ext4-formatted absorbent already spanning the tail. We
+#     ADOPT it — sgdisk -c relabels #4, then wipefs clears partman's ext4
+#     superblock. We must NOT `sgdisk -n` here: with the disk already full
+#     the next free slot is the ~1 MiB GPT slack past p4, too small for a
+#     PV (the historical "device is too small" bug).
+#
+#   - Proxmox installer (`lvm.hdsize=100`): lays out p1-p3 and leaves the
+#     rest of the disk UNPARTITIONED — there is no p4. We CREATE it with
+#     `sgdisk -n 4:0:0` spanning the free tail.
+#
+# So we branch on whether partition #4 already exists. Either way the
+# downstream wipefs + validate steps run, leaving a clean partition for
+# storage_pools.yml's pvcreate.
+- name: "[{{ partition.label }}] (boot disk) Carve or adopt tail partition #4"
   when:
     - partition.is_boot | bool
     - not part_stat.stat.exists
   block:
-    - name: "[{{ partition.label }}] Set GPT partlabel + type on partition #4"
+    - name: "[{{ partition.label }}] Create #4 on the free tail, or relabel an existing #4"
       ansible.builtin.shell: |
         set -eu
-        sgdisk -c 4:{{ partition.label }} -t 4:8300 {{ partition.device }}
-        partx -u {{ partition.device }}
+        dev={{ partition.device }}
+        if sgdisk -p "$dev" | awk '$1==4{f=1} END{exit !f}'; then
+          # Partition #4 already present (preseed placeholder): adopt it.
+          sgdisk -c 4:{{ partition.label }} -t 4:8300 "$dev"
+        else
+          # No #4 (fresh Proxmox install): create one spanning the tail.
+          sgdisk -n 4:0:0 -t 4:8300 -c 4:{{ partition.label }} "$dev"
+        fi
+        partx -u "$dev"
       changed_when: true
 
     - name: "[{{ partition.label }}] Wait for the partlabel symlink"

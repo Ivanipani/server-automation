@@ -36,9 +36,12 @@ enabled = true
 # NVMe/SATA slot order, identical to the Debian preseed's hw-pin disk
 # resolution. lvm.hdsize caps the PVE install at 100 GiB; host-disks
 # later carves the remainder of the disk for the `vms` LVM-thin pool.
+# maxvz=0 suppresses the installer's default `data`/`local-lvm` thin pool
+# — the contract uses the host-disks-carved `vms` pool on the tail, never
+# local-lvm, so the OS slice carries only swap + root + free VG space.
 [disk-setup]
 filesystem = "ext4"
-lvm = { hdsize = 100 }
+lvm = { hdsize = 100, maxvz = 0 }
 filter-match = "all"
 
 # Match the inventory-pinned boot disk by MODEL number + SERIAL, both as
