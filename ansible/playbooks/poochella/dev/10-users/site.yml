@@ -1,7 +1,4 @@
 ---
-# `pani` user is created in 17-host/10-bootstrap.yml (host-base role)
-# alongside `ansible` and `tourmanager` — so this tier no longer owns
-# user creation. It only layers on dev-convenience setup: zsh+zellij
-# system config, and pani's GitHub SSH key.
 - import_playbook: 20-sessions-and-shell.yml
 - import_playbook: 30-init-github.yml
+- import_playbook: 40-dotfiles.yml

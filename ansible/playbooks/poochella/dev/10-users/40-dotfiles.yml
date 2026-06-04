@@ -1,0 +1,34 @@
+---
+- name: Deploy shared GitHub SSH key for pani user
+  hosts: physical:dev
+  remote_user: pani
+  become: false
+  tasks:
+    - name: Check for existing dotfiles repo
+      ansible.builtin.stat:
+        path: /home/pani/dotfiles/.jj
+      register: dotfiles_jj
+
+    - name: Clone dotfiles repo
+      ansible.builtin.command:
+        cmd: jj git clone --colocate git@github.com:Ivanipani/dotfiles.git /home/pani/dotfiles
+      environment:
+        PATH: "/opt/bin/:{{ ansible_env.PATH }}"
+      when: not dotfiles_jj.stat.exists
+
+    - name: Update existing dotfiles repo
+      ansible.builtin.command:
+        cmd: "{{ item }}"
+        chdir: /home/pani/dotfiles
+      environment:
+        PATH: "/opt/bin/:{{ ansible_env.PATH }}"
+      loop:
+        - jj git fetch
+        - jj new main
+      when: dotfiles_jj.stat.exists
+    - name: Create symlinks
+      ansible.builtin.command:
+        cmd: just /home/pani/dotfiles/setup
+      environment:
+        PATH: "/opt/bin/:{{ ansible_env.PATH }}"
+
