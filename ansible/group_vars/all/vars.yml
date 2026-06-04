@@ -48,6 +48,7 @@ sops_age_key: "{{ vault_sops_age_key }}"
 #   ssh-keygen -t ed25519 -f /tmp/doghouse-apps -N "" -C flux-doghouse-apps-ro
 #   just secret-encrypt vault_doghouse_apps_deploy_key   # paste /tmp/doghouse-apps
 doghouse_apps_deploy_key: "{{ vault_doghouse_apps_deploy_key }}"
+server_automation_deploy_key: "{{ vault_server_automation_deploy_key }}"
 # Tofu authenticates to EVERY hypervisor as the shared advanceteam@pve
 # service account using ONE well-known password (`advanceteam_user_pass`,
 # defined above, re-exporting vault_advanceteam_user_pass). The account is

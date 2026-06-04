@@ -504,7 +504,7 @@ kubernetes:
           vm:
             proxmox_node: pve-home-03
             cores: 4
-            memory: 8192
+            memory: 12288
             disk_size: 30
             tags: [kube, control-plane]
     kube_workers:

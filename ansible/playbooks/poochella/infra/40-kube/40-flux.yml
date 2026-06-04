@@ -24,8 +24,7 @@
     flux_git_url: "ssh://git@github.com/Ivanipani/server-automation"
     flux_git_branch: "main"
     flux_path: "k8s/clusters/doghouse"
-    flux_ssh_private_key: "{{ github_ssh_private_key }}"
-    # kubeconfig fetched by 20-k3s.yml — same dir math as that playbook (→ ansible/).
+    flux_ssh_private_key: "{{ server_automation_deploy_key }}"
     flux_kubeconfig: "{{ playbook_dir }}/../../../../kubeconfig"
     doghouse_apps_repo_url: "ssh://git@github.com/Ivanipani/doghouse"
     # In-cluster Secret names (must match the manifests in k8s/).
