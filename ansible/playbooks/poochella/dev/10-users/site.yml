@@ -4,4 +4,4 @@
 # user creation. It only layers on dev-convenience setup: zsh+zellij
 # system config, and pani's GitHub SSH key.
 - import_playbook: 20-sessions-and-shell.yml
-- import_playbook: 30-pani-ssh-key.yml
+- import_playbook: 30-init-github.yml
