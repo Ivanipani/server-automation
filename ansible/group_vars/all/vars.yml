@@ -4,23 +4,7 @@
 
 postgres_pass: "{{ vault_postgres_pass }}"
 router_root_pass: "{{ vault_router_root_pass }}"
-# Root password for fresh PVE hypervisors only — needed for the very
-# first SSH-as-root probe in 17-host/10-bootstrap.yml +
-# 20-hypervisor/10-bootstrap.yml, before the `ansible` user exists on a
-# brand-new PVE node. After host-base runs once, ssh-hardening sets
-# `PermitRootLogin no` and this password is never used again.
-#
-# Renamed 2026-05-23 from `hypervisor_root_pass`; the underlying vault
-# key stayed `vault_hypervisor_root_pass` to avoid re-encrypting an
-# unchanged secret. Match this to whatever the PVE auto-installer
-# answerfile baked in, or override per-host.
-#
-# Debian baremetal hosts (img/debian/) DO NOT need this — their preseed
-# locks the root account entirely (`passwd/root-login false`) and the
-# `ansible` user is created with the canonical key in the preseed's
-# late_command, so the first SSH probe resolves to `ansible` directly.
 host_root_pass: "{{ vault_hypervisor_root_pass }}"
-ansible_user_pass: "{{ vault_ansible_user_pass }}"
 pani_user_pass: "{{ vault_pani_user_pass }}"
 tourmanager_user_pass: "{{ vault_tourmanager_user_pass }}"
 advanceteam_user_pass: "{{ vault_advanceteam_user_pass }}"
@@ -29,71 +13,16 @@ tailscale_auth_key: "{{ vault_tailscale_auth_key }}"
 opnsense_tailscale_auth_key: "{{ vault_opnsense_tailscale_auth_key }}"
 set_user_passwords: true
 github_ssh_private_key: "{{ vault_github_ssh_private_key }}"
-github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCpJGXP2r/5bmi8MKlbtN4/mavu ivanperdomo@Ivans-MacBook-Pro.local"
-# Fleet-wide automation SSH keypair for the `ansible` user — the trust
-# root of the whole fleet. PRIVATE half vaulted; PUBLIC half committed in
-# the clear (same convention as github_ssh_public_key above). The public
-# string is installed into EVERY host's authorized_keys (image_baseline_users
-# + create-user role + host_base_extra_users:pani + the OPNsense/NAS
-# bootstrap paths + the Debian preseed). The private half is materialized
-# onto a fresh control node at ~/.ssh/ansible (0600) by
-# `just stage-ansible-key`, so ansible.cfg's `private_key_file` resolves.
-# The public string MUST stay byte-identical to ~/.ssh/ansible.pub —
-# create-user (post-boot) and image-baseline.sh (bake-time) must emit
-# identical authorized_keys for the 17-host reconcile to stay no-op.
-# Rotate: mint a new keypair, update BOTH vars (re-encrypt
-# vault_ansible_user_ssh_private_key), re-run the 17-host tier fleet-wide,
-# then `just stage-ansible-key`.
-# Add the secret with: `just secret-encrypt vault_ansible_user_ssh_private_key`
+github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCpJGXP2r/5bmi8MKlbtN4/mavu"
 ansible_user_ssh_private_key: "{{ vault_ansible_user_ssh_private_key }}"
-ansible_user_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
+ansible_user_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9"
 opnsense_api_key: "{{ vault_opnsense_api_key }}"
 opnsense_api_secret: "{{ vault_opnsense_api_secret }}"
-# --- Flux / k8s GitOps (consumed by 40-kube/30-flux.yml) -------------------
-# SOPS age PRIVATE key. Installed into the cluster as the `sops-age` Secret in
-# flux-system so kustomize-controller can decrypt the *.sops.yaml manifests in
-# k8s/infra. The matching PUBLIC recipient lives in k8s/.sops.yaml. Keep the
-# canonical copy in a password manager — losing it means no committed secret
-# can ever be decrypted again. Add with: just secret-encrypt vault_sops_age_key
-#   (paste the full contents of k8s/age.agekey, incl. the `# created:` comment)
 sops_age_key: "{{ vault_sops_age_key }}"
-# Read-only SSH deploy key for the PRIVATE apps repo github.com/Ivanipani/doghouse.
-# Installed as the `doghouse-apps-key` Secret in flux-system so the dormant
-# `doghouse-apps` GitRepository (k8s/clusters/doghouse/apps.yaml) can authenticate
-# once the apps cutover happens. Generate a dedicated keypair, register the PUBLIC
-# half as a read-only deploy key on the doghouse repo, vault the PRIVATE half:
-#   ssh-keygen -t ed25519 -f /tmp/doghouse-apps -N "" -C flux-doghouse-apps-ro
-#   just secret-encrypt vault_doghouse_apps_deploy_key   # paste /tmp/doghouse-apps
 doghouse_apps_deploy_key: "{{ vault_doghouse_apps_deploy_key }}"
 server_automation_deploy_key: "{{ vault_server_automation_deploy_key }}"
-# Tofu authenticates to EVERY hypervisor as the shared advanceteam@pve
-# service account using ONE well-known password (`advanceteam_user_pass`,
-# defined above, re-exporting vault_advanceteam_user_pass). The account is
-# created identically on each node by 20-hypervisor/15-tofu-service-account.yml
-# and the per-node Tofu workspaces receive it via TF_VAR_proxmox_password
-# (see 30-guests/10-opentofu.yml + 13-foundation/80-tofu-infra-lxcs.yml).
-#
-# The old per-hypervisor `proxmox_api_tokens` map (root@pam!tofu-lan, one
-# minted secret per node) was retired in the username/password cutover.
-# The `tofu-lan` tokens still exist on each PVE node and their encrypted
-# vault keys (vault_proxmox_api_token_pve_home_*) are kept as a fallback,
-# but nothing references them anymore.
 k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
 
-# NAS publish/consume coordinates, re-exported from the single source of
-# truth in inventory.yaml (`storage.hosts.nas01.nas`).
-#
-# Originally consumed by 20-hypervisor/40-bake-images.yml (the NAS-publish
-# image-bake path: Packer → rsync to NAS → Tofu pulls via NFS). That
-# playbook was deleted when the bake flow moved to bootserv01 HTTP
-# (13-foundation/95-bake-publish-images.yml is the current producer).
-# These vars currently have NO consumer — the per-node Tofu modules
-# under tofu/modules/{hypervisor,vm,lxc} do not read nas01. Retained
-# only as scaffolding in case a future `proxmox_virtual_environment_download_file`
-# resource needs them; safe to drop along with the NAS `proxmox` share
-# in a follow-up.
-# Adding a second NAS = add a host to the `storage` group and parameterize
-# these by an `image_publish_target` selector.
 nas_images_url_base: "{{ hostvars['nas01'].nas.https_url_base }}"
 nas_images_dir:      "{{ hostvars['nas01'].nas.images_dir }}"
 nas_rsync_user:      "{{ hostvars['nas01'].nas.rsync_user }}"
@@ -102,11 +31,4 @@ nas_ssh_target:      "{{ hostvars['nas01'].nas.rsync_user }}@{{ hostvars['nas01'
 synology_dsm_password: "{{ vault_synology_dsm_password }}"
 synology_dsm_username: pani
 
-# LAN-local static-artifact mirror served by bootserv01's Caddy. Populated
-# by 13-foundation/96-mirror-artifacts.yml (ingest pinned upstream blobs to
-# the NAS, then `pct push` into /srv/http/artifacts/). Consumer roles
-# (dev-tools, python, golang) HEAD-probe this base and prefer it, falling
-# back to the upstream URL on a miss — so a brand-new fleet (mirror not yet
-# populated) still installs. Mirror path = upstream URL minus its scheme,
-# e.g. http://bootserv01.lan/artifacts/github.com/casey/just/releases/...
 artifact_mirror_base: "http://bootserv01.lan/artifacts"

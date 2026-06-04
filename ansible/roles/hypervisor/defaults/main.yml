@@ -1,8 +1,4 @@
 hypervisor_interface: "eno1"
 hypervisor_bridge: "vmbr0"
-# Only used by the gated-off cluster_{ssh,create,join}.yml task files
-# (see playbooks/poochella/infra/20-hypervisor/20-cluster.yml). Kept so
-# those files remain valid if the gate is ever lifted.
 proxmox_cluster_name: pve-cluster
-# Secrets (host_root_pass, ansible_user_pass) are defined in group_vars/all/vault.yml
 

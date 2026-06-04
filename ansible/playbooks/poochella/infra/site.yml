@@ -44,6 +44,7 @@
 # `just run --limit <host>`. Each playbook self-bootstraps
 # (../tasks/detect-bootstrap-user.yml) and asserts its own
 # pre-conditions, so this ordering is the happy path, not the only one.
+- import_playbook: 00-control-node/10-stage-ansible-key.yml
 - import_playbook: 10-networking/site.yml
 - import_playbook: 12-nas/site.yml
 - import_playbook: 13-foundation/site.yml
