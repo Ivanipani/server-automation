@@ -1,0 +1,28 @@
+---
+# Uninstall k3s from this node using the script the k3s installer drops,
+# per https://docs.k3s.io/installation/uninstall:
+#   - server (control-plane) nodes: /usr/local/bin/k3s-uninstall.sh
+#   - agent  (worker)        nodes: /usr/local/bin/k3s-agent-uninstall.sh
+# Each script stops the service, kills the containerd shims, and removes
+# the binary, the systemd unit, /var/lib/rancher/k3s, /etc/rancher/k3s,
+# and the CNI/network state. A node is ever only ONE of the two, so we run
+# whichever script is present.
+#
+# Idempotent: when neither script exists (k3s already absent) this is a
+# no-op, so the play is safe to re-run.
+
+- name: Locate the k3s uninstall script (server or agent)
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/k3s-uninstall.sh
+    - /usr/local/bin/k3s-agent-uninstall.sh
+  register: _k3s_uninstall_scripts
+
+- name: Run the k3s uninstall script
+  ansible.builtin.command: "{{ item.stat.path }}"
+  loop: "{{ _k3s_uninstall_scripts.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.stat.path }}"
+  register: _k3s_uninstall_run
+  changed_when: _k3s_uninstall_run.rc == 0

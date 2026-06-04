@@ -5,6 +5,14 @@
 # indirection). k3s_api_endpoint defaults from the role and resolves to
 # the kube-vip VIP, falling back to the first kube_control_plane host.
 
+# Master switch for the 40-kube/20-k3s.yml playbook:
+#   - true  → install / reconcile the k3s cluster (the default flow).
+#   - false → UNINSTALL k3s from every kube node (runs the installer-dropped
+#             k3s-uninstall.sh / k3s-agent-uninstall.sh; see the role's
+#             uninstall.yml). All install plays short-circuit when false.
+# Flip per-run with -e k3s_enable=false.
+k3s_enable: true
+
 k3s_version: "v1.31.4+k3s1"
 
 # kube-vip — floating L2 VIP across the control planes. Used as the
