@@ -5,8 +5,6 @@
   ansible.builtin.apt:
     name: fwupd
     state: present
-    update_cache: true
-    cache_valid_time: 3600
 
 # Debian 13 ships /etc/fwupd/remotes.d/lvfs.conf with Enabled=true by
 # default. Re-asserting it here means a future default flip (or a hand

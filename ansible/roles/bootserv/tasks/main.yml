@@ -60,8 +60,6 @@
       - ipxe           # ships /usr/lib/ipxe/{ipxe.efi,undionly.kpxe}
       - python3        # runtime for the PVE answer responder (stdlib only)
     state: present
-    update_cache: true
-    cache_valid_time: 3600
 
 - name: Ensure document-root directory tree
   ansible.builtin.file:

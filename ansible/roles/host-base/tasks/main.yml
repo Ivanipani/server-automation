@@ -36,8 +36,6 @@
       - sudo
       - zsh
     state: present
-    update_cache: true
-    cache_valid_time: 3600
 
 # Baseline zsh config for all users. Debian's /etc/zsh/zshrc is empty and
 # sources no drop-in, so we ship a fully-owned config_path file and append
@@ -209,5 +207,3 @@
     name:
       - proxmox-auto-install-assistant
       - xorriso
-    state: present
-    update_cache: true

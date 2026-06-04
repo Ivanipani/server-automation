@@ -66,8 +66,6 @@
       ansible.builtin.apt:
         name: nfs-common
         state: present
-        update_cache: true
-        cache_valid_time: 3600
       when: nfs_mounts | default([]) | length > 0
 
     # Create the mountpoint via mkdir -p + a `creates:` guard, NOT via
