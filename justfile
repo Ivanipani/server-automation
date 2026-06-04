@@ -1,6 +1,3 @@
-# Justfile for Ansible Playbooks
-# Run 'just --list' to see all available commands
-
 pwd := absolute_path(".")
 
 # Default target
@@ -9,8 +6,7 @@ default:
 
 # Ping all servers
 ping:
-    ansible all -m ping
-
+    cd ansible && ansible all -m ping
 
 # Check requirements are installed on control node
 check:
@@ -74,12 +70,6 @@ install:
     ansible-galaxy install -r requirements.yml
 
 
-# symlink inventory.yaml into $HOME. Allows other projects to use this inventory as the source of truth
-symlink-inventory:
-  mkdir -p "$HOME/.ansible/inventory"
-  ln -sf {{pwd}}/ansible/inventory.yaml "$HOME/.ansible/inventory/inventory.yaml"
-
-
 # Run a playbook
 run *options: check
     #!/usr/bin/env bash
@@ -88,18 +78,6 @@ run *options: check
     selected=$(find playbooks -name '*.yml' -type f | sort | fzf)
     echo "Running $selected"
     ansible-playbook --vault-password-file ansible-pass {{ options }} "$selected"
-
-# Run the test playbook
-test: check
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tags=$(grep 'tags:' test/test.yml | awk '{gsub(/[\[\]]/, "", $NF); print $NF}' | fzf --multi | paste -sd, -)
-    if [ -z "$tags" ]; then
-        echo "No tags selected."
-        exit 0
-    fi
-    ansible-playbook -i inventory.yaml test/test.yml --tags "$tags"
-
 # Encrypt a variable with ansible-vault
 secret-encrypt name:
     cd ansible && ansible-vault encrypt_string --vault-password-file ansible-pass --stdin-name {{name}}
@@ -125,85 +103,32 @@ secret-decrypt name="":
 # from the vault (~/.ssh/ansible 0600 + ~/.ssh/ansible.pub 0644). Run once
 # on a fresh checkout so ansible.cfg's private_key_file resolves. Idempotent;
 # re-run after rotating the keypair. Connection-local, so it needs no SSH key.
+# symlink inventory.yaml into $HOME. Allows other projects to use this inventory as the source of truth
 stage-ansible-key:
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/00-control-node/10-stage-ansible-key.yml
-
-# Clear and re-seed SSH host keys for every host in the inventory
-ssh-refresh:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    targets=$(ansible-inventory --list 2>/dev/null | python3 -c "
-    import json, sys
-    data = json.load(sys.stdin)
-    meta = data.get('_meta', {}).get('hostvars', {})
-    out = set()
-    for host, vars in meta.items():
-        out.add(host)
-        if 'ansible_host' in vars:
-            out.add(vars['ansible_host'])
-    print('\n'.join(sorted(out)))
-    ")
-    for t in $targets; do
-        echo "Refreshing $t..."
-        ssh-keygen -R "$t" 2>/dev/null || true
-        ip=$(dig +short "$t" 2>/dev/null | head -n1 || true)
-        if [ -n "$ip" ]; then
-            ssh-keygen -R "$ip" 2>/dev/null || true
-        fi
-        ssh-keyscan "$t" 2>/dev/null >> "$HOME/.ssh/known_hosts" || true
-    done
-    echo "Done."
+    mkdir -p "$HOME/.ansible/inventory"
+    ln -sf {{pwd}}/ansible/inventory.yaml "$HOME/.ansible/inventory/inventory.yaml"
 
 
 # READ-ONLY: report PRESENT/MISSING per declared partition on every physical host (host-disks role in info mode). Never halts. Safe anytime.
 disk-plan:
     cd ansible && ansible-playbook --vault-password-file ansible-pass -e host_disks_action=info playbooks/poochella/infra/17-host/15-storage.yml
 
-
 # READ-ONLY: refresh LVFS metadata on every baremetal and report available component firmware updates (NVMe SSDs, NICs, TPMs, etc.). Does NOT cover the HP MP9 G2 system BIOS — see runbooks/firmware-updates.md.
 firmware-plan:
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/60-firmware-plan.yml
-
-
-# DESTRUCTIVE: apply available firmware updates on ONE baremetal host. Some updates take effect only after reboot — drain the host first if it carries k3s workload (especially Longhorn replicas).
-firmware-update host: check
-    cd ansible && ansible-playbook --vault-password-file ansible-pass --limit {{host}} playbooks/poochella/infra/17-host/60-firmware-update.yml
-
 
 # Run the full 17-host tier on every physical host (users, ssh-hardening, firewall, tailscale, node-exporter). Safe to re-run.
 do-host-init: check
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/site.yml
 
-
-# Bootstrap Flux on the doghouse cluster from THIS repo + install the sops-age and doghouse-apps-key Secrets from vault. Idempotent. Needs the k3s cluster up (ansible/kubeconfig current) and vault_github_pat with push access. Pushes gotk-* to the repo.
+# Bootstrap Flux on the doghouse cluster
 do-flux: check
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/40-kube/40-flux.yml
-
-
-# Build a per-host unattended Debian 13 install ISO (writes to img/debian/output/). Flash with img/burn-to-disc.sh.
-baremetal-iso host: check
-    {{pwd}}/img/debian/build.sh {{host}}
-
 
 # Bring up (or reconcile) the foundation hypervisor (pve-home-01) + bootserv01 LXC + bootserv role. Run before any fresh-baremetal install — workers need bootserv01.lan to netboot.
 do-foundation: check
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/site.yml
-
-
-# Re-apply just the bootserv role on bootserv01 — fast iteration for iPXE/preseed template tweaks during the trial. Use after the LXC is up.
-do-bootserv-config: check
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/90-bootserv.yml
-
-
-# Ingest pinned static artifacts (dev-tools binaries, Go, uv) onto the NAS and publish them to bootserv01's HTTP mirror. Idempotent; -e force_rebuild=true re-pulls + re-pushes. Needs the foundation node up (bootserv01 + build-artifacts NFS mount).
-mirror-artifacts: check
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/96-mirror-artifacts.yml
-
-
-# Push PXE-aware dnsmasq config + Mellanox static reservations to OPNsense. Re-run anytime debian_netboot.boot_macs or bootserv01 changes.
-do-router-dhcp: check
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/10-router/20-dnsmasq.yml
-
 
 sync-preseed-templates:
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/90-bootserv.yml --start-at-task "Copy iPXE chainload binaries into TFTP root"

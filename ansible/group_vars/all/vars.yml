@@ -8,20 +8,21 @@ host_root_pass: "{{ vault_hypervisor_root_pass }}"
 pani_user_pass: "{{ vault_pani_user_pass }}"
 tourmanager_user_pass: "{{ vault_tourmanager_user_pass }}"
 advanceteam_user_pass: "{{ vault_advanceteam_user_pass }}"
-github_pat: "{{ vault_github_pat }}"
 tailscale_auth_key: "{{ vault_tailscale_auth_key }}"
 opnsense_tailscale_auth_key: "{{ vault_opnsense_tailscale_auth_key }}"
-set_user_passwords: true
-github_ssh_private_key: "{{ vault_github_ssh_private_key }}"
-github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCpJGXP2r/5bmi8MKlbtN4/mavu"
 ansible_user_ssh_private_key: "{{ vault_ansible_user_ssh_private_key }}"
 ansible_user_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9"
+set_user_passwords: true
+
 opnsense_api_key: "{{ vault_opnsense_api_key }}"
 opnsense_api_secret: "{{ vault_opnsense_api_secret }}"
 sops_age_key: "{{ vault_sops_age_key }}"
-doghouse_apps_deploy_key: "{{ vault_doghouse_apps_deploy_key }}"
-server_automation_deploy_key: "{{ vault_server_automation_deploy_key }}"
 k3s_cluster_token: "{{ vault_k3s_cluster_token }}"
+
+github_ssh_private_key: "{{ vault_github_ivanipani_ssh_private_key }}"
+github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILlJQWyhRwg9VuDDoMAe5shddZSrSkyxqJS1uyRYxPuS"
+github_doghouse_apps_deploy_key: "{{ vault_doghouse_apps_deploy_key }}"
+github_server_automation_deploy_key: "{{ vault_server_automation_deploy_key }}"
 
 nas_images_url_base: "{{ hostvars['nas01'].nas.https_url_base }}"
 nas_images_dir:      "{{ hostvars['nas01'].nas.images_dir }}"
