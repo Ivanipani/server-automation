@@ -41,10 +41,36 @@
     lxc_packages: openssh-server curl wget sudo zsh rsync htop
 
   pre_tasks:
-    - name: Ensure ansible SSH keypair exists on controller
-      ansible.builtin.command:
-        cmd: ssh-keygen -t ed25519 -f ~/.ssh/ansible -N ""
-        creates: ~/.ssh/ansible
+    # Materialize the vaulted ansible keypair on the control node (mirrors
+    # 00-control-node/10-stage-ansible-key.yml) so the foundation tier stays
+    # self-contained end-to-end. The public half is baked into the LXC
+    # template via image-baseline.sh; the private half lets ansible.cfg
+    # reconnect. Never mint a fresh key here — it would diverge from the
+    # vaulted canonical one.
+    - name: Ensure ~/.ssh exists on the control node
+      ansible.builtin.file:
+        path: ~/.ssh
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Stage the vaulted ansible private key on the control node
+      ansible.builtin.copy:
+        content: "{{ ansible_user_ssh_private_key.rstrip('\n') }}\n"
+        dest: ~/.ssh/ansible
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+
+    - name: Stage the ansible public key on the control node
+      ansible.builtin.copy:
+        content: "{{ ansible_user_ssh_public_key | trim }}\n"
+        dest: ~/.ssh/ansible.pub
+        mode: "0644"
       delegate_to: localhost
       become: false
       run_once: true

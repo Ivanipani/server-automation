@@ -56,7 +56,7 @@ bootserv_group: caddy
 # root locking are now ALL handled by the canonical image-baseline.sh
 # script (rendered into bootserv01:/srv/http/scripts/ by this role
 # and wgot+exec'd in the preseed late_command). The script reads
-# tourmanager_user_pass + ~/.ssh/ansible.pub directly via lookup()
+# tourmanager_user_pass + ansible_user_ssh_public_key from group_vars
 # at render time — no role-local indirection needed. See
 # group_vars/all/image-baseline.yml.
 

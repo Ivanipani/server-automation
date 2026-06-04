@@ -1,11 +1,21 @@
 ---
-- name: Ensure SSH keypair exists on control node
-  ansible.builtin.command:
-    cmd: ssh-keygen -t ed25519 -f ~/.ssh/ansible -N ""
-    creates: ~/.ssh/ansible
+# The control node's ~/.ssh/ansible is the canonical fleet keypair, now
+# vaulted (vault_ansible_user_ssh_private_key). This role no longer mints
+# a key — a fresh control node must materialize the vaulted one first with
+# `just stage-ansible-key`, or it would authorize a public key whose
+# private half it doesn't hold. Fail loud rather than silently diverge.
+# (ansible.cfg points SSH at this key, so a truly fresh node can't even
+# connect to remote hosts until it's staged — this guard mainly protects
+# localhost-only runs.)
+- name: Assert the canonical ansible private key is staged on the control node
+  ansible.builtin.stat:
+    path: "{{ '~/.ssh/ansible' | expanduser }}"
+  register: _ansible_privkey
   delegate_to: localhost
   become: false
   run_once: true
+  failed_when: not _ansible_privkey.stat.exists
+  # Fix: `just stage-ansible-key`
 
 - name: Create required groups
   ansible.builtin.group:
@@ -35,7 +45,9 @@
 - name: Set up SSH authorized keys
   ansible.posix.authorized_key:
     user: "{{ item.name }}"
-    key: "{{ lookup('file', item.ssh_key) }}"
+    # item.ssh_key is the public-key STRING (sourced from
+    # ansible_user_ssh_public_key in group_vars), not a file path.
+    key: "{{ item.ssh_key }}"
     state: present
   loop: "{{ users | default([]) }}"
   loop_control:

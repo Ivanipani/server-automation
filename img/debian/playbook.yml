@@ -20,10 +20,6 @@
 
   vars:
     timezone: America/New_York
-    # ansible_pubkey is the same key roles/ivan-user and the Packer bake
-    # path install on every box. The fleet has exactly one canonical
-    # bootstrap key and it lives on the laptop at ~/.ssh/ansible.pub.
-    ansible_pubkey_path: "{{ lookup('env', 'HOME') }}/.ssh/ansible.pub"
 
   pre_tasks:
     - name: Assert target_host is set
@@ -82,15 +78,24 @@
           storage:
             disks: "{{ hostvars[target_host].storage.disks }}"
 
-    - name: Assert the bootstrap pubkey exists on disk
-      ansible.builtin.stat:
-        path: "{{ ansible_pubkey_path }}"
-      register: pubkey_stat
-      failed_when: not pubkey_stat.stat.exists
+    # ansible_pubkey is the fleet-wide canonical bootstrap key — the same
+    # one create-user / image-baseline.sh install on every box. Sourced from
+    # the vaulted keypair indirection (ansible_user_ssh_public_key in
+    # ansible/group_vars/all/vars.yml), loaded because build.sh runs this
+    # play from the ansible/ root.
+    - name: Assert the bootstrap pubkey var is present and key-shaped
+      ansible.builtin.assert:
+        that:
+          - ansible_user_ssh_public_key is defined
+          - ansible_user_ssh_public_key | length > 0
+          - ansible_user_ssh_public_key is search('^(ssh-|ecdsa-|sk-)')
+        fail_msg: >-
+          ansible_user_ssh_public_key missing/malformed in
+          ansible/group_vars/all/vars.yml.
 
     - name: Load the bootstrap pubkey
       ansible.builtin.set_fact:
-        ansible_pubkey: "{{ lookup('file', ansible_pubkey_path) }}"
+        ansible_pubkey: "{{ ansible_user_ssh_public_key }}"
 
     # Root is LOCKED at install time (preseed has `passwd/root-login false`),
     # so the only break-glass on a freshly imaged Debian host is the

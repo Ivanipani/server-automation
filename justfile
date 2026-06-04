@@ -121,6 +121,13 @@ secret-decrypt name="":
         --vault-password-file ansible-pass \
         -m debug -a "var=$name" 2>/dev/null
 
+# Materialize the fleet-wide `ansible` SSH keypair onto this control node
+# from the vault (~/.ssh/ansible 0600 + ~/.ssh/ansible.pub 0644). Run once
+# on a fresh checkout so ansible.cfg's private_key_file resolves. Idempotent;
+# re-run after rotating the keypair. Connection-local, so it needs no SSH key.
+stage-ansible-key:
+    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/00-control-node/10-stage-ansible-key.yml
+
 # Clear and re-seed SSH host keys for every host in the inventory
 ssh-refresh:
     #!/usr/bin/env bash

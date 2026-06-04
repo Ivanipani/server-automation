@@ -33,9 +33,9 @@
 # Pre-conditions:
 #   - this play targets a fresh Debian 13 LXC with the ansible user + sudo
 #   - the LXC has outbound HTTP to ftp.debian.org for the netboot fetch
-#   - tourmanager_user_pass + ~/.ssh/ansible.pub on the controller exist
-#     (the canonical image-baseline.sh.j2 template reads them via
-#     lookup() at render time; nothing role-local to assert)
+#   - tourmanager_user_pass + ansible_user_ssh_public_key are set in
+#     group_vars (the canonical image-baseline.sh.j2 template reads them
+#     from those vars at render time; nothing role-local to assert)
 
 # The Tofu LXC module clones from the Debian 13 template and cannot
 # override the template's baked-in hostname at clone time (PVE's

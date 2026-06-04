@@ -35,7 +35,10 @@ image_baseline_users:
     # below). Safe for the automation account: Ansible runs modules via
     # /bin/sh, never the login shell.
     shell: /usr/bin/zsh
-    ssh_key: "~/.ssh/ansible.pub"
+    # Key STRING (not a path) — sourced from the vaulted keypair indirection
+    # in group_vars/all/vars.yml. create-user installs it directly; the bake
+    # script (image-baseline.sh.j2) emits it into authorized_keys verbatim.
+    ssh_key: "{{ ansible_user_ssh_public_key }}"
     # No `password:` — key-only automation account.
     sudoers:
       commands: ALL

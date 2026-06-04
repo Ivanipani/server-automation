@@ -10,11 +10,10 @@
 #
 # Pre-conditions:
 #   - group_vars/all/image-baseline.yml auto-loads for every play
-#   - tourmanager_user_pass (from group_vars/all/vars.yml → vault) and
-#     ~/.ssh/ansible.pub on the controller are available — the template
-#     module renders on the controller side, so the lookups resolve
-#     against the controller's filesystem before the rendered file is
-#     copied to the target host
+#   - tourmanager_user_pass and ansible_user_ssh_public_key (both from
+#     group_vars/all/vars.yml → vault) are available — the template module
+#     renders on the controller side from those vars before the rendered
+#     file is copied to the target host
 #
 # Sets fact:
 #   image_baseline_rendered_path — absolute path on the target host

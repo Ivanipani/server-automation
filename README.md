@@ -21,6 +21,11 @@ just check
 # install ansible (requires uv)
 just install
 
+# materialize the fleet-wide `ansible` SSH keypair from the vault onto
+# this control node (~/.ssh/ansible) so ansible.cfg can connect. Run once
+# on a fresh checkout, and again after rotating the keypair.
+just stage-ansible-key
+
 # Run a playbook against the poochella cluster
 just run
 ```

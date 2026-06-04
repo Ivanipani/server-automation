@@ -99,7 +99,7 @@ echo '{{ u.name }}:{{ u.password | password_hash("sha512", u.name) }}' | chpassw
 {% if u.ssh_key is defined %}
 install -d -o {{ u.name }} -g {{ u.name }} -m 0700 /home/{{ u.name }}/.ssh
 cat > /home/{{ u.name }}/.ssh/authorized_keys <<'__BASELINE_EOF__'
-{{ lookup('file', u.ssh_key) }}
+{{ u.ssh_key }}
 __BASELINE_EOF__
 chown {{ u.name }}:{{ u.name }} /home/{{ u.name }}/.ssh/authorized_keys
 chmod 0600 /home/{{ u.name }}/.ssh/authorized_keys

@@ -30,6 +30,23 @@ opnsense_tailscale_auth_key: "{{ vault_opnsense_tailscale_auth_key }}"
 set_user_passwords: true
 github_ssh_private_key: "{{ vault_github_ssh_private_key }}"
 github_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKUW92m3g0kRPnwq3JCpJGXP2r/5bmi8MKlbtN4/mavu ivanperdomo@Ivans-MacBook-Pro.local"
+# Fleet-wide automation SSH keypair for the `ansible` user — the trust
+# root of the whole fleet. PRIVATE half vaulted; PUBLIC half committed in
+# the clear (same convention as github_ssh_public_key above). The public
+# string is installed into EVERY host's authorized_keys (image_baseline_users
+# + create-user role + host_base_extra_users:pani + the OPNsense/NAS
+# bootstrap paths + the Debian preseed). The private half is materialized
+# onto a fresh control node at ~/.ssh/ansible (0600) by
+# `just stage-ansible-key`, so ansible.cfg's `private_key_file` resolves.
+# The public string MUST stay byte-identical to ~/.ssh/ansible.pub —
+# create-user (post-boot) and image-baseline.sh (bake-time) must emit
+# identical authorized_keys for the 17-host reconcile to stay no-op.
+# Rotate: mint a new keypair, update BOTH vars (re-encrypt
+# vault_ansible_user_ssh_private_key), re-run the 17-host tier fleet-wide,
+# then `just stage-ansible-key`.
+# Add the secret with: `just secret-encrypt vault_ansible_user_ssh_private_key`
+ansible_user_ssh_private_key: "{{ vault_ansible_user_ssh_private_key }}"
+ansible_user_ssh_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICTl/C06oyAMQiGgvUyH4eT2C0sPsIEqnT2nDNHDQ5j9 ivanperdomo@Ivans-MacBook-Pro.local"
 opnsense_api_key: "{{ vault_opnsense_api_key }}"
 opnsense_api_secret: "{{ vault_opnsense_api_secret }}"
 # --- Flux / k8s GitOps (consumed by 40-kube/30-flux.yml) -------------------

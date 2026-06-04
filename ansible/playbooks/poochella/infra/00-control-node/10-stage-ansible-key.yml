@@ -1,0 +1,56 @@
+---
+# Materialize the fleet-wide `ansible` automation keypair onto THIS
+# control node from the vault, so ansible.cfg's
+# `private_key_file = ~/.ssh/ansible` resolves on a fresh checkout:
+#
+#   ~/.ssh/ansible       0600  <- vault_ansible_user_ssh_private_key
+#   ~/.ssh/ansible.pub   0644  <- ansible_user_ssh_public_key (committed)
+#
+# Run via: `just stage-ansible-key`
+#
+# This is a CONTROL-NODE prerequisite, not part of the fleet reconcile —
+# it is deliberately NOT imported by infra/site.yml. It runs over
+# connection: local (which ignores private_key_file), so it bootstraps
+# cleanly even when ~/.ssh/ansible doesn't exist yet; it only needs the
+# vault password file. Idempotent — safe to re-run; overwrites with the
+# canonical vaulted key (do this after rotating the keypair).
+- name: Stage the vaulted ansible SSH keypair on the control node
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Assert the keypair vars are present
+      ansible.builtin.assert:
+        that:
+          - ansible_user_ssh_private_key is defined
+          - ansible_user_ssh_private_key | trim | length > 0
+          - "'PRIVATE KEY' in ansible_user_ssh_private_key"
+          - ansible_user_ssh_public_key is defined
+          - ansible_user_ssh_public_key is search('^(ssh-|ecdsa-|sk-)')
+        fail_msg: >-
+          ansible_user_ssh_{private,public}_key missing/malformed. The
+          private half is vaulted (vault_ansible_user_ssh_private_key);
+          the public half is committed in group_vars/all/vars.yml.
+        quiet: true
+
+    - name: Ensure ~/.ssh exists
+      ansible.builtin.file:
+        path: ~/.ssh
+        state: directory
+        mode: "0700"
+
+    - name: Write the ansible private key
+      # OpenSSH refuses the key if there's no trailing newline after
+      # -----END OPENSSH PRIVATE KEY-----. Normalize to exactly one.
+      ansible.builtin.copy:
+        content: "{{ ansible_user_ssh_private_key.rstrip('\n') }}\n"
+        dest: ~/.ssh/ansible
+        mode: "0600"
+      no_log: true
+
+    - name: Write the ansible public key
+      ansible.builtin.copy:
+        content: "{{ ansible_user_ssh_public_key | trim }}\n"
+        dest: ~/.ssh/ansible.pub
+        mode: "0644"

@@ -34,7 +34,7 @@
       ansible.builtin.raw: mkdir -p /home/ansible/.ssh && chown ansible:ansible /home/ansible/.ssh && chmod 700 /home/ansible/.ssh
 
     - name: Deploy SSH public key
-      ansible.builtin.raw: "echo '{{ lookup(\"file\", \"~/.ssh/ansible.pub\") }}' > /home/ansible/.ssh/authorized_keys"
+      ansible.builtin.raw: "echo '{{ ansible_user_ssh_public_key }}' > /home/ansible/.ssh/authorized_keys"
 
     - name: Set ownership on authorized_keys
       ansible.builtin.raw: chown ansible:ansible /home/ansible/.ssh/authorized_keys

@@ -28,7 +28,9 @@ already issues for the host's MAC. No PXE server, no HTTP preseed host.
    - Linux: `apt install xorriso`
 2. **ansible-core** + the project's collections — `just install` if you
    haven't already; `just check` to verify.
-3. **The bootstrap SSH key** at `~/.ssh/ansible.pub`. This is the same key
+3. **The bootstrap SSH key**, sourced from `ansible_user_ssh_public_key` in
+   `ansible/group_vars/all/vars.yml` (private half vaulted; stage it on a
+   fresh control node with `just stage-ansible-key`). This is the same key
    the existing Packer/Ansible flows install on every other box.
 4. **The `tourmanager` break-glass password in the vault**. Add it once:
    ```

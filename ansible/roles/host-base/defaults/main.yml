@@ -20,7 +20,7 @@ host_base_extra_users:
   - name: pani
     groups: [sudo, promoter, talent, docker]
     shell: /usr/bin/zsh
-    ssh_key: "~/.ssh/ansible.pub"
+    ssh_key: "{{ ansible_user_ssh_public_key }}"
     password: "{{ pani_user_pass }}"
     sudoers:
       commands: ALL

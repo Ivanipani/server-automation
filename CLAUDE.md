@@ -89,6 +89,7 @@ Roles under `roles/` are units of work, not "things to install":
 
 ## Collaboration rules (for Claude)
 
+- **Use comments SPARSELY. Avoid over-explaining decisions.**
 - **Diagnose by running read-only ansible ad-hoc commands directly**, e.g. `ansible pve-home-01 -m shell -a 'pveam list local' --become`, `ansible bootserv01 -m shell -a 'systemctl is-active dnsmasq nginx' --become`. Do not ask the user to copy/paste terminal output when an ad-hoc command can fetch the same information. The `ansible` user + `~/.ssh/ansible` key already trusts every fleet host.
 - **Never run a destructive command on the fleet without explicit per-command user permission.** "Destructive" = anything that mutates state on the host (`pct destroy`, `pveam remove`, `pvesm remove`, `rm`, `systemctl stop/disable`, `apt remove`, `qm destroy`, partitioning / disk wipes, killing processes, writing files outside `/tmp`, etc.). Reading config, listing resources, dumping logs, and `--check`/`--diff` dry-runs are fine. The same rule applies to OpenTofu (`tofu apply` against existing resources is destructive in principle) and to anything that touches OPNsense state.
 - **Use the NATO alphabet when naming cluster entities. Always start at Alpha move up.**
