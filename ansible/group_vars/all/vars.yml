@@ -22,28 +22,10 @@ router_root_pass: "{{ vault_router_root_pass }}"
 host_root_pass: "{{ vault_hypervisor_root_pass }}"
 ansible_user_pass: "{{ vault_ansible_user_pass }}"
 pani_user_pass: "{{ vault_pani_user_pass }}"
-# Break-glass account on every physical host (host-base role +
-# ssh-hardening's Match block). The ONLY user that can SSH with a
-# password after 17-host/20-ssh-hardening.yml runs.
-# Add the secret with: `just secret-encrypt vault_tourmanager_user_pass`
 tourmanager_user_pass: "{{ vault_tourmanager_user_pass }}"
-# Dedicated Proxmox service account (advanceteam@pve) used to drive Tofu
-# interactions. Created on every hypervisor by
-# 20-hypervisor/15-tofu-service-account.yml and granted a scoped custom
-# `Terraform` ACL role on `/`. The Tofu provider does NOT yet authenticate
-# as this user — it still uses the root@pam!tofu-lan token; rewiring is a
-# separate, deliberate change. Add the secret with:
-#   just secret-encrypt vault_advanceteam_user_pass
 advanceteam_user_pass: "{{ vault_advanceteam_user_pass }}"
 github_pat: "{{ vault_github_pat }}"
 tailscale_auth_key: "{{ vault_tailscale_auth_key }}"
-# Separate, tagged (tag:subnet-router) auth-key used ONLY by the
-# OPNsense subnet-router role. Keeping it separate from the physical
-# hosts' key lets the router's identity stay stable while the physical
-# hosts continue to use whatever model they're on (user-owned today).
-# Mint: Tailscale admin → Settings → Keys → reusable, no expiry,
-# tags: tag:subnet-router. Add with:
-#   just secret-encrypt vault_opnsense_tailscale_auth_key
 opnsense_tailscale_auth_key: "{{ vault_opnsense_tailscale_auth_key }}"
 set_user_passwords: true
 github_ssh_private_key: "{{ vault_github_ssh_private_key }}"
