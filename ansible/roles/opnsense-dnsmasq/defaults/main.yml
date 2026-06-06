@@ -34,17 +34,9 @@ dnsmasq_dhcp_range:
   lease_time: 86400
   domain: lan
 
-# Static reservations. Caller passes a list of dicts, one per host:
-#   - hostname: worker-home-02
-#     address: 10.1.1.106
-#     macs:
-#       - "3c:7c:3f:1f:96:af"        # onboard
-#       - "e8:eb:d3:8c:86:bc"        # Mellanox port 0
-#       - "e8:eb:d3:8c:86:bd"        # Mellanox port 1
 # OPNsense's dnsmasq_host enforces one entry per IP, so multi-NIC hosts
 # (PXE on a different NIC than the daily-driver, dual-port NICs, etc.)
-# must collapse to a single entry with all MACs in hardware_addr. The
-# `description` (derived from hostname) is the natural key for idempotency.
+# must collapse to a single entry with all MACs in hardware_addr.
 dnsmasq_static_leases: []
 dnsmasq_static_lease_prefix: lan-static
 

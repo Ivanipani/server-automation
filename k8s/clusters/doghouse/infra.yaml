@@ -94,6 +94,27 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
+  name: database-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # CloudNativePG operator only. The operator is a single Deployment that
+  # reaches Ready independently of node blips, so wait: true is safe (unlike the
+  # disableWait DaemonSet charts). It Helm-installs the cnpg.io CRDs; the
+  # PostgreSQL Cluster CRs that consume Longhorn are declared separately and
+  # would gate on this becoming Ready (same controllers→configs split as storage).
+  path: ./k8s/infra/database/controllers
+  prune: true
+  wait: true
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
   name: monitoring-controllers
   namespace: flux-system
 spec:
