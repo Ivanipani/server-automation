@@ -115,6 +115,26 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
+  name: messaging-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # Strimzi cluster operator only. A single Deployment that reaches Ready
+  # independently of node blips, so wait: true is safe (same reasoning as cnpg).
+  # It Helm-installs the kafka.strimzi.io CRDs; any Kafka CRs that consume the
+  # operator are declared separately (apps) and gate on this becoming Ready.
+  path: ./k8s/infra/messaging/controllers
+  prune: true
+  wait: true
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
   name: monitoring-controllers
   namespace: flux-system
 spec:

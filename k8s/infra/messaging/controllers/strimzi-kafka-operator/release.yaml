@@ -1,0 +1,36 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: strimzi-kafka-operator
+  namespace: strimzi-system
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: strimzi-kafka-operator
+      version: 1.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: strimzi
+        namespace: strimzi-system
+      interval: 1h
+  install:
+    # The chart templates the kafka.strimzi.io CRDs; let Helm own their
+    # lifecycle so chart upgrades also roll the CRDs forward.
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      strategy: rollback
+  # Single Deployment operator (like cnpg) — reschedules off a NotReady node and
+  # reaches Ready even during a Proxmox node blip, so normal Helm --wait is fine.
+  values:
+    # Cluster-wide watch: the operator manages Kafka CRs in any namespace,
+    # so Kafka clusters can live alongside the workloads that consume them
+    # (incl. the private doghouse apps repo). Grants cluster-scoped RBAC.
+    watchAnyNamespace: true
+    replicas: 1
