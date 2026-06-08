@@ -15,6 +15,12 @@ spec:
   storage:
     size: 10Gi
     storageClass: longhorn
+  monitoring:
+    # CNPG emits cnpg_* metrics on :9187; this PodMonitor is auto-scraped by the
+    # kube-prometheus-stack Prometheus (podMonitorSelectorNilUsesHelmValues:
+    # false → selects all). Visualized by the vendored CloudNativePG Grafana
+    # dashboard (monitoring/.../dashboards/cloudnative-pg.json).
+    enablePodMonitor: true
   bootstrap:
     initdb:
       database: remy

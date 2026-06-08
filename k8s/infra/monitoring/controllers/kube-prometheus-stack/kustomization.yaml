@@ -26,6 +26,10 @@ configMapGenerator:
     namespace: monitoring
     files:
       - dashboards/temperatures.json
+  - name: grafana-dashboard-cloudnative-pg
+    namespace: monitoring
+    files:
+      - dashboards/cloudnative-pg.json
 generatorOptions:
   disableNameSuffixHash: true
   labels:
