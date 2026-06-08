@@ -115,6 +115,34 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
+  name: database-configs
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # PostgreSQL Cluster CRs (cnpg.io/v1). Split from database-controllers for the
+  # same reason as storage-configs: kustomize-controller dry-runs every manifest
+  # against live API discovery, so the Cluster CR must not apply until the
+  # cnpg.io CRDs exist. dependsOn (with wait: true above) gates on the operator
+  # HelmRelease being Ready → CRDs present.
+  path: ./k8s/infra/database/configs
+  prune: true
+  wait: true
+  dependsOn:
+    - name: database-controllers
+  decryption:
+    # The pg-alpha owner credentials (pg-alpha-app.sops.yaml) are SOPS-encrypted.
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
   name: messaging-controllers
   namespace: flux-system
 spec:

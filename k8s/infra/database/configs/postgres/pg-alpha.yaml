@@ -1,0 +1,27 @@
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-alpha
+  namespace: databases
+spec:
+  # Primary + hot standby, one per baremetal worker (metal-home-01/-02). Required
+  # anti-affinity guarantees the spread so a single worker loss can't take both.
+  instances: 2
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
+  storage:
+    size: 10Gi
+    storageClass: longhorn
+  bootstrap:
+    initdb:
+      database: remy
+      owner: remy
+      # Owner credentials come from the SOPS-encrypted Secret in this same
+      # Kustomization (pg-alpha-app.sops.yaml: username=remy + password) rather
+      # than a CNPG-generated one. Flux decrypts + applies it before CNPG reaches
+      # bootstrap. CNPG reads it at initdb and does not manage or rotate it.
+      secret:
+        name: pg-alpha-app

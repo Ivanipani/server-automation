@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: pg-alpha-app
+    namespace: databases
+type: kubernetes.io/basic-auth
+stringData:
+    username: ENC[AES256_GCM,data:/3TckA==,iv:jfcVYgcDtCA9CDyGHvVe1FqjrfVkY+XHG8FHvFfhD+g=,tag:ASgbfBXsuYFZJjI8yEToUw==,type:str]
+    password: ENC[AES256_GCM,data:Wk8+LFCRsQGRZYG37sZGaAhq4SXLoBcesoSCN125uQ==,iv:/Kl+gnJW9M/vIGJYDtRDzPcQwkd9P8MIGmVKj4BY1rU=,tag:xMEvjXM7sv+OReWT0narXg==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBrU3hHWVpjK3o4Tm5NUmRu
+            V24vaG1aSlZWRHNZaWhHcENKRW9IaFpYNGhVCkRaQWJpbmpGMW4zZ05ueXlzR3lx
+            RkRQWGtlcHhlUG5yblA0SG9vTjNkVVUKLS0tIHBvVEVISDBpUkZkRm94ZURXY0ZX
+            UkdXemtETElRUW5QNUg1UDJBZjNsdEUKYgRLAuhL2EfG9vyNvTe5Kl+ZQdqrCois
+            wscXJbDiA6AXUNk3c6KbOdXEhpnv+FriayraBklk5HsOAGFMyjcxpw==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age12xnm47mqs6rsw6e6fscva7s4pnaxmy2c7cvzfvx6knq497vx4s7qsp2u8g
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-06-08T03:48:05Z"
+    mac: ENC[AES256_GCM,data:9guwlF5+Z4ye+ZRkcL5t/XTMjW41eAW4nRpgelVcCLkakHJWD79EKtH0TaE1rcsifAtcXEW7WZ4+/8fqUQhOweSkkG7dzQwRrvTUnTV44JQyw3GiCLNNA6wnpn5OcdSIrNQTeHoDboyBUhl9fEs0gbwsS8rZk1rEMitaAqsVVjY=,iv:O0GhWg/Q+nsXmpHO9sDJEcpGrvBrl9gZ0lAF4W1rBjM=,tag:8REuXy9CTwIenMlw8GJAJA==,type:str]
+    version: 3.13.0
