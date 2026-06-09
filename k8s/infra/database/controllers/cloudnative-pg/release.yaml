@@ -26,11 +26,5 @@ spec:
     remediation:
       retries: 3
       strategy: rollback
-  # Unlike the DaemonSet charts here (Longhorn, node-exporter) the operator is a
-  # single Deployment, so it can reschedule off a NotReady node and reach Ready
-  # even during a Proxmox node blip — normal Helm --wait is fine, no disableWait.
   values:
-    # Defaults schedule the operator on a worker (CP is tainted, see the node
-    # scheduling model). The operator only manages CRs; the PostgreSQL Clusters
-    # it provisions are what consume Longhorn storage, declared separately.
     replicaCount: 1

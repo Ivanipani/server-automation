@@ -23,7 +23,7 @@ spec:
     enablePodMonitor: true
   bootstrap:
     initdb:
-      database: remy
+      database: alpha-db
       owner: remy
       # Owner credentials come from the SOPS-encrypted Secret in this same
       # Kustomization (pg-alpha-app.sops.yaml: username=remy + password) rather
