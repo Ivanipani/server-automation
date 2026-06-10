@@ -59,6 +59,20 @@
             record_type: A
             value: 10.1.1.250
 
+          # PostgreSQL (pg-alpha) primary, exposed outside the cluster on a
+          # pinned MetalLB IP for pgAdmin & co. (see k8s pg-alpha.yaml
+          # managed.services). Lives in the top-level `lan` zone, NOT
+          # doghouse.lan: it's a peer of the ingress with its own
+          # LoadBalancer IP, and the *.doghouse.lan wildcard makes that zone
+          # redirect — which forbids per-host local-data below the apex (same
+          # reasoning as the apiserver below). The value must stay in sync
+          # with the MetalLB annotation on the pg-alpha-lb Service.
+          - description: doghouse-pg-alpha
+            hostname: pg-alpha
+            domain: lan
+            record_type: A
+            value: 10.1.1.240
+
     # Stable name in front of the k3s apiserver (kube-vip L2 VIP).
     # Lives in the top-level `lan` zone (transparent), NOT under
     # doghouse.lan: the *.doghouse.lan wildcard above makes that zone

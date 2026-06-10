@@ -9,9 +9,8 @@
 #
 # CUTOVER DONE: the app tree now lives in the private repo at apps/doghouse and
 # this repo no longer carries k8s/apps. The `apps` Kustomization below sources the
-# `doghouse-apps` GitRepository (path ./apps/doghouse). The `decryption` block is
-# still commented because the private apps carry no SOPS secrets yet — uncomment it
-# the moment they do (the sops-age Secret is already in flux-system via Ansible).
+# `doghouse-apps` GitRepository (path ./apps/doghouse) and decrypts SOPS secrets
+# via the sops-age Secret (installed in flux-system by Ansible).
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
@@ -50,9 +49,10 @@ spec:
     # PVC wants the Longhorn default StorageClass (storage).
     - name: networking-configs
     - name: storage-configs
-  # Uncomment once the private apps repo carries SOPS-encrypted secrets — the
-  # sops-age Secret is already installed in flux-system by Ansible.
-  # decryption:
-  #   provider: sops
-  #   secretRef:
-  #     name: sops-age
+  # The private apps repo carries SOPS-encrypted *.sops.yaml secrets; the
+  # sops-age Secret is installed in flux-system by Ansible. Safe even when no
+  # encrypted resources are present (decryption is a no-op for plaintext).
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age

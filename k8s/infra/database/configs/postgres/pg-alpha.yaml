@@ -21,6 +21,23 @@ spec:
     # false → selects all). Visualized by the vendored CloudNativePG Grafana
     # dashboard (monitoring/.../dashboards/cloudnative-pg.json).
     enablePodMonitor: true
+  managed:
+    services:
+      # Expose the primary (rw) outside the cluster on a pinned MetalLB IP so
+      # pgAdmin & co. can reach it. `selectorType: rw` always tracks the current
+      # primary, so failover is transparent to clients. CNPG owns this Service
+      # and injects selector + the 5432 port; we only template metadata + type.
+      # The IP must stay in sync with the dnsmasq DNS record (pg-alpha.lan) and
+      # sit in the MetalLB pool (k8s/infra/networking/configs/metallb).
+      additional:
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: pg-alpha-lb
+              annotations:
+                metallb.universe.tf/loadBalancerIPs: 10.1.1.240
+            spec:
+              type: LoadBalancer
   bootstrap:
     initdb:
       database: alpha-db
