@@ -29,3 +29,34 @@ edit-secret:
 # Headlamp admin token
 get-headlamp-secret:
     kubectl -n headlamp get secret headlamp-token -o jsonpath='{.data.token}' | base64 -d
+
+# Fuzzy-pick a *.sops.yaml secret and open it decrypted in $EDITOR (re-encrypts on save).
+edit-sops:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    file=$(find . \( -name .git -o -name .jj \) -prune -o \
+        -name '*.sops.yaml' ! -name '.sops.yaml' -type f -print \
+        | sed 's|^\./||' | sort \
+        | fzf --prompt='sops> ' --height=40% --reverse --no-multi) || exit 0
+    [[ -n "${file:-}" ]] || { echo "No file selected." >&2; exit 0; }
+    SOPS_AGE_KEY_FILE="{{pwd}}/age.agekey" sops "${file}"
+
+# Encrypt a sops.yaml file in place
+encrypt-sops:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    file=$(find . \( -name .git -o -name .jj \) -prune -o \
+        -name '*.sops.yaml' ! -name '.sops.yaml' -type f -print \
+        | sed 's|^\./||' | sort \
+        | fzf --prompt='sops> ' --height=40% --reverse --no-multi) || exit 0
+    [[ -n "${file:-}" ]] || { echo "No file selected." >&2; exit 0; }
+    SOPS_AGE_KEY_FILE="{{pwd}}/age.agekey" sops -e -i "${file}"
+
+
+# install gcloud cli
+[macos]
+install-gcloud:
+    curl -O https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-darwin-arm.tar.gz
+    tar -xf google-cloud-cli-darwin-arm.tar.gz
+    ./google-cloud-sdk/install.sh --help
+
