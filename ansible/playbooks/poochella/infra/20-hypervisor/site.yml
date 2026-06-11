@@ -28,4 +28,5 @@
 # registered in one shot by the 17-host tier before this tier runs.
 - import_playbook: 15-tofu-service-account.yml
 - import_playbook: 20-cluster.yml
+- import_playbook: 30-mgmt-network.yml
 - import_playbook: 40-pull-templates.yml

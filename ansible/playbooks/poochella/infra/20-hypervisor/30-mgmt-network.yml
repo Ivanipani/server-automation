@@ -1,0 +1,71 @@
+---
+# Ensure every PVE hypervisor's management bridge (vmbr0) is a DHCP client.
+#
+# WHY: the PVE auto-installer (proxmox-answer.toml `[network] source =
+# "from-dhcp"`) pulls its address via DHCP at install time but then BAKES the
+# captured lease into a STATIC vmbr0 stanza (address + gateway) on the
+# installed system — the host stops being a DHCP client. dnsmasq mints the
+# `<host>.lan` forward record only from an ACTIVE DHCP lease (the static
+# OPNsense reservation alone yields just the bare label + a PTR), so a baked-
+# static hypervisor is reachable by IP but NOT by FQDN. That is exactly what
+# stranded pve-home-02 / pve-home-03. The OPNsense reservation pins MAC→IP, so
+# flipping vmbr0 back to DHCP keeps the same address and restores the lease
+# that mints the FQDN.
+#
+# Idempotent: a host already on `inet dhcp` (e.g. pve-home-01) is untouched.
+# `serial: 1` + a post-reload reachability check bound the blast radius to one
+# node at a time. vmbr0 keeps its IP across the reload (same reservation), so
+# the bridge L2 / guest-VM traffic rides through it.
+#
+# Reversible (per repo Ansible guideline): set `hypervisor_mgmt_dhcp: false`
+# to pin the inventory static IP back onto vmbr0 instead.
+#
+# CONNECTING TO ALREADY-BROKEN HOSTS: a baked-static host doesn't resolve by
+# FQDN, so Ansible can't reach it via inventory `ansible_host: <h>.lan`. For
+# the one-time heal, target the IPs directly with an inline inventory:
+#   ansible-playbook ... 30-mgmt-network.yml -e target_hosts=all \
+#     -i '10.1.1.108,10.1.1.109,'
+# The DHCP branch needs no inventory hostvars, so raw-IP targets work. Once a
+# host is healthy again it resolves by name and the default group run covers
+# it on the next reconcile.
+- name: Ensure hypervisor vmbr0 uses DHCP (matches OPNsense reservation)
+  hosts: "{{ target_hosts | default('hypervisors') }}"
+  gather_facts: false
+  become: true
+  serial: 1
+  vars:
+    hypervisor_mgmt_dhcp: true
+    # Gateway used only by the reverse (static) branch.
+    vmbr0_static_gateway: "{{ hostvars['opnsense01'].ip_address | default('10.1.1.1') }}"
+  handlers:
+    - name: reload-network
+      # Same reserved IP comes back, so an established SSH session rides
+      # through the brief L3 reconfigure. serial:1 + the wait_for_connection
+      # below catch a host that fails to return before the next node is run.
+      ansible.builtin.command: ifreload -a
+  tasks:
+    - name: Convert baked-static vmbr0 to DHCP
+      when: hypervisor_mgmt_dhcp | bool
+      ansible.builtin.replace:
+        path: /etc/network/interfaces
+        # Match the `inet static` line plus the run of indented address/
+        # gateway/netmask lines the installer baked in; leave bridge-* lines
+        # untouched. Once converted, this no longer matches → no-op on re-run.
+        regexp: '(?m)^iface vmbr0 inet static\n(?:[ \t]+(?:address|gateway|netmask)[ \t][^\n]*\n)+'
+        replace: "iface vmbr0 inet dhcp\n"
+      notify: reload-network
+
+    - name: Pin vmbr0 to inventory static IP (reverse path)
+      when: not (hypervisor_mgmt_dhcp | bool)
+      ansible.builtin.replace:
+        path: /etc/network/interfaces
+        regexp: '(?m)^iface vmbr0 inet dhcp$'
+        replace: "iface vmbr0 inet static\n\taddress {{ hostvars[inventory_hostname].ip_address }}/24\n\tgateway {{ vmbr0_static_gateway }}"
+      notify: reload-network
+
+    - name: Apply the reload now, before checking reachability
+      ansible.builtin.meta: flush_handlers
+
+    - name: Confirm the host is still reachable after the reload
+      ansible.builtin.wait_for_connection:
+        timeout: 60
