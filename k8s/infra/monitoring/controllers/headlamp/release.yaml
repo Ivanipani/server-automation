@@ -22,14 +22,22 @@ spec:
     remediation:
       retries: 3
   values:
-    # Single replica is correct for the current 1 CP + 1 worker layout: with the
-    # CP toleration below Headlamp is eligible for both nodes, but there's only
-    # one of each, so a second replica would just double-stack somewhere (no
-    # availability gain, more RAM). Bump to 2 and add topologySpreadConstraints
-    # across the kubernetes.io/hostname topology key once a 2nd worker joins.
-    replicaCount: 1
+    # Two replicas across distinct nodes: Headlamp is stateless (auth lives
+    # client-side), so the spread survives a node reboot and rolling upgrades
+    # with no UI gap. The fleet now has 3 CP + 2 workers, so the constraint
+    # below can actually place the replicas on separate hosts.
+    replicaCount: 2
+    # Keep the two replicas off the same node; DoNotSchedule so we never silently
+    # collapse back to a single point of failure.
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: headlamp
     # Opt in to the CP taint (see "Node scheduling model" in the README) so
-    # Headlamp can be scheduled on kube-ctl-01 as well as the workers.
+    # Headlamp can be scheduled on the kube-ctl nodes as well as the workers.
     tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
