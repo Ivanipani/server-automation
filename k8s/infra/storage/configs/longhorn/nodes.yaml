@@ -34,14 +34,14 @@ spec:
       allowScheduling: true
       evictionRequested: false
       storageReserved: 0
-      tags: []
+      tags: ["boot", "nvme"]
       diskType: filesystem
     part-beta:
       path: /var/lib/longhorn-disks/part-bravo
       allowScheduling: true
       evictionRequested: false
       storageReserved: 0
-      tags: []
+      tags: ["nvme"]
       diskType: filesystem
     part-gamma:                                 # spinning HDD — tag to keep hot data off it
       path: /var/lib/longhorn-disks/part-charlie
@@ -64,13 +64,13 @@ spec:
       allowScheduling: true
       evictionRequested: false
       storageReserved: 0                          # homelab: use the whole disk
-      tags: []
+      tags: ["boot","nvme"]
       diskType: filesystem
     part-beta:                                    # CT2000P310 NVMe (~1.8 TiB)
       path: /var/lib/longhorn-disks/part-beta
       allowScheduling: true
       evictionRequested: false
       storageReserved: 0
-      tags: []
+      tags: ["nvme"]
       diskType: filesystem
 

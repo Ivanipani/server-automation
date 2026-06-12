@@ -118,18 +118,12 @@ disk-plan:
 firmware-plan:
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/60-firmware-plan.yml
 
-# Run the full 17-host tier on every physical host (users, ssh-hardening, firewall, tailscale, node-exporter). Safe to re-run.
-do-host-init: check
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/site.yml
-
-# Bootstrap Flux on the doghouse cluster
-do-flux: check
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/40-kube/40-flux.yml
-
-# Bring up (or reconcile) the foundation hypervisor (pve-home-01) + bootserv01 LXC + bootserv role. Run before any fresh-baremetal install — workers need bootserv01.lan to netboot.
-do-foundation: check
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/site.yml
-
 sync-preseed-templates:
     cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/90-bootserv.yml --start-at-task "Copy iPXE chainload binaries into TFTP root"
 
+
+
+
+# Force an immediate reconciliation by pulling latest sources
+force-reconcile:
+    flux reconcile source git doghouse-apps
