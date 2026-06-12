@@ -9,11 +9,6 @@
 #   reconciled by playbooks/poochella/infra/15-nas/30-storage.yml
 # Exports are LAN-IP-scoped (10.1.1.0/24, all_squash) so no NFS credentials
 # are needed — credentialSecret stays empty.
-#
-# Today the only storage worker is worker-home-02; it must have NFS reach to
-# nas01.lan:2049 for the mount to come up. The chart-installed longhorn-manager
-# DS pod on that node performs the mount, so connectivity is per-DS-pod, not
-# cluster-wide.
 apiVersion: longhorn.io/v1beta2
 kind: BackupTarget
 metadata:

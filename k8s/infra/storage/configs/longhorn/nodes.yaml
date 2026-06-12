@@ -14,11 +14,7 @@
 # kube_worker is a SEPARATE plain-ext4 mount under
 # /var/lib/longhorn-disks/<label> = a SEPARATE Longhorn disk. Losing one
 # disk only loses that disk's replicas (the node's other disks keep
-# serving); Longhorn rebuilds them from the peer zone. This replaced the
-# old single spanning /var/lib/longhorn pool, which coupled every disk
-# into one failure domain. The mounts are built by the substrate Ansible
-# host-disks role from each host's inventory `storage.disks`; the `path`s
-# below MUST match those mount paths exactly.
+# serving); Longhorn rebuilds them from the peer zone.
 #
 # `name` MUST equal the Kubernetes node name (kubelet hostname). Confirm
 # with `kubectl get nodes` before relying on this — the node must have

@@ -90,6 +90,11 @@ spec:
   wait: true
   dependsOn:
     - name: storage-controllers
+  decryption:
+    # longhorn-gcs-s3 (HMAC creds for the gcs BackupTarget) is SOPS-encrypted.
+    provider: sops
+    secretRef:
+      name: sops-age
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization

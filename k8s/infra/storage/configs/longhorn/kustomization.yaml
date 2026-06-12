@@ -5,3 +5,6 @@ resources:
   - backup-target.yaml
   - recurring-job.yaml
   - nodes.yaml
+  # GCS bucket as a second BackupTarget (HMAC over S3 interop).
+  - gcs-backup-target.yaml
+  - gcs-s3-credentials.sops.yaml

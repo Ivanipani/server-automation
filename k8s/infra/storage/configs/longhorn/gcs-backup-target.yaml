@@ -1,0 +1,14 @@
+---
+# Second BackupTarget: the poochella-backups GCS bucket over GCS's S3
+# interoperability endpoint (Longhorn has no native GCS driver — it speaks S3
+# with HMAC creds). Sits alongside the `default` NAS target. Credentials +
+# endpoint live in the longhorn-gcs-s3 Secret (gcs-s3-credentials.sops.yaml).
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: gcs
+  namespace: longhorn-system
+spec:
+  backupTargetURL: "s3://poochella-backups@us-east4/"
+  credentialSecret: longhorn-gcs-s3
+  pollInterval: "5m0s"
