@@ -7,3 +7,4 @@ resources:
   - gcs-backup-target.yaml
   - recurring-job.yaml
   - nodes.yaml
+  - storage-classes.yaml

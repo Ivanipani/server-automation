@@ -1,0 +1,81 @@
+---
+# Tiered StorageClasses keyed to the disk `tags` registered in nodes.yaml.
+#
+# Longhorn `diskSelector` is a HARD requirement (AND of all listed tags, no
+# negation, no soft "prefer"): a volume's replicas only schedule onto disks
+# carrying every selected tag, else the volume stays Pending/Degraded. So
+# these classes express REQUIRE semantics. There is no Longhorn primitive for
+# "prefer tag X but spill to Y" — to "prefer" a tier, hand the workload that
+# tier's class and accept Pending-on-full instead of a silent spill.
+#
+# The chart-created default `longhorn` class (release.yaml: persistence.
+# defaultClass) carries NO diskSelector and lands on any schedulable disk —
+# that remains the right pick for "don't care." These are opt-in extras; none
+# is marked default.
+#
+# Tag topology (see nodes.yaml) — boot ⊂ nvme by design:
+#   nvme : both workers (dedicated NVMe + boot-disk tails)  → 2 zones
+#   boot : both workers (OS-disk leftover only)             → 2 zones
+#   hdd  : metal-home-01 ONLY                               → 1 zone
+#
+# numberOfReplicas is capped by how many ZONES carry the tag, because
+# replicaZoneSoftAntiAffinity=false (release.yaml) forbids two replicas of one
+# volume in the same zone (= same Proxmox host). hdd is single-zone → 1.
+#
+# Backups: opt a PVC in exactly as with the default class — label the volume
+# `recurring-job-group.longhorn.io/default: enabled` (see recurring-job.yaml).
+---
+# Fast tier — any flash. Databases, hot working sets, latency-sensitive PVCs.
+# Includes the boot-disk tails (they carry the nvme tag); if you need the fast
+# tier to AVOID boot disks, give the dedicated NVMes a distinct tag and select
+# that instead — diskSelector cannot express "nvme AND NOT boot".
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-nvme
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "2"
+  staleReplicaTimeout: "30"
+  diskSelector: "nvme"
+  dataLocality: "disabled"
+---
+# Boot tier — the OS-disk leftover specifically (boot ⊂ nvme). Lowest-priority
+# flash: replicas here share the spindle and I/O budget with the node OS, so
+# reserve it for tolerant bulk-ish PVCs, not hot data.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-boot
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "2"
+  staleReplicaTimeout: "30"
+  diskSelector: "boot"
+  dataLocality: "disabled"
+---
+# Bulk/cold tier — spinning HDD. Media, archives, anything large and
+# throughput-not-latency. CAPPED AT 1 REPLICA: hdd exists on metal-home-01
+# only, and hard zone anti-affinity refuses a 2nd replica in the same zone, so
+# numberOfReplicas:2 here would sit permanently Degraded. Bump to 2 only once a
+# second worker registers an hdd disk. Single replica = the NAS BackupTarget is
+# the only durable copy — make sure these PVCs carry the backup opt-in label.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-hdd
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  staleReplicaTimeout: "30"
+  diskSelector: "hdd"
+  dataLocality: "disabled"
