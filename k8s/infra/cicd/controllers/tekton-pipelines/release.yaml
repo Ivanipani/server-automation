@@ -1,0 +1,41 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: tekton-pipeline
+  namespace: tekton-pipelines
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: tekton-pipeline
+      version: 1.12.0
+      sourceRef:
+        kind: HelmRepository
+        name: tekton
+        namespace: tekton-pipelines
+      interval: 1h
+  install:
+    # The chart ships the tekton.dev CRDs in its crds/ dir; let Helm own their
+    # lifecycle so chart upgrades roll the CRDs forward (CreateReplace, since
+    # vanilla Helm 3 never updates crds/ on upgrade). The HelmRelease becoming
+    # Ready (CRDs installed) is what gates cicd-configs in infra.yaml.
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+      strategy: rollback
+  # Pipelines controller + webhook are reschedulable Deployments (reach Ready off
+  # a NotReady node), so normal Helm --wait is fine.
+  values:
+    # We declare the namespace ourselves (namespace.yaml) per repo convention.
+    namespace:
+      create: false
+      name: tekton-pipelines
+    # Cluster-scoped RBAC so pipelines/tasks can run in any namespace (CI defs
+    # live in tekton-ci, not here).
+    createClusterRoles: true
+    createAggregateRoles: true

@@ -11,7 +11,7 @@
 FROM debian:12-slim
 
 ARG DOCKER_VERSION=27.5.1
-ARG BUILDX_VERSION=0.18.2
+ARG BUILDX_VERSION=0.34.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git openssh-client bash sed coreutils \

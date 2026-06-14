@@ -208,6 +208,28 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
+  name: cicd-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # Tekton Pipelines (CDF Helm chart) + the read-only Dashboard (vendored upstream
+  # manifest). The Pipelines HelmRelease installs the tekton.dev CRDs (crds:
+  # CreateReplace) and only then marks Ready. wait: true makes this Kustomization
+  # gate cicd-configs below: kustomize-controller dry-runs every manifest against
+  # live API discovery, so the Task/Pipeline CRs in cicd-configs must not apply
+  # until the CRDs exist (same controllers→configs split as storage/database).
+  path: ./k8s/infra/cicd/controllers
+  prune: true
+  wait: true
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
   name: cicd-configs
   namespace: flux-system
 spec:
@@ -217,13 +239,16 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # Tekton CI definitions + the in-cluster BuildKit backend. Assumes the Tekton
-  # Pipelines CRDs are already installed (controllers managed out-of-band — see
-  # k8s/infra/cicd/README.md). PipelineRuns are kicked by hand, not reconciled.
+  # Tekton CI definitions + the in-cluster BuildKit backend. The tekton.dev CRDs
+  # are installed by cicd-controllers (Flux-managed). PipelineRuns are kicked by
+  # hand, not reconciled.
   path: ./k8s/infra/cicd/configs
   prune: true
   wait: true
   dependsOn:
+    # cicd-controllers → tekton.dev CRDs present (gates the Task/Pipeline CR
+    # dry-run that kustomize-controller runs against live API discovery).
+    - name: cicd-controllers
     # PipelineRun `source` workspaces use the Longhorn default StorageClass.
     - name: storage-configs
   decryption:

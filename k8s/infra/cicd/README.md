@@ -14,16 +14,28 @@ cicd/
     runs/       on-demand PipelineRun templates (NOT reconciled by Flux)
     secrets/    SOPS secrets (author from *.example — see secrets/README.md)
   images/ci-builder/         # build image (pants + buildx + git); bootstrap once
+  controllers/               # Tekton itself (Flux: cicd-controllers)
+    tekton-pipelines/   CDF Helm chart (Pipelines + tekton.dev CRDs)
+    tekton-dashboard/   vendored upstream read-only release.yaml + Traefik Ingress
 ```
 
-## Controllers (assumed present)
+## Controllers (Flux-managed)
 
-The Tekton **Pipelines** CRDs (`tekton.dev/v1` Task/Pipeline/PipelineRun) are
-assumed already installed and managed out-of-band. This category declares only
-the CI definitions + the BuildKit backend. (Tekton has no official Helm chart;
-when you want it GitOps-managed, vendor the pinned `release.yaml` under
-`cicd/controllers/tekton-pipelines/` and add a `cicd-controllers` Kustomization
-that `cicd-configs` `dependsOn`.)
+`cicd/controllers/` installs Tekton itself, reconciled by the `cicd-controllers`
+Flux Kustomization (in `k8s/clusters/doghouse/infra.yaml`):
+
+- **`tekton-pipelines/`** — Tekton **Pipelines** via the CDF Helm chart
+  (`tekton-pipeline`, repo <https://cdfoundation.github.io/tekton-helm-chart/>).
+  The HelmRelease installs the `tekton.dev` CRDs (`crds: CreateReplace`) into the
+  `tekton-pipelines` namespace, then marks Ready. `cicd-configs`
+  `dependsOn cicd-controllers`, so the `tekton.dev/v1` Task/Pipeline CRs only apply
+  once those CRDs exist (same controllers→configs gating as `storage`/`database`).
+- **`tekton-dashboard/`** — the **read-only** Dashboard. No Helm chart exists for
+  it, so the pinned upstream `release.yaml` (v0.69.0) is vendored verbatim and
+  exposed at `tekton.doghouse.lan` via a Traefik Ingress (the DNS override lives in
+  the Ansible repo, like the other UIs).
+
+Tekton **Triggers**/webhooks are still deferred (MVP is on-demand `PipelineRun`s).
 
 ## Architecture
 
@@ -61,37 +73,13 @@ PipelineRun (on demand)                       buildkitd (rootless, in-cluster)
    ```
 2. **Author the secrets** — see `configs/tekton-ci/secrets/README.md`, then
    uncomment them in `configs/tekton-ci/kustomization.yaml`.
-3. **Wire Flux** — add the `cicd-configs` Kustomization to
-   `k8s/clusters/doghouse/infra.yaml` (snippet below), commit, reconcile.
+3. **Flux is already wired** — `cicd-controllers` + `cicd-configs` live in
+   `k8s/clusters/doghouse/infra.yaml`. Just commit and reconcile; Flux installs
+   Tekton, then applies the CI definitions.
 4. **Run on demand**:
    ```sh
    kubectl create -n tekton-ci -f configs/tekton-ci/runs/publish-auth-svc.run.yaml
    kubectl create -n tekton-ci -f configs/tekton-ci/runs/verify.run.yaml
    ```
-
-### infra.yaml snippet
-
-```yaml
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
-  name: cicd-configs
-  namespace: flux-system
-spec:
-  interval: 10m
-  retryInterval: 1m
-  timeout: 5m
-  sourceRef:
-    kind: GitRepository
-    name: flux-system
-  path: ./k8s/infra/cicd/configs
-  prune: true
-  wait: true
-  dependsOn:
-    - name: storage-configs    # PipelineRun workspaces use the Longhorn default class
-  decryption:
-    provider: sops
-    secretRef:
-      name: sops-age
-```
+   Watch progress in the dashboard at <http://tekton.doghouse.lan> (read-only) or
+   with `tkn -n tekton-ci pipelinerun logs --last -f`.

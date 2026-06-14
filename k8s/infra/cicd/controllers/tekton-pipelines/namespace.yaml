@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tekton-pipelines
+  # We own the namespace (namespace.create: false in the HelmRelease values) to
+  # match the repo's explicit-namespace convention. Labels mirror the chart's
+  # defaults: the Tekton controller/webhook and the dashboard run restricted.
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    app.kubernetes.io/part-of: tekton-pipelines

@@ -16,9 +16,8 @@ resources:
   - tasks/pin-release.yaml
   - pipelines/verify.yaml
   - pipelines/publish-auth-svc.yaml
-  # Secrets (author + encrypt first, then uncomment — see secrets/README.md):
-  # - secrets/gar-push.sops.yaml
-  # - secrets/doghouse-git.sops.yaml
+  - secrets/gar-push.sops.yaml
+  - secrets/doghouse-git.sops.yaml
   #
   # PipelineRuns are NOT reconciled by Flux (they are one-shot, immutable, and
   # would be re-created on every prune). Kick them by hand from runs/.

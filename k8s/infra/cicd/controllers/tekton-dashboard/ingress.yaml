@@ -1,0 +1,23 @@
+---
+# The upstream dashboard manifest ships no Ingress; expose it the same way as the
+# other cluster UIs (Headlamp/Grafana/Longhorn) — Traefik IngressClass, reachable
+# at tekton.doghouse.lan once OPNsense Unbound resolves it to 10.1.1.250 (the
+# MetalLB-pinned Traefik LB). Read-only dashboard, so no auth middleware here.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tekton-dashboard
+  namespace: tekton-pipelines
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: tekton.doghouse.lan
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tekton-dashboard
+                port:
+                  number: 9097
