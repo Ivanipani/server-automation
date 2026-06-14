@@ -1,0 +1,78 @@
+---
+# Daemonless image builds need a build backend. k3s nodes run containerd (no
+# Docker daemon), and the laptop-era `docker buildx` cross-build in doghouse's
+# images/justfile only exists because that host is arm64 — the cluster is amd64,
+# so builds run natively here. We keep pants as the publish interface (per the
+# build engine decision) and point its buildx `remote` driver at this long-lived
+# rootless buildkitd. The build Task forwards GAR push creds to it at --push
+# time, so buildkitd itself holds no secrets.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buildkitd
+  namespace: tekton-ci
+  labels:
+    app: buildkitd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: buildkitd
+  template:
+    metadata:
+      labels:
+        app: buildkitd
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/buildkitd: unconfined
+    spec:
+      containers:
+        - name: buildkitd
+          image: moby/buildkit:v0.18.2-rootless
+          args:
+            - --addr
+            - unix:///run/user/1000/buildkit/buildkitd.sock
+            - --addr
+            - tcp://0.0.0.0:1234
+            - --oci-worker-no-process-sandbox
+          # Rootless still needs an unconfined seccomp profile + /dev/fuse for
+          # the overlay snapshotter. No full privileged escalation.
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+            runAsUser: 1000
+            runAsGroup: 1000
+          ports:
+            - containerPort: 1234
+              name: buildkit
+          readinessProbe:
+            exec:
+              command: ["buildctl", "debug", "workers"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          livenessProbe:
+            exec:
+              command: ["buildctl", "debug", "workers"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          volumeMounts:
+            # Ephemeral build cache. Swap for a Longhorn PVC later to persist the
+            # layer cache across rebuilds (faster CI, at the cost of a RWO volume
+            # on the blip-prone substrate).
+            - name: buildkit-cache
+              mountPath: /home/user/.local/share/buildkit
+      volumes:
+        - name: buildkit-cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildkitd
+  namespace: tekton-ci
+spec:
+  selector:
+    app: buildkitd
+  ports:
+    - name: buildkit
+      port: 1234
+      targetPort: 1234

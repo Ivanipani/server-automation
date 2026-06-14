@@ -1,0 +1,24 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# CI/CD pipeline definitions for the doghouse cluster. Assumes the Tekton
+# Pipelines CRDs are already installed (controllers are managed out-of-band per
+# the cicd README). Only namespace + the BuildKit backend + Task/Pipeline CRs
+# are declared here; the SOPS-encrypted Secrets the Runs consume are added to
+# secrets/ and listed below once authored (see secrets/README.md).
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - buildkit.yaml
+  - tasks/clone-and-version.yaml
+  - tasks/lint-realms.yaml
+  - tasks/build-image.yaml
+  - tasks/pin-release.yaml
+  - pipelines/verify.yaml
+  - pipelines/publish-auth-svc.yaml
+  # Secrets (author + encrypt first, then uncomment — see secrets/README.md):
+  # - secrets/gar-push.sops.yaml
+  # - secrets/doghouse-git.sops.yaml
+  #
+  # PipelineRuns are NOT reconciled by Flux (they are one-shot, immutable, and
+  # would be re-created on every prune). Kick them by hand from runs/.

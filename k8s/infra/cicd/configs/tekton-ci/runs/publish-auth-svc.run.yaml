@@ -1,0 +1,33 @@
+---
+# On-demand build + publish + deploy of auth-svc. NOT reconciled by Flux —
+# kick it by hand:
+#   kubectl create -n tekton-ci -f runs/publish-auth-svc.run.yaml
+# Set pin=false below to publish the image without pinning/deploying.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: publish-auth-svc-
+  namespace: tekton-ci
+spec:
+  serviceAccountName: tekton-ci-bot
+  pipelineRef:
+    name: publish-auth-svc
+  params:
+    - name: revision
+      value: main
+    - name: pin
+      value: "true"
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 4Gi
+    - name: ssh-creds
+      secret:
+        secretName: doghouse-git
+    - name: docker-config
+      secret:
+        secretName: gar-push

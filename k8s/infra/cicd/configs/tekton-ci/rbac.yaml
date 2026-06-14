@@ -1,0 +1,15 @@
+---
+# Identity every PipelineRun runs as. It needs no Kubernetes API rights (the
+# pipelines only clone, build, push images, and git-push back) — just the GAR
+# pull secret so build pods can pull the private ci-builder image. The push /
+# git-write credentials are mounted per-Task from secrets/, not granted here.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-ci-bot
+  namespace: tekton-ci
+imagePullSecrets:
+  # Pull-only GAR creds for the private ci-builder image. Author as a
+  # dockerconfigjson Secret named gar-pull in this namespace (see
+  # secrets/README.md); the SA tolerates it being absent until then.
+  - name: gar-pull

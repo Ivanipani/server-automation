@@ -1,0 +1,53 @@
+---
+# Clone the doghouse repo at a revision and derive the CalVer image tag from
+# git. doghouse's images/justfile computes the tag with `jj`, which isn't present
+# in a Tekton checkout — this is the git port of that logic (UTC commit
+# timestamp -> YYYY.MM.DD.HHMMSS, plus the 12-char short sha as the revision
+# label), matching images/BUILD's {VERSION}/{GIT_SHA} build args.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: clone-and-version
+  namespace: tekton-ci
+spec:
+  params:
+    - name: url
+      description: Git URL to clone.
+      type: string
+      default: ssh://git@github.com/Ivanipani/doghouse
+    - name: revision
+      description: Branch, tag, or commit SHA to check out.
+      type: string
+      default: main
+  workspaces:
+    - name: source
+      description: Emptied, then populated with the checkout.
+    - name: ssh-creds
+      description: SSH deploy key for the repo (key `id_ed25519`).
+  results:
+    - name: calver
+      description: UTC commit timestamp as CalVer (e.g. 2026.06.14.211722).
+    - name: git-sha
+      description: 12-char short commit id (revision label).
+  steps:
+    - name: clone-and-version
+      image: us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella/ci-builder:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        export GIT_SSH_COMMAND="ssh -i $(workspaces.ssh-creds.path)/id_ed25519 \
+          -o IdentitiesOnly=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+
+        cd "$(workspaces.source.path)"
+        rm -rf repo && git clone "$(params.url)" repo
+        cd repo
+        git checkout --detach "$(params.revision)"
+
+        # CalVer from the committer timestamp (UTC), git port of images/justfile.
+        TZ=UTC git show -s --format=%cd \
+          --date=format-local:%Y.%m.%d.%H%M%S HEAD | tr -d '\n' \
+          > "$(results.calver.path)"
+        git rev-parse --short=12 HEAD | tr -d '\n' > "$(results.git-sha.path)"
+
+        echo "calver=$(cat "$(results.calver.path)") sha=$(cat "$(results.git-sha.path)")"

@@ -1,0 +1,30 @@
+---
+# On-demand PR verification. NOT reconciled by Flux — kick it by hand:
+#   kubectl create -n tekton-ci -f runs/verify.run.yaml
+#   # or with tkn:
+#   tkn pipeline start verify -n tekton-ci \
+#     -p revision=<sha> -w name=source,volumeClaimTemplateFile=... \
+#     -w name=ssh-creds,secret=doghouse-git
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: verify-
+  namespace: tekton-ci
+spec:
+  serviceAccountName: tekton-ci-bot
+  pipelineRef:
+    name: verify
+  params:
+    - name: revision
+      value: main
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 4Gi
+    - name: ssh-creds
+      secret:
+        secretName: doghouse-git

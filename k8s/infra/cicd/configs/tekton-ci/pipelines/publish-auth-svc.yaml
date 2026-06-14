@@ -1,0 +1,81 @@
+---
+# Build, publish, and (optionally) deploy the auth-svc image. Runs the same
+# verification as the PR flow, then `pants publish`es `latest` + the CalVer tag to
+# GAR, then pins the CalVer into doghouse's Flux manifest and pushes the commit
+# back to main so Flux rolls it out. Use on demand (runs/publish-auth-svc.run.yaml)
+# or, later, wired to fire on merge-to-main. Set pin=false to publish without
+# touching the deployment.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: publish-auth-svc
+  namespace: tekton-ci
+spec:
+  params:
+    - name: url
+      type: string
+      default: ssh://git@github.com/Ivanipani/doghouse
+    - name: revision
+      type: string
+      default: main
+    - name: pin
+      description: '"true" to pin the new tag into the Flux manifest + push.'
+      type: string
+      default: "true"
+  workspaces:
+    - name: source
+    - name: ssh-creds
+    - name: docker-config
+  tasks:
+    - name: clone-and-version
+      taskRef:
+        name: clone-and-version
+      params:
+        - name: url
+          value: $(params.url)
+        - name: revision
+          value: $(params.revision)
+      workspaces:
+        - name: source
+          workspace: source
+        - name: ssh-creds
+          workspace: ssh-creds
+    - name: lint-realms
+      runAfter: [clone-and-version]
+      taskRef:
+        name: lint-realms
+      workspaces:
+        - name: source
+          workspace: source
+    - name: build-and-publish
+      runAfter: [lint-realms]
+      taskRef:
+        name: build-image
+      params:
+        - name: version
+          value: $(tasks.clone-and-version.results.calver)
+        - name: git-sha
+          value: $(tasks.clone-and-version.results.git-sha)
+        - name: push
+          value: "true"
+      workspaces:
+        - name: source
+          workspace: source
+        - name: docker-config
+          workspace: docker-config
+    - name: pin-release
+      runAfter: [build-and-publish]
+      when:
+        - input: $(params.pin)
+          operator: in
+          values: ["true"]
+      taskRef:
+        name: pin-release
+      params:
+        - name: version
+          value: $(tasks.clone-and-version.results.calver)
+      workspaces:
+        - name: source
+          workspace: source
+        - name: ssh-creds
+          workspace: ssh-creds

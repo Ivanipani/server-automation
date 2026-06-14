@@ -1,0 +1,78 @@
+---
+# Build (and optionally publish) a doghouse container image.
+#
+#   push=true  -> `pants publish <target>` drives buildx against the in-cluster
+#                 buildkitd `remote` builder and pushes `latest` + the CalVer tag
+#                 to GAR (tags + OCI labels come from doghouse images/BUILD). This
+#                 is the user-facing publish path and stays on pants by design.
+#   push=false -> a no-export `docker buildx build` validates that the Dockerfile
+#                 builds end-to-end (Keycloak's `kc.sh build` runs) without
+#                 producing or pushing an artifact. Used by the PR verify flow;
+#                 the buildkit `remote` driver cannot `--load` (no local docker
+#                 daemon), so verification is build-only, not a pants `package`.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-image
+  namespace: tekton-ci
+spec:
+  params:
+    - name: target
+      description: pants docker_image address (publish path).
+      type: string
+      default: images/auth-server/docker:deploy
+    - name: dockerfile
+      description: Dockerfile path within the repo (verify path).
+      type: string
+      default: images/auth-server/docker/deploy.Dockerfile
+    - name: context
+      description: Docker build context within the repo (verify path).
+      type: string
+      default: images/auth-server
+    - name: version
+      description: CalVer tag / VERSION build-arg.
+      type: string
+    - name: git-sha
+      description: GIT_SHA build-arg (revision label).
+      type: string
+    - name: push
+      description: '"true" to pants-publish, "false" to validate-build only.'
+      type: string
+      default: "false"
+  workspaces:
+    - name: source
+      description: doghouse checkout (clone-and-version writes ./repo).
+    - name: docker-config
+      description: GAR push creds as config.json (only read when push=true).
+      optional: true
+  steps:
+    - name: build
+      image: us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella/ci-builder:latest
+      env:
+        - name: VERSION
+          value: $(params.version)
+        - name: GIT_SHA
+          value: $(params.git-sha)
+        - name: DOCKER_CONFIG
+          value: $(workspaces.docker-config.path)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        cd "$(workspaces.source.path)/repo"
+
+        # Point buildx at the shared rootless buildkitd (no local docker daemon).
+        docker buildx create --name remote --driver remote \
+          tcp://buildkitd.tekton-ci.svc.cluster.local:1234 --use
+        docker buildx inspect --bootstrap remote
+
+        if [ "$(params.push)" = "true" ]; then
+          echo ">> pants publish $(params.target) (VERSION=$VERSION)"
+          pants publish "$(params.target)"
+        else
+          echo ">> validate build of $(params.dockerfile) (no push)"
+          docker buildx build --builder remote \
+            -f "$(params.dockerfile)" \
+            --build-arg VERSION="$VERSION" \
+            --build-arg GIT_SHA="$GIT_SHA" \
+            "$(params.context)"
+        fi

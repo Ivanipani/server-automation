@@ -204,3 +204,30 @@ spec:
   wait: true
   dependsOn:
     - name: monitoring-controllers
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: cicd-configs
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # Tekton CI definitions + the in-cluster BuildKit backend. Assumes the Tekton
+  # Pipelines CRDs are already installed (controllers managed out-of-band — see
+  # k8s/infra/cicd/README.md). PipelineRuns are kicked by hand, not reconciled.
+  path: ./k8s/infra/cicd/configs
+  prune: true
+  wait: true
+  dependsOn:
+    # PipelineRun `source` workspaces use the Longhorn default StorageClass.
+    - name: storage-configs
+  decryption:
+    # gar-push / doghouse-git / gar-pull are SOPS-encrypted (see secrets/).
+    provider: sops
+    secretRef:
+      name: sops-age
