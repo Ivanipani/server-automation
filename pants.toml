@@ -1,0 +1,17 @@
+[GLOBAL]
+pants_version = "2.32.0"
+
+backend_packages = [
+    "pants.backend.docker"
+]
+
+[docker]
+use_buildx = true
+
+# Copy VERSION (CalVer tag) and GIT_SHA (revision label) from the environment
+# into every image build. Both are exported by images/justfile.
+build_args = ["VERSION", "GIT_SHA"]
+
+[docker.registries.poochella]
+address = "us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella"
+default = true

@@ -13,5 +13,5 @@ resources:
   - namespace.yaml
   - rbac.yaml
   - buildkit.yaml
-  - tasks/clone-and-version.yaml
-  - tasks/build-image.yaml
+  - common-tasks/clone-and-version.yaml
+  - common-tasks/build-image.yaml

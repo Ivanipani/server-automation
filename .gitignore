@@ -18,3 +18,4 @@ img/bytepen/target
 kubeconfig
 age.agekey
 *.agekey
+.pants.d
