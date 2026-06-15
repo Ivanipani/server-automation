@@ -10,7 +10,7 @@
 #     --push k8s/infra/cicd/images/ci-builder
 FROM debian:12-slim
 
-ARG DOCKER_VERSION=27.5.1
+ARG DOCKER_VERSION=29.5.1
 ARG BUILDX_VERSION=0.34.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

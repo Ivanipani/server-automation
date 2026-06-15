@@ -1,11 +1,6 @@
 [GLOBAL]
 pants_version = "2.32.0"
-
-# poochella-pants supplies VCS-derived image tags (<calver> + <calver>-<sha>) to
-# every docker_image, replacing the old VERSION/GIT_SHA env wrappers.
-#
 plugins = ["pants-plugins @ git+ssh://git@github.com/Ivanipani/pants-plugins.git@faae879"]
-# pythonpath = ["%(buildroot)s/../poochella-pants/src"]
 
 backend_packages = [
     "pants.backend.docker",
