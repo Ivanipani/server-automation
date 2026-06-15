@@ -1,16 +1,19 @@
 [GLOBAL]
 pants_version = "2.32.0"
 
+# poochella-pants supplies VCS-derived image tags (<calver> + <calver>-<sha>) to
+# every docker_image, replacing the old VERSION/GIT_SHA env wrappers.
+#
+plugins = ["pants-plugins @ git+ssh://git@github.com/Ivanipani/pants-plugins.git@faae879"]
+# pythonpath = ["%(buildroot)s/../poochella-pants/src"]
+
 backend_packages = [
-    "pants.backend.docker"
+    "pants.backend.docker",
+    "pants_plugins",
 ]
 
 [docker]
 use_buildx = true
-
-# Copy VERSION (CalVer tag) and GIT_SHA (revision label) from the environment
-# into every image build. Both are exported by images/justfile.
-build_args = ["VERSION", "GIT_SHA"]
 
 [docker.registries.poochella]
 address = "us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella"
