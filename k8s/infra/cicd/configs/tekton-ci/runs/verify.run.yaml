@@ -11,7 +11,8 @@ metadata:
   generateName: verify-
   namespace: tekton-ci
 spec:
-  serviceAccountName: tekton-ci-bot
+  taskRunTemplate:
+    serviceAccountName: tekton-ci-bot
   pipelineRef:
     name: verify
   params:
@@ -21,6 +22,10 @@ spec:
     - name: source
       volumeClaimTemplate:
         spec:
+          # Pin Longhorn explicitly — the cluster currently has two default
+          # StorageClasses (k3s local-path + longhorn), so an unset class binds
+          # ambiguously.
+          storageClassName: longhorn
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:

@@ -36,7 +36,10 @@ spec:
         #!/usr/bin/env bash
         set -euo pipefail
 
-        export GIT_SSH_COMMAND="ssh -i $(workspaces.ssh-creds.path)/id_ed25519 \
+        # Secret-backed workspaces mount at 0644; ssh refuses a group/world-
+        # readable private key, so stage it into a private 0600 copy first.
+        install -m 600 "$(workspaces.ssh-creds.path)/id_ed25519" /tmp/ssh-key
+        export GIT_SSH_COMMAND="ssh -i /tmp/ssh-key \
           -o IdentitiesOnly=yes -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
 
         cd "$(workspaces.source.path)"
