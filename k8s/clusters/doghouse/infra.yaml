@@ -239,25 +239,16 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # Tekton CI definitions + the in-cluster BuildKit backend. The tekton.dev CRDs
-  # are installed by cicd-controllers (Flux-managed). PipelineRuns are kicked by
-  # hand, not reconciled.
+  # REUSABLE CI substrate only: the tekton-ci namespace, the build identity
+  # (tekton-ci-bot SA), the in-cluster BuildKit backend, and the generic
+  # clone-and-version / build-image Tasks. The tekton.dev CRDs are installed by
+  # cicd-controllers (Flux-managed). The doghouse-specific pipelines, secrets, and
+  # on-demand runs are private IP and live in the doghouse repo, reconciled by the
+  # `doghouse-ci` Kustomization (apps.yaml), which dependsOn this.
   path: ./k8s/infra/cicd/configs
   prune: true
   wait: true
   dependsOn:
-    # cicd-controllers → tekton.dev CRDs present (gates the Task/Pipeline CR
-    # dry-run that kustomize-controller runs against live API discovery).
+    # cicd-controllers → tekton.dev CRDs present (gates the Task CR dry-run that
+    # kustomize-controller runs against live API discovery).
     - name: cicd-controllers
-    # NOTE: deliberately NOT depending on storage-configs. PipelineRun `source`
-    # workspaces want the `longhorn` StorageClass (defined there), but that class
-    # is created once and persists — gating CI on storage-configs' continuous
-    # readiness froze this Kustomization on every Longhorn flap (blip-prone
-    # substrate). The runs pin `storageClassName: longhorn` explicitly; if it's
-    # ever absent a PipelineRun just stays Pending, which is recoverable, whereas
-    # a frozen Kustomization silently blocks all CI config changes.
-  decryption:
-    # gar-pull / doghouse-git Secrets are SOPS-encrypted (see secrets/).
-    provider: sops
-    secretRef:
-      name: sops-age

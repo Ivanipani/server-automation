@@ -1,15 +1,17 @@
 ---
-# Build (and optionally publish) a doghouse container image.
+# Reusable build/publish Task. Project-agnostic: the caller (an app pipeline,
+# e.g. doghouse's verify / publish-auth-svc) supplies target / dockerfile /
+# context. No app-specific defaults live here.
 #
 #   push=true  -> `pants publish <target>` drives buildx against the in-cluster
 #                 buildkitd `remote` builder and pushes `latest` + the CalVer tag
-#                 to GAR (tags + OCI labels come from doghouse images/BUILD). This
+#                 to GAR (tags + OCI labels come from the app's images/BUILD). This
 #                 is the user-facing publish path and stays on pants by design.
 #   push=false -> a no-export `docker buildx build` validates that the Dockerfile
-#                 builds end-to-end (Keycloak's `kc.sh build` runs) without
-#                 producing or pushing an artifact. Used by the PR verify flow;
-#                 the buildkit `remote` driver cannot `--load` (no local docker
-#                 daemon), so verification is build-only, not a pants `package`.
+#                 builds end-to-end without producing or pushing an artifact. Used
+#                 by PR verify flows; the buildkit `remote` driver cannot `--load`
+#                 (no local docker daemon), so verification is build-only, not a
+#                 pants `package`.
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
@@ -18,17 +20,17 @@ metadata:
 spec:
   params:
     - name: target
-      description: pants docker_image address (publish path).
+      description: pants docker_image address (publish path). Caller-supplied.
       type: string
-      default: images/auth-server/docker:deploy
+      default: ""
     - name: dockerfile
-      description: Dockerfile path within the repo (verify path).
+      description: Dockerfile path within the repo (verify path). Caller-supplied.
       type: string
-      default: images/auth-server/docker/deploy.Dockerfile
+      default: ""
     - name: context
-      description: Docker build context within the repo (verify path).
+      description: Docker build context within the repo (verify path). Caller-supplied.
       type: string
-      default: images/auth-server
+      default: ""
     - name: version
       description: CalVer tag / VERSION build-arg.
       type: string

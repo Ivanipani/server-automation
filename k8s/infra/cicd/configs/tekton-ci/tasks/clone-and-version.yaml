@@ -14,7 +14,7 @@ spec:
     - name: url
       description: Git URL to clone.
       type: string
-      default: ssh://git@github.com/Ivanipani/doghouse
+      default: ssh://git@github.com/Ivanipani/doghouse.git
     - name: revision
       description: Branch, tag, or commit SHA to check out.
       type: string
