@@ -15,6 +15,11 @@ metadata:
     app: buildkitd
 spec:
   replicas: 1
+  # The layer cache is a RWO Longhorn volume; a rolling update would leave the
+  # old pod holding it while the new pod blocks on Multi-Attach. Recreate tears
+  # the old pod down first so the volume is free to reattach.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: buildkitd
@@ -55,14 +60,28 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 30
           volumeMounts:
-            # Ephemeral build cache. Swap for a Longhorn PVC later to persist the
-            # layer cache across rebuilds (faster CI, at the cost of a RWO volume
-            # on the blip-prone substrate).
+            # Persistent layer cache so rebuilds reuse cached layers across pod
+            # restarts. RWO Longhorn volume — replica lives on the baremetal
+            # workers, so a CP/node blip costs a cache rebuild, not a stall.
             - name: buildkit-cache
               mountPath: /home/user/.local/share/buildkit
       volumes:
         - name: buildkit-cache
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: buildkit-cache
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: buildkit-cache
+  namespace: tekton-ci
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 20Gi
 ---
 apiVersion: v1
 kind: Service
