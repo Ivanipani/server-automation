@@ -16,7 +16,7 @@ resources:
   - tasks/pin-release.yaml
   - pipelines/verify.yaml
   - pipelines/publish-auth-svc.yaml
-  - secrets/gar-push.sops.yaml
+  - secrets/gar-pull.sops.yaml
   - secrets/doghouse-git-deploy.sops.yaml
   #
   # PipelineRuns are NOT reconciled by Flux (they are one-shot, immutable, and
