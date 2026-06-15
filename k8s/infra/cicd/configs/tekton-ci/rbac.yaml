@@ -9,7 +9,9 @@ metadata:
   name: tekton-ci-bot
   namespace: tekton-ci
 imagePullSecrets:
-  # Pull-only GAR creds for the private ci-builder image. Author as a
-  # dockerconfigjson Secret named gar-pull in this namespace (see
-  # secrets/README.md); the SA tolerates it being absent until then.
+  # GAR creds for the private ci-builder image. A dockerconfigjson Secret named
+  # gar-pull in this namespace (see secrets/README.md); the SA tolerates it being
+  # absent until then. The same Secret doubles as the build-image push creds —
+  # the publish run projects its `.dockerconfigjson` to config.json (one GAR
+  # credential, both pull and push).
   - name: gar-pull

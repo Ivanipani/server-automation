@@ -249,10 +249,15 @@ spec:
     # cicd-controllers → tekton.dev CRDs present (gates the Task/Pipeline CR
     # dry-run that kustomize-controller runs against live API discovery).
     - name: cicd-controllers
-    # PipelineRun `source` workspaces use the Longhorn default StorageClass.
-    - name: storage-configs
+    # NOTE: deliberately NOT depending on storage-configs. PipelineRun `source`
+    # workspaces want the `longhorn` StorageClass (defined there), but that class
+    # is created once and persists — gating CI on storage-configs' continuous
+    # readiness froze this Kustomization on every Longhorn flap (blip-prone
+    # substrate). The runs pin `storageClassName: longhorn` explicitly; if it's
+    # ever absent a PipelineRun just stays Pending, which is recoverable, whereas
+    # a frozen Kustomization silently blocks all CI config changes.
   decryption:
-    # gar-push / doghouse-git / gar-pull are SOPS-encrypted (see secrets/).
+    # gar-pull / doghouse-git Secrets are SOPS-encrypted (see secrets/).
     provider: sops
     secretRef:
       name: sops-age

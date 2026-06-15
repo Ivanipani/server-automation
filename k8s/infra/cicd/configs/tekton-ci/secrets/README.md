@@ -1,18 +1,17 @@
 # tekton-ci secrets
 
-Three SOPS-encrypted Secrets gate the pipelines. They are **not** committed yet —
-author them from the `*.example` templates, encrypt with the cluster age key
-(`k8s/.sops.yaml`), then uncomment them in
-`../kustomization.yaml`. Encrypt with `sops -e -i <file>.sops.yaml` (only
-`data`/`stringData` is encrypted, per the repo `.sops.yaml`).
+Two SOPS-encrypted Secrets gate the pipelines. Author them, encrypt with the
+cluster age key (`k8s/.sops.yaml`), then list them in `../kustomization.yaml`.
+Encrypt with `sops -e -i <file>.sops.yaml` (only `data`/`stringData` is
+encrypted, per the repo `.sops.yaml`).
 
-| Secret          | Type                | Used by                          | Notes |
-|-----------------|---------------------|----------------------------------|-------|
-| `gar-pull`      | dockerconfigjson    | ServiceAccount `tekton-ci-bot`   | Pull-only creds for the private `ci-builder` image. Mirror the doghouse `gar-pull` secret. |
-| `gar-push`      | Opaque (`config.json`) | `build-image` (push)          | Artifact Registry **Writer** creds, mounted as `DOCKER_CONFIG`. From `gar-push.sops.yaml.example`. |
-| `doghouse-git`  | Opaque (`id_ed25519`) | `clone-and-version`, `pin-release` | **Write**-capable SSH deploy key. From `doghouse-git.sops.yaml.example`. |
+| Secret         | Type             | Used by | Notes |
+|----------------|------------------|---------|-------|
+| `gar-pull`     | dockerconfigjson | SA `tekton-ci-bot` imagePullSecret **and** the `build-image` push step | **One** GAR **Writer** credential for both pull and push. The SA uses it to pull the private `ci-builder` image; the publish run projects its `.dockerconfigjson` to `config.json` for the push (`DOCKER_CONFIG`). A Writer can pull, so no separate pull-only secret. |
+| `doghouse-git` | Opaque (`id_ed25519`) | `clone-and-version`, `pin-release` | **Write**-capable SSH deploy key, registered on `Ivanipani/doghouse`. |
 
-`gar-pull` (create from the writer or a pull-only SA key):
+`gar-pull` — create from the Writer service-account key (a dockerconfigjson
+Secret, valid as both an imagePullSecret and a docker `config.json`):
 
 ```sh
 kubectl create secret docker-registry gar-pull \

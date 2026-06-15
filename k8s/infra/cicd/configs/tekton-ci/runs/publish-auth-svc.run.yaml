@@ -34,5 +34,13 @@ spec:
       secret:
         secretName: doghouse-git
     - name: docker-config
+      # One GAR credential serves both roles: the SA mounts gar-pull as its
+      # imagePullSecret, and the build-image push step reads the same blob here.
+      # gar-pull is a kubernetes.io/dockerconfigjson Secret (data key
+      # `.dockerconfigjson`); build-image sets DOCKER_CONFIG=<this dir>, so
+      # project that key to `config.json` — which docker/buildx looks for.
       secret:
-        secretName: gar-push
+        secretName: gar-pull
+        items:
+          - key: .dockerconfigjson
+            path: config.json
