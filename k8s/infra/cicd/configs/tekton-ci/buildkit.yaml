@@ -30,6 +30,12 @@ spec:
       annotations:
         container.apparmor.security.beta.kubernetes.io/buildkitd: unconfined
     spec:
+      # The rootless buildkitd runs as UID/GID 1000, but a freshly provisioned
+      # Longhorn PVC mounts root-owned — so the daemon can't create its lock
+      # file in the cache dir. fsGroup makes the kubelet chown the volume to
+      # GID 1000 on attach, giving the rootless user write access.
+      securityContext:
+        fsGroup: 1000
       containers:
         - name: buildkitd
           image: moby/buildkit:v0.30.0-rootless
