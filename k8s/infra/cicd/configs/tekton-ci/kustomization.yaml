@@ -15,3 +15,4 @@ resources:
   - buildkit.yaml
   - common-tasks/clone-and-version.yaml
   - common-tasks/build-image.yaml
+  - common-tasks/just-recipe.yaml

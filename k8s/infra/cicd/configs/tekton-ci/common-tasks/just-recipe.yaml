@@ -1,0 +1,56 @@
+---
+# Reusable, project-agnostic Task: run a `just` recipe in a project directory of
+# the doghouse checkout. The project's justfile owns *what* each verb does
+# (test / build / publish wrap pants + twine); this Task only chooses the
+# directory and the verb, so CI and a laptop run identical commands.
+#
+# Runs in ci-builder (pants + just + uv + git). pants/uv write caches and
+# provision their interpreters under a workspace-relative HOME, so the step works
+# regardless of the run-as uid.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: just-recipe
+  namespace: tekton-ci
+spec:
+  params:
+    - name: workdir
+      description: Project dir holding the justfile, relative to the repo root.
+      type: string
+    - name: recipe
+      description: justfile recipe to run (e.g. test, build, publish).
+      type: string
+    - name: version
+      description: CalVer exported as VERSION (wheel/image version); "" to skip.
+      type: string
+      default: ""
+  workspaces:
+    - name: source
+      description: doghouse checkout (clone-and-version writes ./repo).
+    - name: gar-creds
+      description: GAR service-account key (key `key.json`) for twine publish.
+      optional: true
+  steps:
+    - name: just
+      image: us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella/ci-builder:latest
+      env:
+        - name: VERSION
+          value: $(params.version)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        # Workspace-relative HOME so pants/uv caches + provisioned interpreters
+        # land on the writable PVC (no dependence on the run-as uid's home).
+        export HOME="$(workspaces.source.path)/.home"
+        mkdir -p "$HOME"
+
+        # Publish recipes authenticate to GAR via Application Default Credentials;
+        # point them at the mounted SA key when the optional workspace is bound.
+        if [ -f "$(workspaces.gar-creds.path)/key.json" ]; then
+          export GOOGLE_APPLICATION_CREDENTIALS="$(workspaces.gar-creds.path)/key.json"
+        fi
+
+        cd "$(workspaces.source.path)/repo/$(params.workdir)"
+        echo ">> just $(params.recipe) (workdir=$(params.workdir) VERSION=${VERSION:-unset})"
+        just "$(params.recipe)"

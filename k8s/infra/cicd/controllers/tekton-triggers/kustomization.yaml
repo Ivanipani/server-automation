@@ -1,0 +1,20 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Tekton Triggers — vendored verbatim, pinned to v0.33.0. No Helm chart exists on
+# the CDF repo (only `tekton-pipeline`), so the upstream release manifests are the
+# GitOps source of truth, same pattern as ../tekton-dashboard.
+#
+# Source (re-download both over these files + bump the version here to upgrade):
+#   release.yaml      https://storage.googleapis.com/tekton-releases/triggers/previous/v0.33.0/release.yaml
+#   interceptors.yaml https://storage.googleapis.com/tekton-releases/triggers/previous/v0.33.0/interceptors.yaml
+#
+# - release.yaml: the Triggers controller + webhook + CRDs (EventListener,
+#   TriggerBinding/Template, ...) and the `tekton-triggers-eventlistener-roles` /
+#   `-clusterroles` ClusterRoles the doghouse EventListener SA binds.
+# - interceptors.yaml: the core ClusterInterceptors (github, cel, ...) the
+#   doghouse triggers reference.
+# Both install into the tekton-pipelines namespace (../tekton-pipelines owns it).
+resources:
+  - release.yaml
+  - interceptors.yaml
