@@ -200,6 +200,30 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
+  name: cloudflare-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./k8s/infra/cicd/controllers/cloudflared
+  prune: true
+  wait: true
+  # The tunnel token is SOPS-encrypted; decrypt with the cluster sops-age key
+  # (the cicd-controllers Kustomization has no decryption, hence its own
+  # Kustomization here). Reconciled standalone — cloudflared/ is not listed in
+  # the cicd/controllers kustomization, so cicd-controllers never sees it.
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
   name: cicd-configs
   namespace: flux-system
 spec:

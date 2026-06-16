@@ -17,12 +17,14 @@ here, doghouse pipelines are private.
 cicd/
   configs/tekton-ci/         # REUSABLE CI layer (Flux: cicd-configs)
     namespace.yaml  rbac.yaml  buildkit.yaml
-    tasks/      clone-and-version · build-image   (project-agnostic; caller
-                supplies url / target / dockerfile / context)
-  images/ci-builder/         # build image (pants + buildx + git); bootstrap once
+    tasks/      clone-and-version · build-image · just-recipe   (project-agnostic;
+                caller supplies url / target / dockerfile / context / workdir / recipe)
+  images/ci-builder/         # build image (pants + buildx + git + just + uv); bootstrap once
   controllers/               # Tekton itself (Flux: cicd-controllers)
     tekton-pipelines/   CDF Helm chart (Pipelines + tekton.dev CRDs)
     tekton-dashboard/   vendored upstream read-only release.yaml + Traefik Ingress
+    tekton-triggers/    vendored upstream release.yaml + interceptors.yaml (v0.33.0)
+    cloudflared/        Cloudflare Tunnel → EventListener (Flux: cloudflare-controllers)
 ```
 
 ## Controllers (Flux-managed)
@@ -41,7 +43,19 @@ Flux Kustomization (in `k8s/clusters/doghouse/infra.yaml`):
   exposed at `tekton.doghouse.lan` via a Traefik Ingress (the DNS override lives in
   the Ansible repo, like the other UIs).
 
-Tekton **Triggers**/webhooks are still deferred (MVP is on-demand `PipelineRun`s).
+- **`tekton-triggers/`** — Tekton **Triggers**, vendored verbatim (pinned
+  v0.33.0 `release.yaml` + `interceptors.yaml`; no chart on the CDF repo). Adds
+  the Triggers controller/webhook, the EventListener/TriggerBinding/Template CRDs,
+  the `github`/`cel` ClusterInterceptors, and the `tekton-triggers-eventlistener-*`
+  ClusterRoles. The doghouse `github-listener` EventListener (the GitHub-webhook
+  entrypoint) is doghouse IP in `ci/doghouse/triggers`.
+
+- **`cloudflared/`** — the **Cloudflare Tunnel** that gives GitHub a public path
+  to the internal-only cluster: `cloudflared` dials out to Cloudflare's edge and
+  forwards the webhook hostname to the `el-github-listener` Service. Reconciled by
+  its own `cloudflare-controllers` Flux Kustomization — the only one here with
+  SOPS decryption (for the committed tunnel token); `cicd-controllers` never sees
+  it (not listed in the controllers kustomization).
 
 ## Reusable configs (Flux-managed)
 
@@ -60,6 +74,12 @@ assumptions:
 - **`tasks/build-image.yaml`** — build (`push=false`, no-export buildx) or publish
   (`push=true`, `pants publish`) an image. The caller supplies `target` /
   `dockerfile` / `context`.
+- **`tasks/just-recipe.yaml`** — run a `just` recipe in a project dir of the
+  checkout (`test` / `build` / `publish`). The project's justfile owns what each
+  verb does (pants + twine); the caller supplies `workdir` / `recipe` (and an
+  optional `version` → `VERSION`, plus a `gar-creds` workspace →
+  `GOOGLE_APPLICATION_CREDENTIALS` for twine publishes). Used by the
+  service-utils pipelines.
 
 ## Architecture
 
@@ -79,8 +99,11 @@ PipelineRun (on demand)                       buildkitd (rootless, in-cluster)
   no-export `buildx build` (the remote driver can't `--load` without a daemon).
 - **CalVer from git.** CI re-derives the tag from the git checkout (UTC commit
   timestamp → `YYYY.MM.DD.HHMMSS`).
-- **Webhook deferred.** MVP is on-demand `PipelineRun`s (in the doghouse repo at
-  `ci/doghouse/runs`). The `verify` pipeline is the eventual PR-webhook target.
+- **Webhooks live (service-utils).** Tekton Triggers + a `github-listener`
+  EventListener fire `verify`/`publish` on GitHub PR/push events; a Cloudflare
+  Tunnel bridges GitHub to the internal-only cluster (both doghouse IP in
+  `ci/doghouse/triggers`). On-demand `PipelineRun`s (`ci/doghouse/runs`) remain
+  for manual kicks; the auth-svc pipelines are still on-demand only.
 
 ## Activation
 

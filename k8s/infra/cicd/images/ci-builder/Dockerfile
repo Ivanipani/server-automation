@@ -11,12 +11,17 @@
 #   docker buildx build --platform linux/amd64 \
 #     -t us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella/ci-builder:latest \
 #     --push k8s/infra/cicd/images/ci-builder
+ARG UV_VERSION=0.11.14
+
+# Named stage so the uv image tag can be parameterized — `--from` does not
+# support variable expansion, so it must reference a stage, not an ARG'd ref.
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
 FROM debian:12-slim
 
 ARG DOCKER_VERSION=29.5.1
 ARG BUILDX_VERSION=0.34.1
 ARG JUST_VERSION=1.51.0
-ARG UV_VERSION=0.11.14
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git openssh-client bash sed coreutils \
@@ -43,7 +48,7 @@ RUN curl -fsSL "https://github.com/casey/just/releases/download/${JUST_VERSION}/
 
 # uv — runs twine (with the GAR keyring backend) to publish wheels and provisions
 # an ephemeral python for it.
-COPY --from=ghcr.io/astral-sh/uv:${UV_VERSION} /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 ENV DOCKER_BUILDKIT=1
 WORKDIR /workspace

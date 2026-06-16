@@ -1,7 +1,15 @@
-
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# Cloudflare Tunnel: GitHub's public path to the internal-only cluster.
+# cloudflared dials out to Cloudflare's edge and forwards the public webhook
+# hostname to the in-cluster EventListener Service
+# (el-github-listener.tekton-ci.svc.cluster.local:8080 — the hostname->service
+# map is set in the Cloudflare Zero Trust dashboard, token-managed tunnel).
+#
+# Reconciled by its own `cloudflare-controllers` Flux Kustomization (with SOPS
+# decryption — the `cicd-controllers` one has none, so it can't live there).
 resources:
   - namespace.yaml
   - tunnel-token.sops.yaml
+  - deployment.yaml

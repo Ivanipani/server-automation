@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - tekton-pipelines
   - tekton-dashboard
+  - tekton-triggers
