@@ -56,9 +56,6 @@ spec:
   # RecurringJob CRs can dry-run successfully.
   wait: true
   dependsOn:
-    # Longhorn UI ingress + middleware reference the traefik IngressClass and
-    # traefik.io/v1alpha1 Middleware CRD (k3s-built-in Traefik, configured via
-    # HelmChartConfig in networking-configs).
     - name: networking-configs
   decryption:
     # The longhorn UI basic-auth Secret is SOPS-encrypted.
@@ -78,13 +75,6 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # BackupTarget and RecurringJob are longhorn.io/v1beta2 CRs whose CRDs ship
-  # in the Longhorn Helm chart. Bundling them with the HelmRelease deadlocks:
-  # kustomize-controller dry-runs every manifest against live API discovery
-  # before applying, so the CRs fail validation, the apply aborts, the
-  # HelmRelease never runs, and the CRDs never get installed. Splitting them
-  # into a separate Kustomization that dependsOn storage-controllers (with
-  # wait: true above) gates the CR apply on HelmRelease Ready → CRDs present.
   path: ./k8s/infra/storage/configs
   prune: true
   wait: true
@@ -108,11 +98,6 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # CloudNativePG operator only. The operator is a single Deployment that
-  # reaches Ready independently of node blips, so wait: true is safe (unlike the
-  # disableWait DaemonSet charts). It Helm-installs the cnpg.io CRDs; the
-  # PostgreSQL Cluster CRs that consume Longhorn are declared separately and
-  # would gate on this becoming Ready (same controllers→configs split as storage).
   path: ./k8s/infra/database/controllers
   prune: true
   wait: true
@@ -129,11 +114,6 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # PostgreSQL Cluster CRs (cnpg.io/v1). Split from database-controllers for the
-  # same reason as storage-configs: kustomize-controller dry-runs every manifest
-  # against live API discovery, so the Cluster CR must not apply until the
-  # cnpg.io CRDs exist. dependsOn (with wait: true above) gates on the operator
-  # HelmRelease being Ready → CRDs present.
   path: ./k8s/infra/database/configs
   prune: true
   wait: true
@@ -157,10 +137,6 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # Strimzi cluster operator only. A single Deployment that reaches Ready
-  # independently of node blips, so wait: true is safe (same reasoning as cnpg).
-  # It Helm-installs the kafka.strimzi.io CRDs; any Kafka CRs that consume the
-  # operator are declared separately (apps) and gate on this becoming Ready.
   path: ./k8s/infra/messaging/controllers
   prune: true
   wait: true
@@ -217,12 +193,6 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # Tekton Pipelines (CDF Helm chart) + the read-only Dashboard (vendored upstream
-  # manifest). The Pipelines HelmRelease installs the tekton.dev CRDs (crds:
-  # CreateReplace) and only then marks Ready. wait: true makes this Kustomization
-  # gate cicd-configs below: kustomize-controller dry-runs every manifest against
-  # live API discovery, so the Task/Pipeline CRs in cicd-configs must not apply
-  # until the CRDs exist (same controllers→configs split as storage/database).
   path: ./k8s/infra/cicd/controllers
   prune: true
   wait: true
@@ -239,16 +209,8 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # REUSABLE CI substrate only: the tekton-ci namespace, the build identity
-  # (tekton-ci-bot SA), the in-cluster BuildKit backend, and the generic
-  # clone-and-version / build-image Tasks. The tekton.dev CRDs are installed by
-  # cicd-controllers (Flux-managed). The doghouse-specific pipelines, secrets, and
-  # on-demand runs are private IP and live in the doghouse repo, reconciled by the
-  # `doghouse-ci` Kustomization (apps.yaml), which dependsOn this.
   path: ./k8s/infra/cicd/configs
   prune: true
   wait: true
   dependsOn:
-    # cicd-controllers → tekton.dev CRDs present (gates the Task CR dry-run that
-    # kustomize-controller runs against live API discovery).
     - name: cicd-controllers

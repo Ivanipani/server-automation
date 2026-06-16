@@ -42,7 +42,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: doghouse-apps
-  path: ./apps/doghouse
+  path: ./apps
   prune: true
   dependsOn:
     # HA's ingress wants the traefik IngressClass (networking-configs) and its
@@ -73,7 +73,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: doghouse-apps
-  path: ./ci/doghouse
+  path: ./ci
   prune: true
   dependsOn:
     # cicd-configs applies the tekton-ci namespace, the tekton-ci-bot SA, and the
