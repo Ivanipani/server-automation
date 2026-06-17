@@ -1,0 +1,65 @@
+---
+# Shared GitHub webhook entrypoint for ALL projects' CI/CD — reusable, one per
+# cluster. This file holds only the project-agnostic plumbing:
+#   * tekton-triggers-sa     — the identity the EventListener pod runs as.
+#   * the two RBAC bindings   — grant that SA the stock Triggers permissions
+#                               (the ClusterRoles themselves ship with Tekton
+#                               Triggers, ../controllers/tekton-triggers).
+#   * github-listener (EL)    — one public webhook endpoint, fronted by the
+#                               Cloudflare Tunnel (../controllers/cloudflared,
+#                               routing to the el-github-listener Service).
+#
+# It carries NO project specifics. Instead of listing triggers inline, the
+# EventListener SELECTS standalone Trigger CRs by label. Each project ships its
+# own Trigger(s) labelled `ci.doghouse/listener: github` (in this namespace),
+# next to its source in the private doghouse repo, and they are picked up
+# automatically — no edit to this file to onboard a project.
+#
+# The PipelineRuns the Triggers spawn run as tekton-ci-bot (rbac.yaml), not as
+# this SA; tekton-triggers-sa only creates the runs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-triggers-sa
+  namespace: tekton-ci
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-triggers-eventlistener-binding
+  namespace: tekton-ci
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-triggers-eventlistener-roles
+subjects:
+  - kind: ServiceAccount
+    name: tekton-triggers-sa
+    namespace: tekton-ci
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tekton-triggers-eventlistener-clusterbinding
+subjects:
+  - kind: ServiceAccount
+    name: tekton-triggers-sa
+    namespace: tekton-ci
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-triggers-eventlistener-clusterroles
+---
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: github-listener
+  namespace: tekton-ci
+spec:
+  serviceAccountName: tekton-triggers-sa
+  # No inline triggers: dynamically bind every Trigger CR in this namespace
+  # labelled `ci.doghouse/listener: github`. namespaceSelector defaults to the
+  # EventListener's own namespace (tekton-ci), where projects' Triggers land.
+  labelSelector:
+    matchLabels:
+      ci.doghouse/listener: github

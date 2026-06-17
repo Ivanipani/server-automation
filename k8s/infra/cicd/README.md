@@ -47,8 +47,10 @@ Flux Kustomization (in `k8s/clusters/doghouse/infra.yaml`):
   v0.33.0 `release.yaml` + `interceptors.yaml`; no chart on the CDF repo). Adds
   the Triggers controller/webhook, the EventListener/TriggerBinding/Template CRDs,
   the `github`/`cel` ClusterInterceptors, and the `tekton-triggers-eventlistener-*`
-  ClusterRoles. The doghouse `github-listener` EventListener (the GitHub-webhook
-  entrypoint) is doghouse IP in `ci/doghouse/triggers`.
+  ClusterRoles. The shared `github-listener` EventListener + its SA/bindings (the
+  GitHub-webhook entrypoint) are project-agnostic and live in
+  `configs/tekton-ci/github-listener.yaml`; it binds per-project Trigger CRs by
+  label, and those Triggers are doghouse IP in the private repo, next to source.
 
 - **`cloudflared/`** — the **Cloudflare Tunnel** that gives GitHub a public path
   to the internal-only cluster: `cloudflared` dials out to Cloudflare's edge and
@@ -99,11 +101,13 @@ PipelineRun (on demand)                       buildkitd (rootless, in-cluster)
   no-export `buildx build` (the remote driver can't `--load` without a daemon).
 - **CalVer from git.** CI re-derives the tag from the git checkout (UTC commit
   timestamp → `YYYY.MM.DD.HHMMSS`).
-- **Webhooks live (service-utils).** Tekton Triggers + a `github-listener`
-  EventListener fire `verify`/`publish` on GitHub PR/push events; a Cloudflare
-  Tunnel bridges GitHub to the internal-only cluster (both doghouse IP in
-  `ci/doghouse/triggers`). On-demand `PipelineRun`s (`ci/doghouse/runs`) remain
-  for manual kicks; the auth-svc pipelines are still on-demand only.
+- **Webhooks live (service-utils).** The shared `github-listener` EventListener
+  (`configs/tekton-ci/github-listener.yaml`) fires `verify`/`publish` on GitHub
+  PR/push events by binding per-project Trigger CRs by label; a Cloudflare Tunnel
+  bridges GitHub to the internal-only cluster. service-utils' Triggers + pipelines
+  are doghouse IP, next to the source in the private repo
+  (`src/libraries/service-utils/ci`). On-demand `PipelineRun`s remain for manual
+  kicks; the auth-svc pipelines are still on-demand only.
 
 ## Activation
 

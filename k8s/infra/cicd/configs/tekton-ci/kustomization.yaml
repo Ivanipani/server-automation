@@ -1,14 +1,16 @@
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# REUSABLE, project-agnostic CI substrate. Assumes the Tekton Pipelines CRDs are
-# already installed (the `cicd-controllers` Kustomization). Only the tekton-ci
-# namespace, the build identity (ServiceAccount), the BuildKit backend, and the
-# generic clone-and-version / build-image Tasks live here.
+# REUSABLE, project-agnostic CI substrate. Assumes the Tekton Pipelines +
+# Triggers CRDs and the Triggers ClusterRoles are already installed (the
+# `cicd-controllers` Kustomization, which this dependsOn). Only the tekton-ci
+# namespace, the build identity (ServiceAccount), the BuildKit backend, the
+# generic clone-and-version / build-image / just-recipe Tasks, and the shared
+# GitHub webhook entrypoint (github-listener.yaml) live here.
 #
-# App-specific definitions (lint-realms, the verify / publish pipelines, the
-# on-demand runs, and the CI secrets) are doghouse IP and live in the private
-# doghouse repo at ci/doghouse, reconciled by the `doghouse-ci` Kustomization.
+# App-specific definitions (the verify / publish pipelines, each project's
+# Trigger CRs, the on-demand runs, and the CI secrets) are doghouse IP and live
+# in the private doghouse repo, reconciled by the `doghouse-ci` Kustomization.
 resources:
   - namespace.yaml
   - rbac.yaml
@@ -16,3 +18,4 @@ resources:
   - common-tasks/clone-and-version.yaml
   - common-tasks/build-image.yaml
   - common-tasks/just-recipe.yaml
+  - github-listener.yaml

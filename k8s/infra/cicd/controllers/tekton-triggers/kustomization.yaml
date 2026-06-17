@@ -11,9 +11,10 @@ kind: Kustomization
 #
 # - release.yaml: the Triggers controller + webhook + CRDs (EventListener,
 #   TriggerBinding/Template, ...) and the `tekton-triggers-eventlistener-roles` /
-#   `-clusterroles` ClusterRoles the doghouse EventListener SA binds.
+#   `-clusterroles` ClusterRoles the shared github-listener EventListener SA binds
+#   (../../configs/tekton-ci/github-listener.yaml).
 # - interceptors.yaml: the core ClusterInterceptors (github, cel, ...) the
-#   doghouse triggers reference.
+#   per-project Trigger CRs reference.
 # Both install into the tekton-pipelines namespace (../tekton-pipelines owns it).
 resources:
   - release.yaml
