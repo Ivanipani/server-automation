@@ -4,6 +4,13 @@ pwd := absolute_path(".")
 default:
     @just --list --unsorted
 
+# Needs docker buildx + a GAR login (`gcloud auth configure-docker us-east4-docker.pkg.dev`).
+# Defaults to amd64 (the k3s cluster nodes' arch); override e.g. `just ci-builder arm64`.
+# Build & push the Tekton CI builder image to GAR via Pants (buildx --platform).
+ci-builder arch="amd64" tag="latest":
+    CI_BUILDER_PLATFORM=linux/{{arch}} CI_BUILDER_TAG={{tag}} \
+        pants publish k8s/infra/cicd/images/ci-builder:ci-builder
+
 # Ping all servers
 ping:
     cd ansible && ansible all -m ping

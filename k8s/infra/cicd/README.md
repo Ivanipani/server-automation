@@ -111,11 +111,10 @@ PipelineRun (on demand)                       buildkitd (rootless, in-cluster)
 
 ## Activation
 
-1. **Bootstrap the build image** (one-time):
+1. **Bootstrap the build image** (one-time; defaults to amd64 for the cluster
+   nodes, `FROM --platform` pins the manifest even from an arm64 host):
    ```sh
-   docker buildx build --platform linux/amd64 \
-     -t us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella/ci-builder:latest \
-     --push k8s/infra/cicd/images/ci-builder
+   just ci-builder          # build + push amd64 to GAR (just ci-builder arm64 for arm64)
    ```
 2. **Flux is already wired** — `cicd-controllers` + `cicd-configs` (this repo) and
    `doghouse-ci` (private repo). Commit and reconcile; Flux installs Tekton, then
