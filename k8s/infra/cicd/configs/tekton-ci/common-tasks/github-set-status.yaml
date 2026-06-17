@@ -1,0 +1,92 @@
+---
+# Report a commit status to a GitHub repo via the Statuses API, so PRs show the
+# verify/publish outcome and a link back to the PipelineRun. Plain Tekton
+# Triggers has no return path to GitHub (unlike Pipelines-as-Code); a Pipeline
+# wires this Task in twice — once up front with state=pending, once in `finally`
+# with the run result.
+#
+# Reusable substrate: the caller passes the repo + sha + state and mounts a
+# `github-token` workspace (a Secret with key `token` — a fine-grained PAT with
+# `Commit statuses: Read and write`). The token Secret is project CI IP and
+# lives in the doghouse repo, not here.
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: github-set-status
+  namespace: tekton-ci
+spec:
+  params:
+    - name: repo-full-name
+      description: "owner/repo, e.g. Ivanipani/doghouse."
+      type: string
+    - name: sha
+      description: Commit SHA the status attaches to (the PR head sha).
+      type: string
+    - name: state
+      description: "One of pending | success | failure | error."
+      type: string
+    - name: context
+      description: Status check label shown on the PR (keep stable across a run).
+      type: string
+      default: tekton/ci
+    - name: description
+      description: Short human-readable summary.
+      type: string
+      default: ""
+    - name: target-url
+      description: URL the status links to (e.g. the dashboard PipelineRun).
+      type: string
+      default: ""
+  workspaces:
+    - name: github-token
+      description: Secret with key `token` (fine-grained PAT, commit statuses R/W).
+  steps:
+    - name: post-status
+      image: us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella/ci-builder:latest
+      env:
+        - name: TOKEN_DIR
+          value: $(workspaces.github-token.path)
+        - name: REPO
+          value: $(params.repo-full-name)
+        - name: SHA
+          value: $(params.sha)
+        - name: STATE
+          value: $(params.state)
+        - name: CONTEXT
+          value: $(params.context)
+        - name: DESCRIPTION
+          value: $(params.description)
+        - name: TARGET_URL
+          value: $(params.target-url)
+      # python3 ships in ci-builder (pants/uv); stdlib-only, no curl/jq needed.
+      script: |
+        #!/usr/bin/env python3
+        import json, os, sys, urllib.error, urllib.request
+
+        with open(os.path.join(os.environ["TOKEN_DIR"], "token")) as f:
+            token = f.read().strip()
+
+        body = {"state": os.environ["STATE"], "context": os.environ["CONTEXT"]}
+        if os.environ.get("DESCRIPTION"):
+            body["description"] = os.environ["DESCRIPTION"][:140]
+        if os.environ.get("TARGET_URL"):
+            body["target_url"] = os.environ["TARGET_URL"]
+
+        url = "https://api.github.com/repos/{}/statuses/{}".format(
+            os.environ["REPO"], os.environ["SHA"])
+        req = urllib.request.Request(
+            url, data=json.dumps(body).encode(), method="POST",
+            headers={
+                "Authorization": "Bearer " + token,
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "tekton-ci",
+            })
+        try:
+            r = urllib.request.urlopen(req)
+            print("github status {} -> {} ({})".format(
+                body["state"], r.status, os.environ["CONTEXT"]))
+        except urllib.error.HTTPError as e:
+            print("github status POST failed: {} {}".format(e.code, e.read().decode()),
+                  file=sys.stderr)
+            sys.exit(1)
