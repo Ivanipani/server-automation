@@ -4,7 +4,8 @@
 # own python via python-build-standalone), `just` (the recipe runner the project
 # pipelines call), `uv` (runs twine to publish wheels to the GAR python repo and
 # auto-provisions a python for it), git + openssh for clone/push-back, and GNU
-# sed for the manifest pin step.
+# sed for the manifest pin step, and jq (the discover-changed-images task emits
+# its change-detection results as JSON array/count).
 #
 # Built + pushed by Pants via buildx — the target arch comes from the
 # docker_image `build_platform` field (see BUILD), which sets buildx's
@@ -25,7 +26,7 @@ ARG BUILDX_VERSION=0.34.1
 ARG JUST_VERSION=1.51.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git openssh-client bash sed coreutils \
+        ca-certificates curl git openssh-client bash sed coreutils jq \
     && rm -rf /var/lib/apt/lists/*
 
 # docker CLI (static) — only the client; the engine is the remote buildkitd.
