@@ -40,6 +40,10 @@ spec:
   workspaces:
     - name: github-token
       description: Secret with key `token` (fine-grained PAT, commit statuses R/W).
+      # Optional so a Pipeline can pass an optional workspace through; callers
+      # gate this Task on `$(workspaces.github-token.bound)` and never invoke it
+      # unbound, so the step always has the token to read.
+      optional: true
   steps:
     - name: post-status
       image: us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella/ci-builder:latest
