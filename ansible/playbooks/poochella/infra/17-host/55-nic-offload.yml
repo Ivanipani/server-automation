@@ -1,0 +1,24 @@
+---
+# Tier 17 — Disable buggy NIC TX offloads on baremetal hosts.
+#
+# Remedies the Intel I219-LM / e1000e "Detected Hardware Unit Hang": the
+# controller's TX engine wedges (link stays up, zero packets egress) until a
+# reboot. Observed stranding pve-home-02 network-dark for ~21h on 2026-06-16
+# while the OS stayed up; all three hypervisors carry the same e1000e lan0, so
+# this hardens them preventively. Driver-matched (default: e1000e) — siblings
+# on other NICs and virtual ifaces are a clean no-op.
+#
+# Day-2, order-independent: depends only on 10-bootstrap, nothing depends on
+# it, idempotent, safe via `just run --limit <host>`.
+#
+# Per-host gate: `disable_nic_offloads` (default false) — set true in inventory
+# to RUN the role on a host (pve-home-02 / pve-home-03 today); left false skips
+# it. Reversible on a managed host (per repo Ansible guideline): set
+# `nic_offload_tuning_enabled: false` to restore default offloads and remove
+# the udev rule / unit / script.
+- name: Disable buggy NIC TX offloads on every physical host
+  hosts: "{{ target_hosts | default('physical') }}"
+  become: true
+  roles:
+    - role: nic-offload
+      when: disable_nic_offloads | bool

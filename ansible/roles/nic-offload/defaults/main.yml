@@ -1,0 +1,33 @@
+---
+# Disable the TX-offload features that trigger the Intel I219 / e1000e
+# "Detected Hardware Unit Hang" — the controller's TX engine wedges (link
+# stays up, zero packets egress) until a reboot. Stranded pve-home-02
+# network-dark for ~21h on 2026-06-16. Harmless at 1GbE: the CPU does the
+# segmentation/checksum the card would have, at negligible cost.
+#
+# Driver-matched, so only affected silicon is touched fleet-wide; hosts on
+# other NICs (and virtual bridges/taps/wifi) are a clean no-op.
+
+# Host gate: whether to disable NIC offloads on this host. `true` runs the
+# role and applies the workaround (offloads get DISABLED on affected NICs);
+# `false` (default) SKIPS the role entirely, leaving the NIC at its kernel
+# defaults. Opt a host in by setting `disable_nic_offloads: true` in inventory
+# (pve-home-02 / pve-home-03 today). The role is gated on this in
+# 17-host/55-nic-offload.yml.
+disable_nic_offloads: false
+
+# Within a managed host, apply the workaround (true) or unapply/revert it
+# (false). Per the repo enable/disable convention — kept separate from the
+# host gate above so a host can be reverted, not just skipped.
+nic_offload_tuning_enabled: true
+
+# NIC drivers known to need the workaround.
+nic_offload_drivers:
+  - e1000e
+
+# `ethtool -K` flags applied when enabled, and their inverse on reverse.
+nic_offload_features_off: "tso off gso off sg off tx off rx off"
+nic_offload_features_on: "tso on gso on sg on tx on rx on"
+
+# Energy Efficient Ethernet is a second, independent trigger on I219.
+nic_offload_disable_eee: true

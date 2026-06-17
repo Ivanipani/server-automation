@@ -1,0 +1,82 @@
+---
+- name: Ensure ethtool is installed
+  ansible.builtin.apt:
+    name: ethtool
+    state: present
+    update_cache: false
+  when: nic_offload_tuning_enabled | bool
+
+- name: Enable NIC offload tuning (persist + apply)
+  when: nic_offload_tuning_enabled | bool
+  block:
+    - name: Install offload-tuning helper script
+      ansible.builtin.template:
+        src: nic-offload-tune.sh.j2
+        dest: /usr/local/sbin/nic-offload-tune
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install per-NIC oneshot service
+      ansible.builtin.template:
+        src: nic-offload@.service.j2
+        dest: /etc/systemd/system/nic-offload@.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload systemd
+
+    - name: Install udev rule (applies on boot / NIC hotplug)
+      ansible.builtin.template:
+        src: 90-nic-offload.rules.j2
+        dest: /etc/udev/rules.d/90-nic-offload.rules
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload udev rules
+
+    - name: Apply offload tuning now to currently-present matching NICs
+      ansible.builtin.shell: |
+        set -eu
+        for nd in /sys/class/net/*; do
+          ifn=$(basename "$nd")
+          drv=$(basename "$(readlink -f "$nd/device/driver" 2>/dev/null || true)")
+          case " {{ nic_offload_drivers | join(' ') }} " in
+            *" $drv "*) /usr/local/sbin/nic-offload-tune "$ifn" ;;
+          esac
+        done
+      changed_when: false
+
+- name: Disable NIC offload tuning (remove + revert)
+  when: not (nic_offload_tuning_enabled | bool)
+  block:
+    - name: Restore default offloads on currently-present matching NICs
+      ansible.builtin.shell: |
+        set -eu
+        for nd in /sys/class/net/*; do
+          ifn=$(basename "$nd")
+          drv=$(basename "$(readlink -f "$nd/device/driver" 2>/dev/null || true)")
+          case " {{ nic_offload_drivers | join(' ') }} " in
+            *" $drv "*)
+              /usr/sbin/ethtool -K "$ifn" {{ nic_offload_features_on }} 2>/dev/null || true
+              /usr/sbin/ethtool --set-eee "$ifn" eee on 2>/dev/null || true ;;
+          esac
+        done
+      changed_when: false
+
+    - name: Remove udev rule
+      ansible.builtin.file:
+        path: /etc/udev/rules.d/90-nic-offload.rules
+        state: absent
+      notify: reload udev rules
+
+    - name: Remove per-NIC oneshot service
+      ansible.builtin.file:
+        path: /etc/systemd/system/nic-offload@.service
+        state: absent
+      notify: reload systemd
+
+    - name: Remove offload-tuning helper script
+      ansible.builtin.file:
+        path: /usr/local/sbin/nic-offload-tune
+        state: absent

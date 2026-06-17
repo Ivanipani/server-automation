@@ -271,6 +271,8 @@ hypervisors:
           ip_address: 10.1.1.108
           mac_addresses:
             - "04:0e:3c:8b:4e:4e"
+          # e1000e "Detected Hardware Unit Hang" — run roles/nic-offload here.
+          disable_nic_offloads: true
           storage:
             disks:
               - select: boot
@@ -289,6 +291,8 @@ hypervisors:
           ip_address: 10.1.1.109
           mac_addresses:
             - "f8:b4:6a:b8:55:af"
+          # e1000e "Detected Hardware Unit Hang" — run roles/nic-offload here.
+          disable_nic_offloads: true
           storage:
             disks:
               - select: boot

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Managed by Ansible (role: nic-offload).
+# Disable the TX-offload features that trigger the Intel I219 / e1000e
+# "Detected Hardware Unit Hang" TX lockup on the given interface.
+# Invoked per-NIC by nic-offload@.service (udev) at boot, and once at apply.
+iface="$1"
+[ -n "$iface" ] || exit 0
+/usr/sbin/ethtool -K "$iface" {{ nic_offload_features_off }} 2>/dev/null || true
+{% if nic_offload_disable_eee %}
+/usr/sbin/ethtool --set-eee "$iface" eee off 2>/dev/null || true
+{% endif %}
+exit 0

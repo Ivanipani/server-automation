@@ -1,0 +1,9 @@
+# Managed by Ansible (role: nic-offload).
+# When a NIC using an affected driver appears, pull in a per-device oneshot
+# that disables the TX offloads which trigger the Intel I219 / e1000e
+# "Detected Hardware Unit Hang". ACTION=="add" only — a "change" match would
+# loop, since ethtool itself emits a change uevent. $name is the interface's
+# final (post-rename) name.
+{% for drv in nic_offload_drivers %}
+ACTION=="add", SUBSYSTEM=="net", ENV{ID_NET_DRIVER}=="{{ drv }}", TAG+="systemd", ENV{SYSTEMD_WANTS}+="nic-offload@$name.service"
+{% endfor %}

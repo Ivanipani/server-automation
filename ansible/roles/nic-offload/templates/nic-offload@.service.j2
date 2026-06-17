@@ -1,0 +1,13 @@
+# Managed by Ansible (role: nic-offload).
+# Per-NIC oneshot started by udev (90-nic-offload.rules) once the matching
+# interface exists under its final name. Bound to the device so it is tied
+# to NIC presence; no [Install] — it is pulled in via SYSTEMD_WANTS, not
+# enabled statically.
+[Unit]
+Description=Disable buggy TX offloads on %i (Intel e1000e Hardware Unit Hang)
+After=sys-subsystem-net-devices-%i.device
+BindsTo=sys-subsystem-net-devices-%i.device
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/nic-offload-tune %i
