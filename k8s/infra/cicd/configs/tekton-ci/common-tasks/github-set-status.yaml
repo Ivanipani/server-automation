@@ -62,9 +62,14 @@ spec:
           value: $(params.description)
         - name: TARGET_URL
           value: $(params.target-url)
-      # python3 ships in ci-builder (pants/uv); stdlib-only, no curl/jq needed.
+      # ci-builder has no python3 on PATH but ships uv; let uv provide the
+      # interpreter via the PEP 723 inline script header. stdlib-only, no deps.
       script: |
-        #!/usr/bin/env python3
+        #!/usr/bin/env -S uv run --script
+        # /// script
+        # requires-python = ">=3.11"
+        # dependencies = []
+        # ///
         import json, os, sys, urllib.error, urllib.request
 
         with open(os.path.join(os.environ["TOKEN_DIR"], "token")) as f:
