@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - headlamp
   - kube-prometheus-stack
+  - loki

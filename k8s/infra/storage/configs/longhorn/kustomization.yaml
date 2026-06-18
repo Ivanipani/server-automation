@@ -2,7 +2,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - gcs-s3-credentials.sops.yaml
+  # longhorn-gcs-s3 Secret now lives in the shared base (reused by Loki). No
+  # namespace override here -> it keeps its baked-in longhorn-system namespace.
+  - ../../../shared/secrets
   - backup-target.yaml
   - gcs-backup-target.yaml
   - recurring-job.yaml

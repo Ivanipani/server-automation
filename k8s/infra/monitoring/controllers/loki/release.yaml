@@ -1,0 +1,130 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: monitoring
+spec:
+  interval: 30m
+  timeout: 15m
+  chart:
+    spec:
+      chart: loki
+      version: 13.1.2  # appVersion 3.7.1
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-community
+        namespace: monitoring
+      interval: 1h
+  install:
+    # StatefulSet-heavy (ingester/compactor/index-gateway PVCs) on a blip-prone
+    # substrate: treat readiness as "manifests applied", observe pod health via
+    # Prometheus, and never uninstall-on-failure (would orphan/destroy chunks).
+    disableWait: true
+    disableWaitForJobs: true
+    remediation:
+      retries: 3
+      remediateLastFailure: false
+  upgrade:
+    disableWait: true
+    disableWaitForJobs: true
+    remediation:
+      retries: 3
+      remediateLastFailure: false
+      strategy: rollback
+  values:
+    # Microservices topology — separate distributor/ingester/querier/etc.
+    # deployments, per the install-microservices guide.
+    deploymentMode: Distributed
+
+    # GCS HMAC interop keys injected into every chart-managed component. Loki's
+    # S3 object client reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from the
+    # AWS default credential chain, so the keys live only in the SOPS-encrypted
+    # secret and never in committed Helm values. This reuses the shared gcs HMAC
+    # secret (../../../shared/secrets, re-namespaced into monitoring by
+    # kustomization.yaml) — the same project-level HMAC pair that backs the
+    # Longhorn GCS backup target, so its service account also needs
+    # storage.objectAdmin on the poochella-logs bucket.
+    global:
+      extraEnvFrom:
+        - secretRef:
+            name: longhorn-gcs-s3
+
+    loki:
+      # tsdb + s3 (GCS interop below). schema v13 is the current shipping schema.
+      schemaConfig:
+        configs:
+          - from: "2024-04-01"
+            store: tsdb
+            object_store: s3
+            schema: v13
+            index:
+              prefix: loki_index_
+              period: 24h
+      ingester:
+        chunk_encoding: snappy
+      pattern_ingester:
+        enabled: true
+      limits_config:
+        allow_structured_metadata: true
+        volume_enabled: true
+      storage:
+        type: s3
+        # One GCS bucket for all three stores — Loki keys chunks/ruler/admin
+        # under distinct prefixes, so they don't collide.
+        bucketNames:
+          chunks: poochella-logs
+          ruler: poochella-logs
+          admin: poochella-logs
+        s3:
+          # GCS's S3-interoperability endpoint. Credentials are intentionally
+          # absent here — the AWS SDK picks them up from AWS_ACCESS_KEY_ID /
+          # AWS_SECRET_ACCESS_KEY (global.extraEnvFrom above). GCS wants
+          # path-style addressing.
+          endpoint: storage.googleapis.com
+          region: us-east4
+          s3ForcePathStyle: true
+          insecure: false
+
+    # Bundled MinIO disabled — chunks and the TSDB index live in the external
+    # GCS bucket poochella-logs (loki.storage above) over GCS's S3 interop API.
+    # No 100Gi Longhorn PVC is provisioned anymore; object storage is GCS.
+    minio:
+      enabled: false
+
+    # Per-component replica counts from the microservices guide. Heavy for this
+    # fleet's capacity — trim these (e.g. ingester/querier -> 1) if scheduling
+    # starves the co-located control-plane.
+    ingester:
+      replicas: 3
+    distributor:
+      replicas: 3
+    querier:
+      replicas: 3
+    queryFrontend:
+      replicas: 2
+    queryScheduler:
+      replicas: 2
+    indexGateway:
+      replicas: 2
+    compactor:
+      replicas: 1
+    ruler:
+      replicas: 1
+
+    # nginx gateway is the single entry point: http://loki-gateway.monitoring
+    # — point a Grafana Loki datasource here.
+    gateway:
+      enabled: true
+      replicas: 1
+
+    # Silence the non-distributed targets so the chart doesn't also spin up
+    # SingleBinary / SimpleScalable workloads alongside Distributed.
+    singleBinary:
+      replicas: 0
+    backend:
+      replicas: 0
+    read:
+      replicas: 0
+    write:
+      replicas: 0
