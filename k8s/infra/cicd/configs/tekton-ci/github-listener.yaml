@@ -2,7 +2,7 @@
 # Shared GitHub webhook entrypoint for ALL projects' CI/CD — reusable, one per
 # cluster. This file holds only the project-agnostic plumbing:
 #   * tekton-triggers-sa     — the identity the EventListener pod runs as.
-#   * the two RBAC bindings   — grant that SA the stock Triggers permissions
+#   * the two ClusterRoleBindings — grant that SA the stock Triggers permissions
 #                               (the ClusterRoles themselves ship with Tekton
 #                               Triggers, ../controllers/tekton-triggers).
 #   * github-listener (EL)    — one public webhook endpoint, fronted by the
@@ -10,13 +10,19 @@
 #                               routing to the el-github-listener Service).
 #
 # It carries NO project specifics. Instead of listing triggers inline, the
-# EventListener SELECTS standalone Trigger CRs by label. Each project ships its
-# own Trigger(s) labelled `ci.doghouse/listener: github` (in this namespace),
-# next to its source in the private doghouse repo, and they are picked up
-# automatically — no edit to this file to onboard a project.
+# EventListener SELECTS standalone Trigger CRs by label, ACROSS ALL NAMESPACES
+# (namespaceSelector matchNames: ["*"]). Each project ships its own Trigger(s)
+# labelled `ci.doghouse/listener: github` INTO ITS OWN app namespace, next to
+# its source in the private doghouse repo, and they are picked up automatically
+# — no edit to this file to onboard a project. The EL instantiates each
+# project's PipelineRun in that project's own namespace.
 #
-# The PipelineRuns the Triggers spawn run as tekton-ci-bot (rbac.yaml), not as
-# this SA; tekton-triggers-sa only creates the runs.
+# Because the EL reads Triggers and creates runs across namespaces, BOTH bindings
+# below are ClusterRoleBindings (the eventlistener-roles binding would be a plain
+# RoleBinding only in a single-namespace design). Per-namespace requirements:
+# each app namespace must ship the run SA (tekton-ci-bot, rbac.yaml) + its RBAC,
+# since the PipelineRuns the Triggers spawn run as that SA there — not as this
+# SA; tekton-triggers-sa only creates the runs.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -24,10 +30,9 @@ metadata:
   namespace: tekton-ci
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   name: tekton-triggers-eventlistener-binding
-  namespace: tekton-ci
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -57,9 +62,14 @@ metadata:
   namespace: tekton-ci
 spec:
   serviceAccountName: tekton-triggers-sa
-  # No inline triggers: dynamically bind every Trigger CR in this namespace
-  # labelled `ci.doghouse/listener: github`. namespaceSelector defaults to the
-  # EventListener's own namespace (tekton-ci), where projects' Triggers land.
+  # No inline triggers: dynamically bind every Trigger CR labelled
+  # `ci.doghouse/listener: github`, in ANY namespace (matchNames: ["*"]). Each
+  # project's Triggers land in its own app namespace, where the EL also creates
+  # the PipelineRuns. To bound the blast radius, swap ["*"] for an explicit list
+  # of app namespaces (costs a one-line edit here per onboard).
+  namespaceSelector:
+    matchNames:
+      - "*"
   labelSelector:
     matchLabels:
       ci.doghouse/listener: github
