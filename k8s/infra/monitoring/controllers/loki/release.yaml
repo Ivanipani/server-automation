@@ -51,6 +51,11 @@ spec:
             name: longhorn-gcs-s3
 
     loki:
+      # Single-tenant homelab: disable multi-tenancy so Loki uses the implicit
+      # "fake" tenant and stops demanding an X-Scope-OrgID header. The chart
+      # defaults this to true; leaving it on returns 401 "no org id" to both the
+      # Alloy writer and the Grafana datasource (neither sends a tenant).
+      auth_enabled: false
       # tsdb + s3 (GCS interop below). schema v13 is the current shipping schema.
       schemaConfig:
         configs:
