@@ -46,6 +46,18 @@ spec:
     # Longhorn GCS backup target, so its service account also needs
     # storage.objectAdmin on the poochella-logs bucket.
     global:
+      # Force aws-sdk-go-v2 back to its pre-2025 checksum behavior. Since the s3
+      # SDK v1.73 (Jan 2025) the client injects CRC32 checksum headers
+      # (x-amz-sdk-checksum-algorithm / x-amz-checksum-crc32) into the SigV4
+      # canonical request; GCS's S3-interop layer doesn't recognise them and
+      # rejects every call with 403 SignatureDoesNotMatch. "when_required"
+      # restores compatibility. (Longhorn uses minio-go, which was never
+      # affected — which is why the SAME HMAC keys work there but not here.)
+      extraEnv:
+        - name: AWS_REQUEST_CHECKSUM_CALCULATION
+          value: when_required
+        - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+          value: when_required
       extraEnvFrom:
         - secretRef:
             name: longhorn-gcs-s3
@@ -56,6 +68,11 @@ spec:
       # defaults this to true; leaving it on returns 401 "no org id" to both the
       # Alloy writer and the Grafana datasource (neither sends a tenant).
       auth_enabled: false
+      # 2 ingesters across the 2 schedulable workers, so the replication factor
+      # must be 2 (the chart default is 3, which needs 3 ingesters and would
+      # reject every write with "at least N live replicas required").
+      commonConfig:
+        replication_factor: 2
       # tsdb + s3 (GCS interop below). schema v13 is the current shipping schema.
       schemaConfig:
         configs:
@@ -97,15 +114,23 @@ spec:
     minio:
       enabled: false
 
-    # Per-component replica counts from the microservices guide. Heavy for this
-    # fleet's capacity — trim these (e.g. ingester/querier -> 1) if scheduling
-    # starves the co-located control-plane.
+    # Per-component replicas sized for the 2 schedulable workers. The chart pins
+    # each replica of a component to a distinct node via HARD pod anti-affinity,
+    # and the 3 control-plane VMs are tainted/untolerated, so anything set above
+    # 2 leaves a replica permanently Pending. Singletons (compactor/ruler) stay
+    # at 1; the rest cap at 2 (one per worker).
     ingester:
-      replicas: 3
+      replicas: 2
+      # Zone-aware replication creates 3 ingester StatefulSets (zone-a/b/c), each
+      # demanding its own node — impossible on 2 workers, so a zone sits Pending
+      # and the ingester ring never reaches health (no writes accepted). Plain
+      # non-zonal ingesters co-locate fine.
+      zoneAwareReplication:
+        enabled: false
     distributor:
-      replicas: 3
+      replicas: 2
     querier:
-      replicas: 3
+      replicas: 2
     queryFrontend:
       replicas: 2
     queryScheduler:
