@@ -60,3 +60,6 @@ install-gcloud:
     tar -xf google-cloud-cli-darwin-arm.tar.gz
     ./google-cloud-sdk/install.sh --help
 
+# Force an immediate reconciliation by pulling latest sources
+force-reconcile:
+    flux reconcile source git doghouse-apps

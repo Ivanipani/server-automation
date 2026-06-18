@@ -138,6 +138,18 @@ spec:
         hosts:
           - grafana.doghouse.lan
         path: /
+      # The chart already provisions a default Prometheus datasource; add Loki
+      # alongside it (Prometheus stays the default). Points at the distributed
+      # Loki's nginx gateway, which fronts every read path. Same namespace, but
+      # the FQDN is explicit. Loki runs auth_enabled:false (single fake tenant)
+      # so no X-Scope-OrgID header is needed.
+      additionalDataSources:
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki-gateway.monitoring.svc.cluster.local
+          jsonData:
+            maxLines: 1000
     alertmanager:
       enabled: true
       ingress:

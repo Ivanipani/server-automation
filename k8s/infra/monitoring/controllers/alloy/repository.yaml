@@ -1,0 +1,11 @@
+---
+# Alloy ships from the original grafana/helm-charts repo (only the Loki chart
+# forked to grafana-community), so this is a distinct HelmRepository.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  interval: 1h
+  url: https://grafana.github.io/helm-charts

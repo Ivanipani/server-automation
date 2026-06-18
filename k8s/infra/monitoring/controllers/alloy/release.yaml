@@ -1,0 +1,127 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: alloy
+  namespace: monitoring
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: alloy
+      version: 1.10.0
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+        namespace: monitoring
+      interval: 1h
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    controller:
+      type: daemonset
+      # Tolerate every taint so the agent also lands on the control-plane VMs
+      # (kube-ctl-01..03 carry the control-plane NoSchedule taint), not just the
+      # workers — otherwise k3s server / CP pod logs would be invisible.
+      tolerations:
+        - operator: Exists
+    alloy:
+      # Mount the host /var/log so the agent can tail /var/log/pods/*. k3s uses
+      # containerd, whose log files live there directly — no docker mount needed.
+      mounts:
+        varlog: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+      configMap:
+        content: |
+          // Discover every pod cluster-wide. Each DaemonSet replica only tails
+          // the log files that exist on its own node, so reads stay node-local.
+          discovery.kubernetes "pods" {
+            role = "pod"
+          }
+
+          discovery.relabel "pod_logs" {
+            targets = discovery.kubernetes.pods.targets
+
+            rule {
+              source_labels = ["__meta_kubernetes_namespace"]
+              target_label  = "namespace"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_name"]
+              target_label  = "pod"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_name"]
+              target_label  = "container"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_node_name"]
+              target_label  = "node"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+              target_label  = "app"
+            }
+            rule {
+              source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name"]
+              separator     = "/"
+              target_label  = "job"
+            }
+            // On-disk path: /var/log/pods/<ns>_<pod>_<uid>/<container>/*.log
+            rule {
+              source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+              separator     = "/"
+              action        = "replace"
+              replacement   = "/var/log/pods/*$1/*.log"
+              target_label  = "__path__"
+            }
+            // Stash the runtime (e.g. "containerd") to pick the parse stage below.
+            rule {
+              source_labels = ["__meta_kubernetes_pod_container_id"]
+              action        = "replace"
+              regex         = "^(\\w+):\\/\\/.+$"
+              replacement   = "$1"
+              target_label  = "tmp_container_runtime"
+            }
+          }
+
+          local.file_match "pod_logs" {
+            path_targets = discovery.relabel.pod_logs.output
+          }
+
+          loki.source.file "pod_logs" {
+            targets    = local.file_match.pod_logs.targets
+            forward_to = [loki.process.pod_logs.receiver]
+          }
+
+          loki.process "pod_logs" {
+            // k3s == containerd: strip the CRI envelope (ts, stream, flags).
+            stage.match {
+              selector = "{tmp_container_runtime=\"containerd\"}"
+              stage.cri {}
+            }
+            stage.match {
+              selector = "{tmp_container_runtime=\"docker\"}"
+              stage.docker {}
+            }
+            // Helper label, not a real stream label — drop before write.
+            stage.label_drop {
+              values = ["tmp_container_runtime"]
+            }
+            forward_to = [loki.write.default.receiver]
+          }
+
+          loki.write "default" {
+            endpoint {
+              url = "http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push"
+            }
+          }
