@@ -71,6 +71,14 @@ assumptions:
   tolerates it being absent until then).
 - **`buildkit.yaml`** — the long-lived rootless `buildkitd` that pants' buildx
   `remote` driver targets (k3s nodes are containerd, no docker daemon).
+- **`pants-cache.yaml`** — a shared, long-lived RWO Longhorn PVC holding the pants
+  bootstrap caches (NCE venv, plugin resolve, provisioned interpreters, uv cache).
+  `just-recipe` / `build-image` relocate `HOME` here when the optional
+  `pants-cache` workspace is bound, so runs stop starting cold; the write-heavy
+  lmdb local store stays pinned to the per-run `source` workspace. One cache for
+  every project, not one per project. RWO multi-attaches only same-node (like
+  `buildkit-cache`), so concurrent cross-node TaskRuns contend — pin CI to one
+  node via the PipelineRun `podTemplate` for now, or move to RWX.
 - **`tasks/clone-and-version.yaml`** — clone a repo at a revision and derive the
   CalVer tag from git (UTC commit timestamp → `YYYY.MM.DD.HHMMSS` + short sha).
 - **`tasks/build-image.yaml`** — build (`push=false`, no-export buildx) or publish

@@ -1,0 +1,32 @@
+---
+# Shared, long-lived pants bootstrap cache. Without it every pipeline run starts
+# cold: scie-pants reinstalls the pinned pants into a fresh NCE venv, re-resolves
+# the git plugins, and re-provisions a python-build-standalone interpreter — the
+# ~20-40s of "Installing pantsbuild.pants==..." + "Resolving plugins" seen at the
+# top of every `just build`. Those caches normally live under $HOME/.cache, and
+# the Tasks put HOME on the per-run `source` workspace (a volumeClaimTemplate),
+# so they die with the run.
+#
+# This PVC is the persistent home for those read-mostly caches: the just-recipe /
+# build-image Tasks relocate HOME here when the optional `pants-cache` workspace
+# is bound (pinning only the write-heavy lmdb local store back to the ephemeral
+# source workspace). It is project-agnostic — one cache shared by every pipeline
+# that runs pants, not one per project.
+#
+# RWO Longhorn, like buildkit-cache: Longhorn multi-attaches RWO only on the same
+# node, so concurrent cross-node TaskRuns (the verify `build` matrix, or two PRs
+# at once) contend. Pin CI pods to one node via the PipelineRun podTemplate for
+# now; moving to RWX is the real fix and is low-risk here because only
+# concurrency-tolerant bootstrap caches live on this volume.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pants-cache
+  namespace: tekton-ci
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi

@@ -47,6 +47,13 @@ spec:
     - name: docker-config
       description: GAR push creds as config.json (only read when push=true).
       optional: true
+    - name: pants-cache
+      description: >-
+        Shared, long-lived pants bootstrap cache (the `pants-cache` PVC). pants
+        reinstalls its pinned tools + resolves plugins on every invocation; when
+        bound, the NCE venv / plugin resolve / interpreters persist across runs
+        instead of starting cold.
+      optional: true
   steps:
     - name: build
       image: us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella/ci-builder:latest
@@ -60,6 +67,19 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -euo pipefail
+
+        # Persist the pants bootstrap caches (NCE venv, plugin resolve,
+        # provisioned interpreters) on the shared pants-cache PVC when bound:
+        # pants reinstalls its pinned tools + resolves plugins on every
+        # invocation, so warming them benefits any pants step run here. The lmdb
+        # local store stays pinned to the ephemeral source workspace — not safe
+        # for concurrent writers on the shared cache.
+        if [ "$(workspaces.pants-cache.bound)" = "true" ]; then
+          export HOME="$(workspaces.pants-cache.path)/home"
+          export PANTS_LOCAL_STORE_DIR="$(workspaces.source.path)/.home/lmdb_store"
+          mkdir -p "$HOME" "$PANTS_LOCAL_STORE_DIR"
+        fi
+
         cd "$(workspaces.source.path)/repo"
 
         # Point buildx at the shared rootless buildkitd (no local docker daemon).

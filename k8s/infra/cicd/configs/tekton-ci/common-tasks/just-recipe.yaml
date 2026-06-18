@@ -30,6 +30,12 @@ spec:
     - name: gar-creds
       description: GAR service-account key (key `key.json`) for twine publish.
       optional: true
+    - name: pants-cache
+      description: >-
+        Shared, long-lived pants bootstrap cache (the `pants-cache` PVC). When
+        bound, HOME moves here so the NCE venv, plugin resolve, provisioned
+        interpreters, and uv cache survive across runs; unbound = cold every run.
+      optional: true
   steps:
     - name: just
       image: us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella/ci-builder:latest
@@ -40,9 +46,19 @@ spec:
         #!/usr/bin/env bash
         set -euo pipefail
 
-        # Workspace-relative HOME so pants/uv caches + provisioned interpreters
-        # land on the writable PVC (no dependence on the run-as uid's home).
-        export HOME="$(workspaces.source.path)/.home"
+        # HOME holds the pants/uv bootstrap caches + provisioned interpreters.
+        # Put it on the shared pants-cache PVC when bound so those read-mostly
+        # caches persist across runs; otherwise keep it workspace-relative (cold,
+        # but uid-independent). Either way the write-heavy lmdb local store is
+        # pinned to the ephemeral source workspace — it isn't safe for concurrent
+        # independent pants writers, so it must not live on the shared cache.
+        if [ "$(workspaces.pants-cache.bound)" = "true" ]; then
+          export HOME="$(workspaces.pants-cache.path)/home"
+          export PANTS_LOCAL_STORE_DIR="$(workspaces.source.path)/.home/lmdb_store"
+          mkdir -p "$PANTS_LOCAL_STORE_DIR"
+        else
+          export HOME="$(workspaces.source.path)/.home"
+        fi
         mkdir -p "$HOME"
 
         # Publish recipes authenticate to GAR via Application Default Credentials;
