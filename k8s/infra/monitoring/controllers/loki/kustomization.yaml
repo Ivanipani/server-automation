@@ -3,12 +3,10 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 # The monitoring Namespace is created by the kube-prometheus-stack overlay
 # (same monitoring-controllers Kustomization), so it is not redeclared here.
-#
-# `namespace: monitoring` re-namespaces the shared gcs HMAC Secret (baked as
-# longhorn-system) into monitoring so Loki can mount it; the HelmRepository /
-# HelmRelease are already monitoring, so the transformer is a no-op for them.
-namespace: monitoring
+# Loki now authenticates to GCS with a native SA key (gcs-sa-key.sops.yaml),
+# not the shared HMAC secret — so the shared/secrets base and the namespace
+# override it required are no longer pulled in here.
 resources:
   - repository.yaml
   - release.yaml
-  - ../../../shared/secrets
+  - gcs-sa-key.sops.yaml

@@ -37,30 +37,25 @@ spec:
     # deployments, per the install-microservices guide.
     deploymentMode: Distributed
 
-    # GCS HMAC interop keys injected into every chart-managed component. Loki's
-    # S3 object client reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY from the
-    # AWS default credential chain, so the keys live only in the SOPS-encrypted
-    # secret and never in committed Helm values. This reuses the shared gcs HMAC
-    # secret (../../../shared/secrets, re-namespaced into monitoring by
-    # kustomization.yaml) — the same project-level HMAC pair that backs the
-    # Longhorn GCS backup target, so its service account also needs
-    # storage.objectAdmin on the poochella-logs bucket.
+    # GCP-native object storage auth. Loki's native gcs client uses Application
+    # Default Credentials, so we mount a service-account JSON key into every
+    # chart-managed component and point GOOGLE_APPLICATION_CREDENTIALS at it.
+    # This is k3s (no Workload Identity), so a mounted key is the only ADC
+    # source. The key lives only in the SOPS-encrypted loki-gcs-sa Secret.
+    # Replaces the former HMAC/S3-interop path, which fought GCS's S3
+    # compatibility layer (aws-sdk-go-v2 CRC32 checksums -> SignatureDoesNotMatch).
     global:
-      # Force aws-sdk-go-v2 back to its pre-2025 checksum behavior. Since the s3
-      # SDK v1.73 (Jan 2025) the client injects CRC32 checksum headers
-      # (x-amz-sdk-checksum-algorithm / x-amz-checksum-crc32) into the SigV4
-      # canonical request; GCS's S3-interop layer doesn't recognise them and
-      # rejects every call with 403 SignatureDoesNotMatch. "when_required"
-      # restores compatibility. (Longhorn uses minio-go, which was never
-      # affected — which is why the SAME HMAC keys work there but not here.)
+      extraVolumes:
+        - name: gcs-sa-key
+          secret:
+            secretName: loki-gcs-sa
+      extraVolumeMounts:
+        - name: gcs-sa-key
+          mountPath: /var/secrets/gcs
+          readOnly: true
       extraEnv:
-        - name: AWS_REQUEST_CHECKSUM_CALCULATION
-          value: when_required
-        - name: AWS_RESPONSE_CHECKSUM_VALIDATION
-          value: when_required
-      extraEnvFrom:
-        - secretRef:
-            name: longhorn-gcs-s3
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: /var/secrets/gcs/key.json
 
     loki:
       # Single-tenant homelab: disable multi-tenancy so Loki uses the implicit
@@ -73,12 +68,15 @@ spec:
       # reject every write with "at least N live replicas required").
       commonConfig:
         replication_factor: 2
-      # tsdb + s3 (GCS interop below). schema v13 is the current shipping schema.
+      # tsdb on native GCS (below). schema v13 is the current shipping schema.
+      # object_store names the storage.gcs config; chunk/index keys are
+      # client-independent, so the native gcs client reads the same objects the
+      # S3-interop client previously wrote to poochella-logs (no migration).
       schemaConfig:
         configs:
           - from: "2024-04-01"
             store: tsdb
-            object_store: s3
+            object_store: gcs
             schema: v13
             index:
               prefix: loki_index_
@@ -91,22 +89,20 @@ spec:
         allow_structured_metadata: true
         volume_enabled: true
       storage:
-        type: s3
+        type: gcs
         # One GCS bucket for all three stores — Loki keys chunks/ruler/admin
         # under distinct prefixes, so they don't collide.
         bucketNames:
           chunks: poochella-logs
           ruler: poochella-logs
           admin: poochella-logs
-        s3:
-          # GCS's S3-interoperability endpoint. Credentials are intentionally
-          # absent here — the AWS SDK picks them up from AWS_ACCESS_KEY_ID /
-          # AWS_SECRET_ACCESS_KEY (global.extraEnvFrom above). GCS wants
-          # path-style addressing.
-          endpoint: storage.googleapis.com
-          region: us-east4
-          s3ForcePathStyle: true
-          insecure: false
+        # Credentials come from ADC (the mounted SA key via
+        # GOOGLE_APPLICATION_CREDENTIALS, set in global.extraEnv above); the
+        # native gcs client needs no endpoint/region/signature config.
+        gcs:
+          chunk_buffer_size: 0
+          request_timeout: "0s"
+          enable_http2: true
 
     # Bundled MinIO disabled — chunks and the TSDB index live in the external
     # GCS bucket poochella-logs (loki.storage above) over GCS's S3 interop API.
