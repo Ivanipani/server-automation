@@ -39,3 +39,29 @@ spec:
     # live in tekton-ci, not here).
     createClusterRoles: true
     createAggregateRoles: true
+  # The chart renders git-resolver-config with stock (anonymous, public-catalog)
+  # defaults. Point it at a PAT so the git resolver can fetch pipeline/task YAML
+  # from the private Ivanipani/doghouse repo — letting a PR test its own pipeline
+  # edits at the head SHA before Flux reconciles them. The CM is Helm-owned, so
+  # patch the rendered output here rather than via kustomize (Helm would revert
+  # a live edit). Secret `github-resolver` (Contents: R PAT) lives in doghouse-ci
+  # (doghouse ci/base/secrets); the resolver SA reads it via cluster-scoped RBAC.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: ConfigMap
+              name: git-resolver-config
+            patch: |
+              - op: replace
+                path: /data/api-token-secret-name
+                value: github-resolver
+              - op: replace
+                path: /data/api-token-secret-key
+                value: token
+              - op: replace
+                path: /data/api-token-secret-namespace
+                value: doghouse-ci
+              - op: replace
+                path: /data/default-org
+                value: Ivanipani
