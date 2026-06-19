@@ -44,7 +44,7 @@ spec:
   # from the private Ivanipani/doghouse repo — letting a PR test its own pipeline
   # edits at the head SHA before Flux reconciles them. The CM is Helm-owned, so
   # patch the rendered output here rather than via kustomize (Helm would revert
-  # a live edit). Secret `github-resolver` (Contents: R PAT) lives in doghouse-ci
+  # a live edit). Secret `github-resolver` (Contents: R PAT) lives in tekton-ci
   # (doghouse ci/base/secrets); the resolver SA reads it via cluster-scoped RBAC.
   postRenderers:
     - kustomize:
@@ -61,7 +61,7 @@ spec:
                 value: token
               - op: replace
                 path: /data/api-token-secret-namespace
-                value: doghouse-ci
+                value: tekton-ci
               - op: replace
                 path: /data/default-org
                 value: Ivanipani
