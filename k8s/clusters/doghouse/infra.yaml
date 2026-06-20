@@ -101,6 +101,8 @@ spec:
   path: ./k8s/infra/database/controllers
   prune: true
   wait: true
+  dependsOn:
+    - name: networking-configs
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -140,6 +142,8 @@ spec:
   path: ./k8s/infra/messaging/controllers
   prune: true
   wait: true
+  dependsOn:
+    - name: networking-configs
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -157,7 +161,7 @@ spec:
   prune: true
   wait: true
   dependsOn:
-    - name: networking-controllers
+    - name: networking-configs
   decryption:
     provider: sops
     secretRef:
@@ -196,6 +200,8 @@ spec:
   path: ./k8s/infra/cicd/controllers
   prune: true
   wait: true
+  dependsOn:
+    - name: networking-configs
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -212,6 +218,8 @@ spec:
   path: ./k8s/infra/cicd/controllers/cloudflared
   prune: true
   wait: true
+  dependsOn:
+    - name: networking-configs
   # The tunnel token is SOPS-encrypted; decrypt with the cluster sops-age key
   # (the cicd-controllers Kustomization has no decryption, hence its own
   # Kustomization here). Reconciled standalone — cloudflared/ is not listed in

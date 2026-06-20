@@ -5,3 +5,4 @@ resources:
   - tekton-pipelines
   - tekton-dashboard
   - tekton-triggers
+  - tekton-pruner

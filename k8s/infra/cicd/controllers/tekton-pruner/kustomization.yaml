@@ -1,0 +1,28 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Tekton Pruner: garbage-collects finished PipelineRuns/TaskRuns so their
+# volumeClaimTemplate PVCs (and detached Longhorn volumes) don't accumulate.
+# Replaces the earlier tkn-based CronJob, whose gcr.io image the cluster couldn't
+# pull — the pruner controller/webhook images live on ghcr.io/tektoncd, the same
+# registry as the rest of the Tekton install.
+#
+# release.yaml is the upstream manifest vendored verbatim, pinned to v0.3.3
+# (images pinned by digest). Refresh from:
+#   https://tekton.dev/docs/pruner/  ->  release.yaml for the target version.
+# Installs into the existing tekton-pipelines namespace.
+resources:
+  - release.yaml
+# The shipped tekton-pruner-default-spec defaults to historyLimit: 100. Override
+# it to keep only the 3 most recent PipelineRuns per pipeline, cluster-wide
+# (enforcedConfigLevel: global applies it across every namespace).
+patches:
+  - target:
+      kind: ConfigMap
+      name: tekton-pruner-default-spec
+    patch: |
+      - op: replace
+        path: /data/global-config
+        value: |
+          enforcedConfigLevel: global
+          historyLimit: 3
