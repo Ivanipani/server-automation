@@ -1,0 +1,248 @@
+---
+# Automatic GitHub commit-status reporting for EVERY PipelineRun, cluster-wide.
+#
+# Tekton's `config-events` sink (../../controllers/tekton-pipelines/release.yaml
+# postRenderer) points the Pipelines controller at this Service, so it emits a
+# CloudEvent on every PipelineRun state transition in any namespace. This sink
+# translates that into a GitHub commit status — so a project gets its PR check
+# "for free" without wiring the github-set-status Task into its Pipeline. One
+# status `context` per pipeline ⇒ many enrolled projects render as PARALLEL
+# checks on the same PR.
+#
+# A PipelineRun ENROLLS by carrying two annotations (the project's
+# TriggerTemplate stamps them from the webhook payload — that is the entire
+# per-project contract):
+#     ci.doghouse/repo-full-name: owner/repo    (required)
+#     ci.doghouse/sha:            <head sha>     (required)
+#     ci.doghouse/context:        <check label>  (optional; default = pipeline name)
+#     ci.doghouse/target-url:     <url>           (optional; default = dashboard run)
+# Runs missing either required annotation are ignored, so on-demand/manual runs
+# and non-PipelineRun events pass through untouched.
+#
+# The sink needs NO Kubernetes API rights: the CloudEvent payload already carries
+# the whole PipelineRun object. It only needs egress to api.github.com and the
+# org PAT (single fine-grained PAT, `Commit statuses: R/W` across enrolled repos)
+# mounted from the `github-status` Secret (github-status.sops.yaml, SOPS-encrypted
+# in this repo, decrypted by cicd-configs). The volume is OPTIONAL so the
+# Deployment runs (and no-ops) until the token lands.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-cloudevents-sink
+  namespace: tekton-ci
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tekton-cloudevents-sink-code
+  namespace: tekton-ci
+data:
+  sink.py: |
+    #!/usr/bin/env python3
+    """CloudEvents -> GitHub commit status bridge for Tekton PipelineRuns.
+
+    See cloudevents-sink.yaml for the enrollment contract. stdlib only.
+    """
+    import json, os, sys, urllib.error, urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    TOKEN_FILE = os.environ.get("GITHUB_TOKEN_FILE", "/etc/github-status/token")
+    DASHBOARD_BASE_URL = os.environ.get("DASHBOARD_BASE_URL", "").rstrip("/")
+    PORT = int(os.environ.get("PORT", "8080"))
+    ANN = "ci.doghouse/"
+
+    # CloudEvent `type` suffix -> GitHub status state. queued/running/unknown are
+    # intentionally dropped: post `pending` once on `started`, then a terminal
+    # state, to keep GitHub API calls (and rate limit) minimal.
+    STATE_BY_SUFFIX = {
+        "started.v1": "pending",
+        "successful.v1": "success",
+        "failed.v1": "failure",
+    }
+    DESCRIPTION = {
+        "pending": "Pipeline running",
+        "success": "Pipeline succeeded",
+        "failure": "Pipeline failed",
+    }
+
+    def read_token():
+        try:
+            with open(TOKEN_FILE) as f:
+                return f.read().strip()
+        except OSError:
+            return ""
+
+    def post_status(repo, sha, state, context, description, target_url):
+        token = read_token()
+        if not token:
+            print("no github token at %s; skipping %s status for %s" % (
+                TOKEN_FILE, state, repo), file=sys.stderr)
+            return
+        body = {"state": state, "context": context}
+        if description:
+            body["description"] = description[:140]
+        if target_url:
+            body["target_url"] = target_url
+        url = "https://api.github.com/repos/%s/statuses/%s" % (repo, sha)
+        req = urllib.request.Request(
+            url, data=json.dumps(body).encode(), method="POST",
+            headers={
+                "Authorization": "Bearer " + token,
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "tekton-cloudevents-sink",
+            })
+        try:
+            r = urllib.request.urlopen(req)
+            print("github status %s -> %s (%s %s)" % (state, r.status, repo, context))
+        except urllib.error.HTTPError as e:
+            print("github status POST failed: %s %s" % (e.code, e.read().decode()),
+                  file=sys.stderr)
+        except urllib.error.URLError as e:
+            print("github status POST error: %s" % e, file=sys.stderr)
+
+    def handle_event(ce_type, data):
+        if "pipelinerun" not in ce_type:
+            return
+        state = next((s for suf, s in STATE_BY_SUFFIX.items()
+                      if ce_type.endswith(suf)), None)
+        if state is None:
+            return
+        pr = data.get("pipelineRun")
+        if pr is None and data.get("kind") == "PipelineRun":
+            pr = data
+        if not pr:
+            return
+        meta = pr.get("metadata", {})
+        ann = meta.get("annotations", {}) or {}
+        labels = meta.get("labels", {}) or {}
+        repo = ann.get(ANN + "repo-full-name")
+        sha = ann.get(ANN + "sha") or labels.get(ANN + "sha")
+        if not repo or not sha:
+            return  # not enrolled
+        context = (ann.get(ANN + "context")
+                   or labels.get("tekton.dev/pipeline")
+                   or meta.get("name", "tekton/ci"))
+        target_url = ann.get(ANN + "target-url")
+        if not target_url and DASHBOARD_BASE_URL:
+            target_url = "%s/#/namespaces/%s/pipelineruns/%s" % (
+                DASHBOARD_BASE_URL, meta.get("namespace", "tekton-ci"),
+                meta.get("name", ""))
+        description = ann.get(ANN + "description") or DESCRIPTION.get(state, "")
+        post_status(repo, sha, state, context, description, target_url)
+
+    class Handler(BaseHTTPRequestHandler):
+        def _reply(self, code=200, msg=b"ok"):
+            self.send_response(code)
+            self.send_header("Content-Length", str(len(msg)))
+            self.end_headers()
+            self.wfile.write(msg)
+
+        def do_GET(self):
+            self._reply()  # readiness / liveness
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw = self.rfile.read(length) if length else b""
+            # Ack first so Tekton's sender never retry-storms on our errors.
+            self._reply(202, b"accepted")
+            try:
+                body = json.loads(raw) if raw else {}
+                ce_type = self.headers.get("ce-type")
+                if ce_type:            # binary content mode: body == data payload
+                    data = body
+                else:                  # structured content mode: full envelope
+                    ce_type = body.get("type", "")
+                    data = body.get("data", {}) or {}
+                handle_event(ce_type or "", data)
+            except Exception as e:     # never crash the server on a bad event
+                print("event handling error: %s" % e, file=sys.stderr)
+
+        def log_message(self, *a):
+            pass  # quiet default access logging
+
+    if __name__ == "__main__":
+        print("tekton-cloudevents-sink listening on :%d" % PORT)
+        ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tekton-cloudevents-sink
+  namespace: tekton-ci
+  labels:
+    app: tekton-cloudevents-sink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tekton-cloudevents-sink
+  template:
+    metadata:
+      labels:
+        app: tekton-cloudevents-sink
+    spec:
+      serviceAccountName: tekton-cloudevents-sink
+      containers:
+        - name: sink
+          # Public minimal image: the sink is stdlib-only, so no ci-builder/uv (no
+          # GAR pull secret, no interpreter cold-start).
+          image: python:3.12-slim
+          command: ["python", "/app/sink.py"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: GITHUB_TOKEN_FILE
+              value: /etc/github-status/token
+            # Default target_url for the PR check links back to the read-only
+            # dashboard PipelineRun view.
+            - name: DASHBOARD_BASE_URL
+              value: http://tekton.doghouse.lan
+          volumeMounts:
+            - name: code
+              mountPath: /app
+              readOnly: true
+            - name: github-status
+              mountPath: /etc/github-status
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+      volumes:
+        - name: code
+          configMap:
+            name: tekton-cloudevents-sink-code
+        - name: github-status
+          secret:
+            # The org PAT (fine-grained, Commit statuses R/W). Optional so the
+            # Deployment runs and no-ops until the Secret is authored.
+            secretName: github-status
+            optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tekton-cloudevents-sink
+  namespace: tekton-ci
+spec:
+  selector:
+    app: tekton-cloudevents-sink
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

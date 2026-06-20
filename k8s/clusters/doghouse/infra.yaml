@@ -246,3 +246,9 @@ spec:
   wait: true
   dependsOn:
     - name: cicd-controllers
+  # The cloudevents sink's GitHub PAT (github-status.sops.yaml) is SOPS-encrypted;
+  # decrypt with the cluster sops-age key (installed in flux-system by Ansible).
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: github-status
+    namespace: tekton-ci
+stringData:
+    token: ENC[AES256_GCM,data:/VY1eS2N69JHln2z16QCqg5ZQsW33DHMqYTHnx0TUPuadMA18FBP27iNyLfy0OU2PsiRvLaiUu3qvfNBxEgSyHq62emenqCav82nPP5nOA73ORnZr3Hi4m0e55tx,iv:V4A9lL12hP1BTqWte/erRFPOb7gBn2z1i3zLYoREqw4=,tag:qn7Dm4ZhwAMyBAqHpyt2Ng==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBpQjBxaVdHa0NGa2MxS3NV
+            TElTSTVJdjVuMEVoOTMwVFpwTkJwN0RZV1dFCkdmemE5di9iQTFMaEMzQVFCV0dF
+            dFBiUVFIcVBrNEVoNktaRGhlUWs4N1kKLS0tIE9TWXc2SnpNTDFab1hGaTFtSjFt
+            SlVCYWxLWXdqTm9QZFcweFJYc1d2VmcKTYvQxexTw2Ix1KyCpkerPRSBrojxHw0r
+            gbsAz0i0tPzdJHOVPD0om4X+2/bVnWI9rMYZp6pmj7O2Msabu8O0iQ==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age12xnm47mqs6rsw6e6fscva7s4pnaxmy2c7cvzfvx6knq497vx4s7qsp2u8g
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-06-17T04:27:04Z"
+    mac: ENC[AES256_GCM,data:fcwVotGHui15GCVkAX0Up6snWUtXTPXM3EStBTLOVjWknqkOQ4n3cvL4T7+50iRLbtzC1NSFzReMLscivlXtG9Wlpg/tSLPmw9uJ7V0i5HzCV8aKGBGsoKh9F/l7c68WImQTrDwPYRBg9bm+2xrNj75yXH/q0nbTQACmClldU7k=,iv:d3YA/C6OlEdPC9BMLmTWbck/xKI5iKVXJ55rHHXJsp4=,tag:+6bPcWCQscL7vVpNV04ZiA==,type:str]
+    version: 3.13.0

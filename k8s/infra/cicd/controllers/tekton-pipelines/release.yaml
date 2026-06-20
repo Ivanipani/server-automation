@@ -79,3 +79,19 @@ spec:
               - op: replace
                 path: /data/coschedule
                 value: pipelineruns
+          # Emit a CloudEvent on every TaskRun/PipelineRun transition to the
+          # in-cluster sink, which posts a GitHub commit status per PipelineRun —
+          # so every project's CI reports a PR check without wiring the
+          # github-set-status Task. The chart ships config-events with only an
+          # `_example` block; add the live sink + format keys (Tekton ignores
+          # `_`-prefixed keys). Sink: configs/tekton-ci/cloudevents-sink.yaml.
+          - target:
+              kind: ConfigMap
+              name: config-events
+            patch: |
+              - op: add
+                path: /data/sink
+                value: http://tekton-cloudevents-sink.tekton-ci.svc.cluster.local:8080
+              - op: add
+                path: /data/formats
+                value: tektonv1

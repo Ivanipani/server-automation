@@ -90,6 +90,30 @@ assumptions:
   optional `version` → `VERSION`, plus a `gar-creds` workspace →
   `GOOGLE_APPLICATION_CREDENTIALS` for twine publishes). Used by the
   service-utils pipelines.
+- **`cloudevents-sink.yaml`** — **automatic GitHub PR checks for every
+  pipeline.** Tekton's `config-events` sink (patched onto the Pipelines
+  controller in `controllers/tekton-pipelines/release.yaml`) emits a CloudEvent
+  on every PipelineRun transition cluster-wide; this stdlib-Python sink
+  Deployment translates each into a GitHub commit status. A pipeline reports a PR
+  check **for free** — no `github-set-status` wiring. **Enrollment contract**:
+  the project's TriggerTemplate stamps two annotations on the PipelineRun it
+  creates (both required; sourced from the webhook payload):
+  ```yaml
+  metadata:
+    annotations:
+      ci.doghouse/repo-full-name: Ivanipani/doghouse   # owner/repo
+      ci.doghouse/sha: $(tt.params.sha)                # PR head sha
+      # optional:
+      ci.doghouse/context: doghouse/verify             # default = pipeline name
+      ci.doghouse/target-url: ...                       # default = dashboard run
+  ```
+  Runs missing either required annotation are ignored (manual/on-demand runs pass
+  through). One status `context` per pipeline ⇒ many enrolled projects render as
+  **parallel** checks on the same PR. The sink authenticates with a single org
+  PAT (`Commit statuses: R/W`) from the SOPS-encrypted `github-status` Secret
+  (`github-status.sops.yaml`, decrypted by `cicd-configs`; the mount is optional
+  so the sink no-ops until it lands). The `github-set-status` Task stays for
+  explicit in-pipeline statuses the sink can't express.
 
 ## Architecture
 

@@ -21,3 +21,5 @@ resources:
   - common-tasks/just-recipe.yaml
   - common-tasks/github-set-status.yaml
   - github-listener.yaml
+  - github-status.sops.yaml
+  - cloudevents-sink.yaml

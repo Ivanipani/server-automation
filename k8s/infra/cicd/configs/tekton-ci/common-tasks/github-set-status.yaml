@@ -1,9 +1,16 @@
 ---
 # Report a commit status to a GitHub repo via the Statuses API, so PRs show the
 # verify/publish outcome and a link back to the PipelineRun. Plain Tekton
-# Triggers has no return path to GitHub (unlike Pipelines-as-Code); a Pipeline
-# wires this Task in twice — once up front with state=pending, once in `finally`
-# with the run result.
+# Triggers has no return path to GitHub (unlike Pipelines-as-Code).
+#
+# SUPERSEDED for the common case by cloudevents-sink.yaml: that sink posts a
+# pipeline-level status for every enrolled PipelineRun automatically (via Tekton
+# CloudEvents), so a Pipeline no longer needs to wire status reporting at all —
+# it just stamps the `ci.doghouse/repo-full-name` + `ci.doghouse/sha`
+# annotations. Keep this Task only for explicit, in-pipeline statuses the sink
+# can't express (e.g. a separate per-stage check under its own `context`, posted
+# mid-run): a Pipeline wires it with state=pending up front and the run result in
+# `finally`.
 #
 # Reusable substrate: the caller passes the repo + sha + state and mounts a
 # `github-token` workspace (a Secret with key `token` — a fine-grained PAT with
