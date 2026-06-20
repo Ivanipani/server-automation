@@ -1,0 +1,73 @@
+---
+# PipelineRun garbage collector. Each verify run mounts its `source` workspace as
+# a volumeClaimTemplate, so Tekton provisions a fresh Longhorn PVC per run and
+# only releases it when the *PipelineRun object* is deleted (the PVC carries an
+# ownerRef to the run). Nothing in core Tekton prunes finished runs, so without
+# this they — and their detached Longhorn volumes — accumulate without bound.
+#
+# This CronJob keeps the N most recent PipelineRuns (dashboard history) and
+# deletes the rest every 15 min; `tkn ... delete` skips still-running runs by
+# default, so an in-flight CI job is never reaped. Deleting a run cascades to its
+# volumeClaimTemplate PVC -> Longhorn reclaims the volume. Tune retention via
+# `--keep` (count) or add `--keep-since <minutes>` for an age window.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-pruner
+  namespace: tekton-ci
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tekton-pruner
+  namespace: tekton-ci
+rules:
+  - apiGroups: ["tekton.dev"]
+    resources: ["pipelineruns", "taskruns"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tekton-pruner
+  namespace: tekton-ci
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: tekton-pruner
+subjects:
+  - kind: ServiceAccount
+    name: tekton-pruner
+    namespace: tekton-ci
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tekton-pruner
+  namespace: tekton-ci
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      # Don't let a wedged prune attempt retry forever.
+      backoffLimit: 1
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          serviceAccountName: tekton-pruner
+          restartPolicy: Never
+          containers:
+            - name: prune
+              # Tekton's own CLI image; matches the v1.12 pipelines install.
+              image: gcr.io/tekton-releases/dogfooding/tkn:latest
+              command:
+                - tkn
+                - pipelinerun
+                - delete
+                - --all
+                - --keep=5
+                - --namespace=tekton-ci
+                - --force

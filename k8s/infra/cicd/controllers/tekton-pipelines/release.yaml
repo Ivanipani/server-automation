@@ -65,3 +65,17 @@ spec:
               - op: replace
                 path: /data/default-org
                 value: Ivanipani
+          # The affinity assistant defaults to `coschedule: workspaces`, which
+          # caps a TaskRun at ONE PVC-backed workspace and rejects extras with
+          # "more than one PersistentVolumeClaim is bound". Our verify pipeline
+          # mounts two PVCs per TaskRun (the per-run `source` volumeClaimTemplate
+          # + the shared `pants-cache`), so switch to `pipelineruns`: co-schedule
+          # every pod of a PipelineRun onto one node (still correct for RWO
+          # Longhorn) while allowing multiple PVCs.
+          - target:
+              kind: ConfigMap
+              name: feature-flags
+            patch: |
+              - op: replace
+                path: /data/coschedule
+                value: pipelineruns

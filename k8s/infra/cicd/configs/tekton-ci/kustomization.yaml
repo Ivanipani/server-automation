@@ -16,6 +16,7 @@ resources:
   - rbac.yaml
   - buildkit.yaml
   - pants-cache.yaml
+  - pruner.yaml
   - common-tasks/clone-and-version.yaml
   - common-tasks/build-image.yaml
   - common-tasks/just-recipe.yaml
