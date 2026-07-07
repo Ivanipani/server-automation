@@ -21,6 +21,28 @@
       See inventory.yaml's nas01 entry for the expected schema.
     quiet: true
 
+- name: Find shares whose description exceeds DSM's 64-char limit
+  # DSM's SYNO.Core.Share/create rejects descriptions longer than 64
+  # chars with error code 3300, but returns HTTP 200 — easy to mistake
+  # for a silent no-op. Surface it here with an actionable message.
+  ansible.builtin.set_fact:
+    _oversized_share_descriptions: >-
+      {{ hostvars[inventory_hostname].storage.shares
+         | selectattr('description', 'defined')
+         | rejectattr('description', 'match', '^.{0,64}$')
+         | map(attribute='name') | list }}
+
+- name: Assert every share description fits DSM's 64-char limit
+  ansible.builtin.assert:
+    that:
+      - _oversized_share_descriptions | length == 0
+    fail_msg: |
+      These shares have a description longer than DSM's 64-char limit
+      (SYNO.Core.Share/create would fail with code 3300):
+        {{ _oversized_share_descriptions }}
+      Shorten the description in inventory.yaml to <= 64 characters.
+    quiet: true
+
 - name: Build the declared-shares list (each share annotated with vol_path)
   ansible.builtin.set_fact:
     _declared_shares: >-

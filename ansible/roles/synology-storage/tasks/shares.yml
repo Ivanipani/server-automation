@@ -113,21 +113,20 @@
     that:
       - (_declared_shares | map(attribute='name') | difference(_current_shares_by_name.keys() | list)) | length == 0
     fail_msg: |
-      Share create returned success but these shares still don't
-      appear in DSM's list:
+      The Share/create call did not persist these shares:
         {{ _declared_shares | map(attribute='name') | difference(_current_shares_by_name.keys() | list) | list }}
 
-      The likely cause is that a PLAIN directory already exists at
-      /volume1/<sharename> from earlier work (e.g. our long-since
-      reverted 40-ssh-access.yml mkdir'd /volume1/proxmox). DSM
-      refuses to overlay a share on a non-share directory but doesn't
-      surface the conflict — its Share/create call returns
-      `success:true` without actually creating the share.
+      Inspect the "Create missing shares" result above for the DSM
+      error code (visible with -vvv as json.error.code). Known causes:
 
-      Fix (one-time): in DSM → File Station, find the plain directory
-      matching the share name above and delete it (or its contents +
-      `rmdir` via SSH-as-pani). Then re-run this playbook — share
-      creation will succeed since the path is now clear.
+        code 3300 — invalid create payload. Most often a description
+          longer than DSM's 64-char limit (now caught in preflight),
+          or an otherwise malformed shareinfo field.
+
+        success:true but not listed — a PLAIN (non-share) directory
+          already exists at /volume1/<sharename>; DSM silently refuses
+          to overlay a share on it. Delete that directory (DSM File
+          Station, or `rmdir` via SSH-as-pani) and re-run.
     quiet: true
 
 # ---- Post-create settings: quota --------------------------------------------

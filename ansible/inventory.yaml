@@ -447,6 +447,18 @@ storage:
                   squash: all_squash
                   security: sys
                   async: true
+          - name: song-viewer
+            # DSM caps shared-folder descriptions at 64 chars; longer
+            # descriptions make SYNO.Core.Share/create fail with code 3300.
+            description: "song-viewer media (mp3 catalog + photos); synced to cluster PVC"
+            quota_gb: 20
+            nfs:
+              rules:
+                - host: 10.1.1.0/24
+                  privilege: rw
+                  squash: all_squash
+                  security: sys
+                  async: true
 
 virtual-machines:
   children:
