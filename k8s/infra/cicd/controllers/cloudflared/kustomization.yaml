@@ -1,11 +1,22 @@
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# Cloudflare Tunnel: GitHub's public path to the internal-only cluster.
-# cloudflared dials out to Cloudflare's edge and forwards the public webhook
-# hostname to the in-cluster EventListener Service
-# (el-github-listener.tekton-ci.svc.cluster.local:8080 — the hostname->service
-# map is set in the Cloudflare Zero Trust dashboard, token-managed tunnel).
+# Cloudflare Tunnel: public path into the internal-only cluster. cloudflared
+# dials out to Cloudflare's edge; the hostname->service map is token-managed in
+# the Cloudflare Zero Trust dashboard (NOT in git — this is a remotely-managed
+# tunnel), so the public hostnames below are recorded here for reference only.
+# Add/change a route in: Zero Trust → Networks → Tunnels → (this tunnel) →
+# Public Hostname.
+#
+# Public hostnames served by this tunnel:
+#   - <webhook hostname>       -> el-github-listener.tekton-ci.svc.cluster.local:8080
+#                                 (GitHub webhook entrypoint)
+#   - canciones.poochella.club -> http://traefik.kube-system.svc.cluster.local:80
+#                                 (public song-viewer site; Traefik routes by Host
+#                                 to the song-viewer Ingress in the doghouse repo.
+#                                 Leave the "HTTP Host Header" override blank so the
+#                                 original host reaches Traefik. Alt target: the
+#                                 Traefik MetalLB IP http://10.1.1.250:80.)
 #
 # Reconciled by its own `cloudflare-controllers` Flux Kustomization (with SOPS
 # decryption — the `cicd-controllers` one has none, so it can't live there).
