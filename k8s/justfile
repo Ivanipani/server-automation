@@ -2,6 +2,9 @@ set dotenv-load := true
 
 pwd := absolute_path(".")
 
+# All encryption key material lives in <repo-root>/secrets/ (git-ignored).
+age_key := parent_directory(justfile_directory()) / "secrets/age.agekey"
+
 # Default target
 default:
     @just --list --unsorted
@@ -12,7 +15,7 @@ default:
 #   just do-flux        # -> ansible/.../40-kube/40-flux.yml
 # (The old `bootstrap-flux` / `install-age-secret` recipes were removed when the
 # bootstrap moved into Ansible. The age private key is vaulted as
-# vault_sops_age_key; the loose k8s/age.agekey is only a local convenience for
+# vault_sops_age_key; the loose secrets/age.agekey is only a local convenience for
 # `edit-secret` below and is git-ignored.)
 
 # Fuzzy-pick a *.sops.yaml secret and open it decrypted in $EDITOR (re-encrypts on save).
@@ -24,7 +27,7 @@ edit-secret:
         | sed 's|^\./||' | sort \
         | fzf --prompt='sops> ' --height=40% --reverse --no-multi) || exit 0
     [[ -n "${file:-}" ]] || { echo "No file selected." >&2; exit 0; }
-    SOPS_AGE_KEY_FILE="{{pwd}}/age.agekey" sops "${file}"
+    SOPS_AGE_KEY_FILE="{{age_key}}" sops "${file}"
 
 # Headlamp admin token
 get-headlamp-secret:
@@ -39,7 +42,7 @@ edit-sops:
         | sed 's|^\./||' | sort \
         | fzf --prompt='sops> ' --height=40% --reverse --no-multi) || exit 0
     [[ -n "${file:-}" ]] || { echo "No file selected." >&2; exit 0; }
-    SOPS_AGE_KEY_FILE="{{pwd}}/age.agekey" sops "${file}"
+    SOPS_AGE_KEY_FILE="{{age_key}}" sops "${file}"
 
 # Encrypt a sops.yaml file in place
 encrypt-sops:
@@ -50,7 +53,7 @@ encrypt-sops:
         | sed 's|^\./||' | sort \
         | fzf --prompt='sops> ' --height=40% --reverse --no-multi) || exit 0
     [[ -n "${file:-}" ]] || { echo "No file selected." >&2; exit 0; }
-    SOPS_AGE_KEY_FILE="{{pwd}}/age.agekey" sops -e -i "${file}"
+    SOPS_AGE_KEY_FILE="{{age_key}}" sops -e -i "${file}"
 
 
 # install gcloud cli

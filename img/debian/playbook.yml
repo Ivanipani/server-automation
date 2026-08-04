@@ -9,7 +9,7 @@
 #
 # Invoked as:
 #   ansible-playbook img/debian/playbook.yml \
-#       --vault-password-file ansible-pass \
+#       --vault-password-file ../secrets/ansible-pass \
 #       -e target_host=<inventory-hostname> \
 #       -e workdir=<absolute-path>
 

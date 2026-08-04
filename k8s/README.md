@@ -51,7 +51,7 @@ That playbook:
 Prereqs (see `ansible/group_vars/all/vars.yml` for the exact add commands):
 `vault_github_ssh_private_key` with push access to this repo (its public half is
 already registered on the GitHub account); `vault_sops_age_key`
-(the `k8s/age.agekey` contents); and `vault_doghouse_apps_deploy_key` once you
+(the `secrets/age.agekey` contents); and `vault_doghouse_apps_deploy_key` once you
 cut apps over to the private repo. After the stack is up, set the real Proxmox
 API token (see [Proxmox API token](#proxmox-api-token-sops-managed)).
 
@@ -136,14 +136,14 @@ Secrets are committed to this PUBLIC repo encrypted with [SOPS](https://github.c
 
 The age **private** key must never be committed (`*.agekey` is git-ignored) and is held in the **ansible-vault** as `vault_sops_age_key`. `just do-flux` installs it into the cluster as the `sops-age` Secret in `flux-system` — there is no manual `kubectl create secret` step anymore. Keep the canonical copy of the key in a password manager: losing it means no committed secret can ever be decrypted again.
 
-> The loose `k8s/age.agekey` file (git-ignored) is only a local convenience for `just edit-secret` below; the cluster gets the key from the vault, not this file.
+> The loose `secrets/age.agekey` file (git-ignored) is only a local convenience for `just edit-secret` below; the cluster gets the key from the vault, not this file. All local key material lives in `<repo-root>/secrets/`.
 
 To author a new encrypted secret, name the file `*.sops.yaml`, write the plaintext `Secret`, then encrypt in place before committing:
 
 ```sh
 sops -e -i path/to/whatever.sops.yaml
 # decrypt locally (needs the private key):
-SOPS_AGE_KEY_FILE=age.agekey sops -d path/to/whatever.sops.yaml
+SOPS_AGE_KEY_FILE=../secrets/age.agekey sops -d path/to/whatever.sops.yaml
 ```
 
 ## Proxmox API token (SOPS-managed)
@@ -158,7 +158,7 @@ On Proxmox: Datacenter → Permissions → API Tokens → Add. Recommended setup
 
 The committed file ships with a `REPLACE_WITH_PVE_API_TOKEN_UUID` placeholder. Set the real value in place (opens the decrypted Secret in `$EDITOR`, re-encrypts on save — needs the age private key):
 ```sh
-SOPS_AGE_KEY_FILE=age.agekey sops infra/monitoring/controllers/kube-prometheus-stack/pve-exporter-token.sops.yaml
+SOPS_AGE_KEY_FILE=../secrets/age.agekey sops infra/monitoring/controllers/kube-prometheus-stack/pve-exporter-token.sops.yaml
 ```
 Replace the placeholder under `stringData.tokenValue`, save, then commit the re-encrypted file. Flux applies and prunes it like any other tracked resource — no manual re-run after a cluster rebuild.
 
@@ -178,7 +178,7 @@ All three services are fronted by the k3s-shipped Traefik ingress, pinned to `10
 
 Grafana login user is `admin`; the password is a random value in the SOPS-encrypted `grafana-admin` Secret (wired via `grafana.admin.existingSecret`). Read it with:
 ```sh
-SOPS_AGE_KEY_FILE=age.agekey sops -d \
+SOPS_AGE_KEY_FILE=../secrets/age.agekey sops -d \
   infra/monitoring/controllers/kube-prometheus-stack/grafana-admin.sops.yaml
 ```
 

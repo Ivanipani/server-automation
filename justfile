@@ -1,5 +1,8 @@
 pwd := absolute_path(".")
 
+# All encryption key material lives in <repo-root>/secrets/ (git-ignored).
+vault_pass := justfile_directory() / "secrets/ansible-pass"
+
 # Default target
 default:
     @just --list --unsorted
@@ -84,10 +87,11 @@ run *options: check
     cd ansible
     selected=$(find playbooks -name '*.yml' -type f | sort | fzf)
     echo "Running $selected"
-    ansible-playbook --vault-password-file ansible-pass {{ options }} "$selected"
+    ansible-playbook --vault-password-file {{vault_pass}} {{ options }} "$selected"
+
 # Encrypt a variable with ansible-vault
 secret-encrypt name:
-    cd ansible && ansible-vault encrypt_string --vault-password-file ansible-pass --stdin-name {{name}}
+    cd ansible && ansible-vault encrypt_string --vault-password-file {{vault_pass}} --stdin-name {{name}}
 
 # Decrypt & print a single value from group_vars/all/vault.yml.
 # Pass a name (e.g. `just secret-decrypt vault_postgres_pass`), or
@@ -103,7 +107,7 @@ secret-decrypt name="":
     [ -n "$name" ] || { echo "No variable selected." >&2; exit 1; }
     ansible localhost -i inventory.yaml \
         -e @group_vars/all/vault.yml \
-        --vault-password-file ansible-pass \
+        --vault-password-file {{vault_pass}} \
         -m debug -a "var=$name" 2>/dev/null
 
 # Materialize the fleet-wide `ansible` SSH keypair onto this control node
@@ -112,19 +116,19 @@ secret-decrypt name="":
 # re-run after rotating the keypair. Connection-local, so it needs no SSH key.
 # symlink inventory.yaml into $HOME. Allows other projects to use this inventory as the source of truth
 stage-ansible-key:
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/00-control-node/10-stage-ansible-key.yml
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} playbooks/poochella/infra/00-control-node/10-stage-ansible-key.yml
     mkdir -p "$HOME/.ansible/inventory"
     ln -sf {{pwd}}/ansible/inventory.yaml "$HOME/.ansible/inventory/inventory.yaml"
 
 
 # READ-ONLY: report PRESENT/MISSING per declared partition on every physical host (host-disks role in info mode). Never halts. Safe anytime.
 disk-plan:
-    cd ansible && ansible-playbook --vault-password-file ansible-pass -e host_disks_action=info playbooks/poochella/infra/17-host/15-storage.yml
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} -e host_disks_action=info playbooks/poochella/infra/17-host/15-storage.yml
 
 # READ-ONLY: refresh LVFS metadata on every baremetal and report available component firmware updates (NVMe SSDs, NICs, TPMs, etc.). Does NOT cover the HP MP9 G2 system BIOS — see runbooks/firmware-updates.md.
 firmware-plan:
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/17-host/60-firmware-plan.yml
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} playbooks/poochella/infra/17-host/60-firmware-plan.yml
 
 sync-preseed-templates:
-    cd ansible && ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/13-foundation/90-bootserv.yml --start-at-task "Copy iPXE chainload binaries into TFTP root"
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} playbooks/poochella/infra/13-foundation/90-bootserv.yml --start-at-task "Copy iPXE chainload binaries into TFTP root"
 

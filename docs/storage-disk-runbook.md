@@ -105,7 +105,7 @@ Goal: zero data loss, minimal disruption.
    it explicitly, scoped to the one node):
    ```bash
    cd ansible
-   ansible-playbook --vault-password-file ansible-pass --limit <node> \
+   ansible-playbook --vault-password-file ../secrets/ansible-pass --limit <node> \
      -e host_disks_action=overwrite \
      playbooks/poochella/infra/17-host/15-storage.yml
    ```

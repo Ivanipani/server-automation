@@ -158,7 +158,7 @@ Run the k3s playbook scoped to this host:
 
 ```bash
 cd ansible
-ansible-playbook --vault-password-file ansible-pass \
+ansible-playbook --vault-password-file ../secrets/ansible-pass \
   --limit worker-home-02 \
   playbooks/poochella/infra/40-kube/20-k3s.yml
 ```
@@ -208,7 +208,7 @@ You land here when step 8 reported MISSING for the `longhorndata` VG (a disk was
 2. **Re-create the disk substrate** — per-disk ext4 mounts under `/var/lib/longhorn-disks/<label>` (DESTRUCTIVE — wipes any residual data on the declared disks; if partlabels are reused, zap the old pool/signatures first per `docs/storage-disk-runbook.md`):
    ```bash
    cd ansible
-   ansible-playbook --vault-password-file ansible-pass \
+   ansible-playbook --vault-password-file ../secrets/ansible-pass \
      --limit worker-home-02 \
      -e host_disks_action=overwrite \
      playbooks/poochella/infra/17-host/15-storage.yml

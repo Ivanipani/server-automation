@@ -1,0 +1,27 @@
+[project]
+name = "elysium"
+version = "0.1.0"
+description = "One-stop secret management for the poochella repo (ansible-vault + SOPS)"
+readme = "README.md"
+authors = [
+    { name = "Ivan Perdomo", email = "iperdomo2016@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.15",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+elysium = "elysium.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

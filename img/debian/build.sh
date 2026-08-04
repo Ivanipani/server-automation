@@ -93,12 +93,12 @@ echo "[2/4] Rendering preseed + boot configs for ${TARGET_HOST}"
 rm -rf "${WORKDIR}"
 mkdir -p "${WORKDIR}"
 
-# Run from ${ANSIBLE_DIR} so ansible.cfg + inventory + vault are auto-found
-# (same pattern as `just run`). Vault file is the repo's `ansible-pass`.
+# Run from ${ANSIBLE_DIR} so ansible.cfg + inventory are auto-found (same
+# pattern as `just run`). The vault password lives in the repo's secrets/ dir.
 (
     cd "${ANSIBLE_DIR}"
     ansible-playbook \
-        --vault-password-file ansible-pass \
+        --vault-password-file "${REPO_ROOT}/secrets/ansible-pass" \
         --extra-vars "target_host=${TARGET_HOST}" \
         --extra-vars "workdir=${WORKDIR}" \
         "${SCRIPT_DIR}/playbook.yml"

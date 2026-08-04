@@ -55,6 +55,12 @@ Groups define topology:
 - **Bootstrap is Ansible-driven**: `40-kube/40-flux.yml` (run via `just do-flux`, host `localhost`) runs `flux bootstrap git` against this repo over **SSH** (GitHub rejects PAT-over-HTTPS for git ops; key staged from `vault_github_ssh_private_key`, `--path=k8s/clusters/doghouse`) using the kubeconfig `20-k3s.yml` fetched, then installs the `sops-age` Secret from `vault_sops_age_key` and the `doghouse-apps-key` Secret from `vault_doghouse_apps_deploy_key` (each skipped if its vault value is unset/placeholder). Idempotent; it commits + pushes `flux-system/` to the repo.
 - **SOPS**: encrypted `*.sops.yaml` are committed in the public repo (safe — only the age **public** key is exposed in `k8s/.sops.yaml`); the age **private** key is vaulted as `vault_sops_age_key` and never a loose tracked file (`*.agekey` is git-ignored). Decryption is wired via `spec.decryption` on the `storage-controllers` / `monitoring-controllers` Kustomizations.
 
+### Secrets (`secrets/` + `src/elysium`)
+
+**All local encryption key material lives in `<repo-root>/secrets/`** (git-ignored): `secrets/ansible-pass` (ansible-vault password) and `secrets/age.agekey` (SOPS age identity). Nothing else in the tree holds a key — the justfiles reference them through the `vault_pass` / `age_key` variables, never a relative literal.
+
+`src/elysium` is the Python CLI over both secret stores (`elysium ansible|sops get/set/list`, `elysium get` to fzf across both, `elysium doctor` to see what resolved). Business logic lives in the library; `elysium.cli` is a typer wrapper. The two stores differ in granularity by design: **ansible-vault is addressed per variable, SOPS per whole manifest** — there is no per-key SOPS API. `elysium ansible set` rewrites a variable's ciphertext lines only (indentation, position, vault-id label and comments preserved byte-for-byte), so prefer it over hand-editing `group_vars/all/vault.yml`.
+
 ### Ansible Guidelines
 
 Plays/roles that install a service should have a boolean enable/disable flag capable of reversing or unapplying the change. Use blocks to group together each side.

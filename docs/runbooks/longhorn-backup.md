@@ -19,7 +19,7 @@ This repo does NOT own:
 
 1. The `longhorn-backup` share exists on DSM and exports NFSv4.1. Verify:
    ```bash
-   ansible-playbook --vault-password-file ansible-pass playbooks/poochella/infra/15-nas/25-storage-plan.yml
+   ansible-playbook --vault-password-file ../secrets/ansible-pass playbooks/poochella/infra/15-nas/25-storage-plan.yml
    # Look for `"name": "longhorn-backup"` in the output.
    ```
 2. The `worker-home-02` baremetal worker can reach `nas01.lan:2049/tcp` (NFS). Verify:

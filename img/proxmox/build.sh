@@ -26,7 +26,7 @@
 #   - proxmox-auto-install-assistant + xorriso + wget installed
 #     (host-base puts them on every physical host; the operator
 #      laptop needs them too)
-#   - ansible + uv + repo's ansible-pass file present (the helper
+#   - ansible + uv + repo's secrets/ansible-pass file present (the helper
 #     playbook runs ansible to render the baseline script)
 
 set -euo pipefail
@@ -40,7 +40,7 @@ ANSWER_FILE="$(realpath "$1")"
 ANSWER_STEM="$(basename "${ANSWER_FILE%.toml}")"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ANSIBLE_DIR="$REPO_DIR/ansible"
 
 OUTPUT_DIR="$SCRIPT_DIR/output"
@@ -65,7 +65,7 @@ done
 # ── 2. Render image-baseline.sh on the controller ───────────────
 echo "Rendering image-baseline.sh via ansible..."
 ansible-playbook \
-  --vault-password-file "$ANSIBLE_DIR/ansible-pass" \
+  --vault-password-file "$REPO_DIR/secrets/ansible-pass" \
   "$ANSIBLE_DIR/playbooks/poochella/img/render-image-baseline-to-controller.yml"
 BASELINE_SH="/var/tmp/poochella-image-baseline.sh"
 [ -r "$BASELINE_SH" ] || { echo "Error: $BASELINE_SH not found after render"; exit 1; }
