@@ -1,10 +1,12 @@
 [GLOBAL]
-pants_version = "2.32.0"
+pants_version = "2.33.0"
 plugins = ["pants-plugins @ git+ssh://git@github.com/Ivanipani/pants-plugins.git@faae879"]
 
 backend_packages = [
     "pants.backend.docker",
     "pants_plugins",
+    "pants.backend.shell",
+    "pants.backend.python",
 ]
 
 [docker]
@@ -13,3 +15,6 @@ use_buildx = true
 [docker.registries.poochella]
 address = "us-east4-docker.pkg.dev/adept-fountain-498903-t7/poochella"
 default = true
+
+[python]
+interpreter_constraints = ["==3.12.*"]

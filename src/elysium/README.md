@@ -13,7 +13,16 @@ typer/rich wrapper over it.
 ```sh
 uv tool install --editable src/elysium     # `elysium` on PATH, tracks the checkout
 uv run --project src/elysium elysium ...   # or run it without installing
+
+pants run src/elysium:elysium -- ...       # or through the build graph
+pants package src/elysium:elysium          # -> dist/src.elysium/elysium.pex
 ```
+
+The `pex_binary` is a self-contained zipapp: `./dist/src.elysium/elysium.pex`
+runs anywhere with a 3.12 interpreter, no venv. It still shells out to
+`ansible-vault`, `sops` and `fzf`, which must be on `$PATH`. The full address is
+required — bare `src/elysium` is ambiguous with the requirement targets the
+`pyproject.toml` generates.
 
 ## Conventions
 
