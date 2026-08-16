@@ -227,6 +227,27 @@
             name: k3s
             tasks_from: agent.yml
 
+# Converge node labels AFTER every CP and agent has joined. --node-label is a
+# first-registration-only flag, so this is what makes an edit to
+# k3s_node_labels (group_vars/{kubernetes,kube_workers}.yml) take effect on
+# nodes that are already in the cluster — e.g. adding poochella.club/virt-host
+# to the existing workers to select the KubeVirt VM-host tier. See
+# roles/k3s/tasks/_node_labels.yml for the additive-only scope.
+- name: Reconcile node labels on every kube node
+  hosts: kubernetes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Install — reconcile node labels
+      when:
+        - k3s_enable | bool
+        - k3s_reconcile_node_labels | bool
+        - k3s_node_labels | length > 0
+      block:
+        - ansible.builtin.import_role:
+            name: k3s
+            tasks_from: _node_labels.yml
+
 - name: Fetch kubeconfig to controller
   hosts: kube_control_plane[0]
   become: true

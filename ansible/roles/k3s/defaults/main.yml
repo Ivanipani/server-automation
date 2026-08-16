@@ -41,20 +41,30 @@ k3s_disable_components: []
 # inventory in group_vars/{kubernetes,kube_workers}.yml to map each k8s
 # node onto its PHYSICAL Proxmox node (topology.kubernetes.io/zone =
 # vm.proxmox_node) so Longhorn replica anti-affinity tracks the real
-# failure domain, not the VM. CAVEAT: k3s applies --node-label only at
-# FIRST registration — an already-joined node is not relabelled by a
-# re-run; relabel it once by hand:
-#   kubectl label node <n> topology.kubernetes.io/zone=<proxmox_node> --overwrite
+# failure domain, not the VM. Also selects the KubeVirt VM-host tier
+# (poochella.club/virt-host, group_vars/kube_workers.yml).
+#
+# k3s itself applies --node-label only at FIRST registration, so these
+# flags alone would never relabel an already-joined node. _node_labels.yml
+# closes that gap by reconciling this list onto the live Node objects on
+# every run — editing this list is enough, no manual kubectl. Additive:
+# a label removed from the list is not removed from the node.
 k3s_node_labels: []
+
+# Reconcile k3s_node_labels onto already-registered nodes (_node_labels.yml).
+# Off = registration-time --node-label only, i.e. hand-managed labels on
+# existing nodes.
+k3s_reconcile_node_labels: true
 
 # Extra `--node-taint key=value:effect` entries (one per list item)
 # stamped onto the kubelet at registration, alongside --node-label. The
 # role is generic; poochella drives this from group_vars/kube_control
 # _plane.yml to pin the well-known
 #   node-role.kubernetes.io/control-plane=:NoSchedule
-# taint so workloads land on workers by default. SAME CAVEAT as
-# --node-label above: applied only at FIRST registration — to re-taint
-# an already-joined node, do it once by hand:
+# taint so workloads land on workers by default. Applied only at FIRST
+# registration, and UNLIKE --node-label there is no reconcile pass (a
+# taint flipping under a running node changes scheduling; that is not a
+# routine-converge action). To re-taint an already-joined node, by hand:
 #   kubectl taint node <n> <key>=<value>:<effect> --overwrite
 k3s_node_taints: []
 

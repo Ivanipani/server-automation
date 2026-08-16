@@ -61,9 +61,10 @@ k3s_cluster_name: "doghouse"
 # inventory_hostname — they ARE their own physical node, so the
 # hostname is the correct zone identifier and gives Longhorn a distinct
 # zone per physical box. Consumed by the k3s role's k3s_node_labels →
-# --node-label in server_init / server_join / agent. Note k3s applies
-# --node-label only at FIRST registration: relabel any already-joined
-# node by hand once (see roles/k3s/defaults/main.yml).
+# --node-label in server_init / server_join / agent. k3s honours
+# --node-label only at FIRST registration, so the role also reconciles
+# this list onto already-joined nodes each run (roles/k3s/tasks/
+# _node_labels.yml) — editing group_vars is sufficient, no hand relabel.
 k3s_zone_label: "topology.kubernetes.io/zone={{ vm.proxmox_node | default(inventory_hostname) }}"
 k3s_node_labels:
   - "{{ k3s_zone_label }}"
