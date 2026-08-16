@@ -1,0 +1,59 @@
+---
+# The KubeVirt CR — virt-operator reads it and rolls out every other component.
+# Version comes from virt-operator (see ../../controllers/kubevirt/), never here.
+#
+# SPLIT PLACEMENT — the whole point of this file:
+#
+#   spec.infra     → virt-api, virt-controller, virt-exportproxy. Pure Go
+#                    reconcilers, no /dev/kvm. Pinned to the control plane.
+#   spec.workloads → the virt-handler DaemonSet and every virt-launcher pod.
+#                    Pinned to the baremetal workers, the only hosts with real
+#                    hardware virtualization.
+#
+# Keeping virt-handler OFF the control plane is what makes this safe, not the
+# NoSchedule taint. virt-handler runs the KVM device plugin that advertises
+# devices.kubevirt.io/kvm; where it does not run, that resource does not exist
+# and no VMI can ever be scheduled. This matters here because the kube-ctl VMs
+# run under QEMU TCG software emulation (`-machine accel=tcg -cpu qemu64` —
+# see the --kvm 0 in the PVE template task) and TCG's qemu64 model EMULATES an
+# svm flag, so /dev/kvm exists inside those guests. Anything that probes for
+# KVM the naive way sees them as virt-capable and would land VMs on
+# emulation-inside-emulation.
+apiVersion: kubevirt.io/v1
+kind: KubeVirt
+metadata:
+  name: kubevirt
+  namespace: kubevirt
+spec:
+  certificateRotateStrategy: {}
+  customizeComponents: {}
+  imagePullPolicy: IfNotPresent
+  configuration:
+    developerConfiguration:
+      featureGates: []
+      # useEmulation stays UNSET. Setting it would let VMIs run without real
+      # KVM, which on this cluster means TCG inside TCG. Absent it, KubeVirt
+      # refuses to schedule rather than silently handing back an unusable VM.
+  # Only metal-home-02 has working hardware virt today; metal-home-01 has SVM
+  # disabled in its UEFI, so virt-handler runs there but registers no KVM
+  # device (kubevirt.io/schedulable=false) until that is toggled. With one
+  # VM-capable node live migration is impossible, so workload updates are
+  # restart-only.
+  workloadUpdateStrategy:
+    workloadUpdateMethods:
+      - Evict
+  infra:
+    nodePlacement:
+      nodeSelector:
+        # k3s stamps this label with the VALUE "true", unlike kubeadm's empty
+        # string. The taint below still carries no value, hence operator:Exists.
+        node-role.kubernetes.io/control-plane: "true"
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+  workloads:
+    nodePlacement:
+      nodeSelector:
+        # Stamped by the k3s role from group_vars/kube_workers.yml.
+        poochella.club/virt-host: "true"

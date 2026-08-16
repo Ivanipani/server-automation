@@ -1,0 +1,31 @@
+---
+# Pin virt-operator to the control plane. It is a plain reconciler — it never
+# touches /dev/kvm — so it belongs with the other KubeVirt infra components
+# (virt-api / virt-controller, placed via the KubeVirt CR's spec.infra), NOT on
+# the baremetal workers whose CPU is reserved for actual VMs.
+#
+# virt-operator predates the KubeVirt CR (it is what installs it), so its
+# placement CANNOT come from spec.infra.nodePlacement — it has to be patched
+# onto the Deployment here.
+#
+# tolerations has no strategic-merge key, so this list REPLACES upstream's;
+# CriticalAddonsOnly is re-listed deliberately.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: virt-operator
+  namespace: kubevirt
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+        # k3s stamps this label with the VALUE "true" — not kubeadm's empty
+        # string. An empty-string selector matches nothing here.
+        node-role.kubernetes.io/control-plane: "true"
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule

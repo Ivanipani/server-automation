@@ -1,0 +1,30 @@
+---
+# KubeVirt operator, vendored from the upstream release (NOT a remote base —
+# kustomize-controller would refetch it from github on every reconcile).
+#
+#   VERSION PIN: v1.6.6
+#   Upgrade =  curl -sL https://github.com/kubevirt/kubevirt/releases/download/<ver>/kubevirt-operator.yaml \
+#                -o kubevirt-operator.yaml
+#              and bump the pin in this comment. The operator reconciles every
+#              other KubeVirt component (virt-api/controller/handler) to the
+#              KUBEVIRT_VERSION baked into its own Deployment, so this file is
+#              the single version source — the KubeVirt CR carries no version.
+#
+#   WHY 1.6.x AND NOT 1.9.x: KubeVirt supports the three Kubernetes releases
+#   current at ITS release date. The v1.6 branch is the newest one whose CI
+#   tests k8s 1.31 (lanes: 1.31/1.32/1.33); v1.7 starts at 1.32 and v1.9 at
+#   1.33. This cluster is k3s v1.31.4. Moving off the 1.6 branch requires
+#   upgrading k3s FIRST.
+#
+# The upstream file is applied unmodified (it also carries the `kubevirt`
+# Namespace with pod-security enforce=privileged, which virt-handler needs) —
+# placement is layered on via the patch below.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - kubevirt-operator.yaml
+patches:
+  - path: operator-placement.yaml
+    target:
+      kind: Deployment
+      name: virt-operator

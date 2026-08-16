@@ -30,5 +30,20 @@
 # Lockstep contract: this Ansible change + the Flux explicit-disk config
 # must land together. If Flux selects worker nodes by a DIFFERENT label,
 # add THAT label below (not create-default-disk).
+# --- KubeVirt VM scheduling (workers only) ---------------------------
+#
+# poochella.club/virt-host selects which nodes run the KubeVirt WORKLOAD tier
+# (virt-handler DaemonSet + virt-launcher pods) — see the KubeVirt CR's
+# spec.workloads.nodePlacement in k8s/infra/virtualization/configs. Only
+# baremetal workers carry it: the kube-ctl VMs run under QEMU TCG emulation
+# and merely LOOK KVM-capable (emulated svm flag, /dev/kvm present), so VM
+# placement is decided by this label, not by autodetection.
+#
+# The label going on a node does NOT mean the node can run VMs — virt-handler
+# only registers devices.kubevirt.io/kvm where hardware virt actually works.
+# metal-home-01 has SVM disabled in its UEFI and will report
+# kubevirt.io/schedulable=false until that is toggled; metal-home-02 (VT-x on)
+# is the one live VM host.
 k3s_node_labels:
   - "{{ k3s_zone_label }}"
+  - "poochella.club/virt-host=true"
