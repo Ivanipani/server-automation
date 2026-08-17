@@ -1,0 +1,67 @@
+---
+- name: Check control node dependencies
+  when: control_node_deps_enabled
+  block:
+    # `command -v` is a shell builtin, hence shell not command. Every
+    # probe here is read-only, so check_mode: false keeps `--check` runs
+    # honest instead of skipping straight to "nothing missing".
+    - name: Locate required executables
+      ansible.builtin.shell:
+        cmd: "command -v {{ item }}"
+      loop: "{{ control_node_deps_commands }}"
+      register: control_node_deps_cmd
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Import required python packages under ansible's interpreter
+      ansible.builtin.command:
+        cmd: "{{ ansible_playbook_python }} -c 'import {{ item }}'"
+      loop: "{{ control_node_deps_python_packages }}"
+      register: control_node_deps_py
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: List installed galaxy collections
+      ansible.builtin.command:
+        cmd: ansible-galaxy collection list
+      register: control_node_deps_galaxy
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Collect what is missing
+      ansible.builtin.set_fact:
+        control_node_deps_missing: >-
+          {{
+            (control_node_deps_cmd.results
+               | rejectattr('rc', 'equalto', 0)
+               | map(attribute='item') | map('regex_replace', '^', 'command: ') | list)
+            + (control_node_deps_py.results
+               | rejectattr('rc', 'equalto', 0)
+               | map(attribute='item') | map('regex_replace', '^', 'python: ') | list)
+            + (control_node_deps_collections
+               | reject('in', control_node_deps_galaxy.stdout)
+               | map('regex_replace', '^', 'collection: ') | list)
+          }}
+
+    - name: Report dependency status
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            'All control node dependencies satisfied.'
+            if control_node_deps_missing | length == 0
+            else ['MISSING:'] + control_node_deps_missing
+                 + ['Install with: ' ~ control_node_deps_install_hint]
+          }}
+
+    - name: Fail on missing dependencies
+      ansible.builtin.fail:
+        msg: >-
+          {{ control_node_deps_missing | length }} control node
+          dependency issue(s). Install with:
+          {{ control_node_deps_install_hint }}
+      when:
+        - control_node_deps_strict
+        - control_node_deps_missing | length > 0

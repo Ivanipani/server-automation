@@ -4,6 +4,11 @@
 # where" and "what order" stop fighting; ordinals are gap-10 within a
 # tier so steps insert without renumbering.
 #
+#   control-node   → layer-0 component (components/control-node):
+#                    control-node prerequisites — vaulted ansible
+#                    keypair, inventory symlink, tool deps. The
+#                    first tier migrated to the component layout;
+#                    see docs/ansible-layout.md.
 #   10-router      → OPNsense DNS/DHCP foundation (precedes everything)
 #   15-nas         → Synology NAS (gap-5 break — independent of host
 #                    bootstrap; admin'd via DSM, not the ansible
@@ -44,7 +49,7 @@
 # `just run --limit <host>`. Each playbook self-bootstraps
 # (../tasks/detect-bootstrap-user.yml) and asserts its own
 # pre-conditions, so this ordering is the happy path, not the only one.
-- import_playbook: 00-control-node/10-stage-ansible-key.yml
+- import_playbook: ../../../components/control-node/site.yml
 - import_playbook: 10-networking/site.yml
 - import_playbook: 12-nas/site.yml
 - import_playbook: 13-foundation/site.yml

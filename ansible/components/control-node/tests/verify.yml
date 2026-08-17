@@ -1,0 +1,62 @@
+---
+# Assert-only smoke test for the control-node component. Mutates
+# nothing; safe to run any time.
+#
+#   ansible-playbook --vault-password-file ../../../secrets/ansible-pass \
+#     components/control-node/tests/verify.yml
+- name: Verify control-node
+  hosts: "{{ control_node_hosts | default('localhost') }}"
+  connection: local
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../roles/control-node-ansible-key/defaults/main.yml
+    - ../roles/control-node-inventory-link/defaults/main.yml
+  tasks:
+    - name: Stat the staged keypair and inventory symlink
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ control_node_ansible_key_path }}"
+        - "{{ control_node_ansible_key_pub_path }}"
+        - "{{ control_node_inventory_link_dest }}"
+      register: control_node_verify
+
+    - name: Private key exists with 0600
+      ansible.builtin.assert:
+        that:
+          - control_node_verify.results[0].stat.exists
+          - control_node_verify.results[0].stat.mode == '0600'
+        quiet: true
+
+    - name: Public key exists with 0644
+      ansible.builtin.assert:
+        that:
+          - control_node_verify.results[1].stat.exists
+          - control_node_verify.results[1].stat.mode == '0644'
+        quiet: true
+
+    - name: Inventory symlink points at this checkout's inventory
+      ansible.builtin.assert:
+        that:
+          - control_node_verify.results[2].stat.exists
+          - control_node_verify.results[2].stat.islnk
+          - control_node_verify.results[2].stat.lnk_target == control_node_inventory_link_src
+        quiet: true
+
+    - name: The staged key actually authenticates as a valid private key
+      ansible.builtin.command:
+        cmd: "ssh-keygen -y -f {{ control_node_ansible_key_path }}"
+      register: control_node_verify_key
+      changed_when: false
+      check_mode: false
+
+    - name: Staged private key matches the committed public half
+      ansible.builtin.assert:
+        that:
+          - control_node_verify_key.stdout.split()[1] == control_node_ansible_key_public.split()[1]
+        fail_msg: >-
+          ~/.ssh/ansible does not correspond to
+          ansible_user_ssh_public_key — the vaulted private half is
+          stale or the committed public half was not rotated with it.
+        quiet: true

@@ -1,0 +1,34 @@
+---
+argument_specs:
+  main:
+    short_description: Materialize the fleet-wide `ansible` SSH keypair on the control node.
+    description:
+      - Writes the vaulted automation keypair to disk so ansible.cfg's
+        `private_key_file` resolves on a fresh checkout. Idempotent;
+        re-run after rotating the keypair.
+      - Runs over connection local, which ignores `private_key_file`, so
+        it bootstraps cleanly when the key does not exist yet. It only
+        needs the vault password.
+    author:
+      - Ivan Perdomo
+    options:
+      control_node_ansible_key_enabled:
+        type: bool
+        default: true
+        description: False removes both key files instead of writing them.
+      control_node_ansible_key_dir:
+        type: str
+        default: "~/.ssh"
+        description: Directory holding the keypair.
+      control_node_ansible_key_path:
+        type: str
+        description: Private key destination (mode 0600).
+      control_node_ansible_key_pub_path:
+        type: str
+        description: Public key destination (mode 0644).
+      control_node_ansible_key_private:
+        type: str
+        description: PEM private key, normally the vaulted ansible_user_ssh_private_key.
+      control_node_ansible_key_public:
+        type: str
+        description: OpenSSH public key, normally the committed ansible_user_ssh_public_key.

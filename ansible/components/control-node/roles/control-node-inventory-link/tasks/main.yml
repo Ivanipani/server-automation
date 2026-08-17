@@ -1,0 +1,28 @@
+---
+- name: Link the repo inventory into the user's ansible home
+  when: control_node_inventory_link_enabled
+  block:
+    - name: Assert the inventory source resolved to a real file
+      ansible.builtin.stat:
+        path: "{{ control_node_inventory_link_src }}"
+      register: control_node_inventory_link_stat
+      failed_when: not control_node_inventory_link_stat.stat.exists
+
+    - name: Ensure the inventory directory exists
+      ansible.builtin.file:
+        path: "{{ control_node_inventory_link_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Symlink the inventory
+      ansible.builtin.file:
+        src: "{{ control_node_inventory_link_src }}"
+        dest: "{{ control_node_inventory_link_dest }}"
+        state: link
+        force: true
+
+- name: Remove the inventory symlink
+  when: not control_node_inventory_link_enabled
+  ansible.builtin.file:
+    path: "{{ control_node_inventory_link_dest }}"
+    state: absent

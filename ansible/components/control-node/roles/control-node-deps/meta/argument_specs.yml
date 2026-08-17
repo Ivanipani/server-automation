@@ -1,0 +1,33 @@
+---
+argument_specs:
+  main:
+    short_description: Verify the control node has the tooling every component assumes.
+    description:
+      - Read-only. Checks CLI binaries, python packages importable by
+        ansible's own interpreter, and installed galaxy collections.
+    author:
+      - Ivan Perdomo
+    options:
+      control_node_deps_enabled:
+        type: bool
+        default: true
+        description: Skip every check when false.
+      control_node_deps_strict:
+        type: bool
+        default: true
+        description: Fail the play on a missing dependency instead of only reporting it.
+      control_node_deps_commands:
+        type: list
+        elements: str
+        description: Executables that must be on PATH.
+      control_node_deps_python_packages:
+        type: list
+        elements: str
+        description: Modules that must import under ansible's interpreter.
+      control_node_deps_collections:
+        type: list
+        elements: str
+        description: Galaxy collections that must be installed.
+      control_node_deps_install_hint:
+        type: str
+        description: Command shown to the user when something is missing.

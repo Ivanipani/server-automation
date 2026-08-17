@@ -1,0 +1,13 @@
+---
+name: control-node
+layer: 0
+description: >-
+  Prerequisites on the machine that DRIVES ansible (the user's laptop),
+  not on any fleet host: the vaulted automation keypair, the inventory
+  symlink other projects consume, and the CLI/collection dependencies
+  every later component assumes.
+depends_on: []
+# Default target. Everything here is connection: local — this component
+# is the one that cannot be exercised on an ephemeral VM.
+target_default: localhost
+target_var: control_node_hosts

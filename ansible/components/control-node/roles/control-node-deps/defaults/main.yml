@@ -1,0 +1,30 @@
+---
+control_node_deps_enabled: true
+
+# false → report MISSING and carry on; true → fail the play.
+control_node_deps_strict: true
+
+control_node_deps_commands:
+  - ansible
+  - ansible-playbook
+  - ansible-vault
+  - ssh
+  - fzf
+  - helm
+  - kubectl
+  - flux
+
+# Checked against the interpreter ansible itself runs on
+# (`ansible_playbook_python`), not the system python.
+control_node_deps_python_packages:
+  - passlib
+
+control_node_deps_collections:
+  - community.general
+  - community.postgresql
+  - ansible.posix
+  - oxlorg.opnsense
+
+control_node_deps_install_hint: >-
+  uv tool install ansible-core --with passlib --with httpx --force
+  && ansible-galaxy install -r requirements.yml

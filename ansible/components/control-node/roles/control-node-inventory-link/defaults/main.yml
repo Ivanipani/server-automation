@@ -1,0 +1,15 @@
+---
+control_node_inventory_link_enabled: true
+
+# Source resolves from the inventory ansible was actually invoked with,
+# NOT from playbook_dir — so the role stays correct whichever playbook
+# pulls it in, and a `-i` override links what you really ran against.
+# `inventory_file` is only defined for hosts that came FROM the
+# inventory; this component runs on implicit localhost, so the config
+# lookup (which honours -i) is the working path and the magic var is the
+# preferred one when present.
+control_node_inventory_link_src: >-
+  {{ inventory_file
+     | default(lookup('ansible.builtin.config', 'DEFAULT_HOST_LIST') | first, true) }}
+control_node_inventory_link_dir: "~/.ansible/inventory"
+control_node_inventory_link_dest: "{{ control_node_inventory_link_dir }}/inventory.yaml"

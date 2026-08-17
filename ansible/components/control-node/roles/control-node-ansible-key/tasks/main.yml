@@ -1,0 +1,45 @@
+---
+- name: Stage the ansible keypair
+  when: control_node_ansible_key_enabled
+  block:
+    - name: Assert the keypair vars are present
+      ansible.builtin.assert:
+        that:
+          - control_node_ansible_key_private | trim | length > 0
+          - "'PRIVATE KEY' in control_node_ansible_key_private"
+          - control_node_ansible_key_public is search('^(ssh-|ecdsa-|sk-)')
+        fail_msg: >-
+          ansible_user_ssh_{private,public}_key missing/malformed. The
+          private half is vaulted (vault_ansible_user_ssh_private_key);
+          the public half is committed in group_vars/all/vars.yml.
+        quiet: true
+
+    - name: Ensure the key directory exists
+      ansible.builtin.file:
+        path: "{{ control_node_ansible_key_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Write the ansible private key
+      # OpenSSH refuses the key if there's no trailing newline after
+      # -----END OPENSSH PRIVATE KEY-----. Normalize to exactly one.
+      ansible.builtin.copy:
+        content: "{{ control_node_ansible_key_private.rstrip('\n') }}\n"
+        dest: "{{ control_node_ansible_key_path }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Write the ansible public key
+      ansible.builtin.copy:
+        content: "{{ control_node_ansible_key_public | trim }}\n"
+        dest: "{{ control_node_ansible_key_pub_path }}"
+        mode: "0644"
+
+- name: Remove the ansible keypair
+  when: not control_node_ansible_key_enabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ control_node_ansible_key_path }}"
+    - "{{ control_node_ansible_key_pub_path }}"

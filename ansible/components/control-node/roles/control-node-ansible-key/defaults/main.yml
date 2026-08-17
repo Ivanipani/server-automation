@@ -1,0 +1,15 @@
+---
+# true  → materialize ~/.ssh/ansible{,.pub} from the vault
+# false → remove both files (the unapply side; ansible.cfg's
+#         private_key_file stops resolving, so every fleet play breaks
+#         until re-applied — this is the documented rotation/teardown
+#         path, not an idle toggle).
+control_node_ansible_key_enabled: true
+
+control_node_ansible_key_dir: "~/.ssh"
+control_node_ansible_key_path: "{{ control_node_ansible_key_dir }}/ansible"
+control_node_ansible_key_pub_path: "{{ control_node_ansible_key_path }}.pub"
+
+# Vaulted private half / committed public half, both from group_vars/all.
+control_node_ansible_key_private: "{{ ansible_user_ssh_private_key | default('') }}"
+control_node_ansible_key_public: "{{ ansible_user_ssh_public_key | default('') }}"

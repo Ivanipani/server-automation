@@ -1,0 +1,18 @@
+---
+# Component: control-node (layer 0) — see component.yml / README.md.
+#
+# Apply:   just control-node
+# Deps only (what `just check` runs):
+#          ansible-playbook components/control-node/site.yml --tags deps
+- name: control-node — prepare this workstation to drive the fleet
+  hosts: "{{ control_node_hosts | default('localhost') }}"
+  connection: local
+  gather_facts: false
+  become: false
+  roles:
+    - role: control-node-deps
+      tags: [deps]
+    - role: control-node-ansible-key
+      tags: [key]
+    - role: control-node-inventory-link
+      tags: [inventory]

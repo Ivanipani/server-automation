@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: control-node-deps
+  description: Read-only dependency check for the ansible control node

@@ -1,0 +1,25 @@
+---
+argument_specs:
+  main:
+    short_description: Expose this repo's inventory at a stable path outside the checkout.
+    description:
+      - Symlinks the repo inventory into ~/.ansible/inventory so other
+        projects and ad-hoc `ansible` invocations can treat it as the
+        single source of truth without knowing where the checkout lives.
+    author:
+      - Ivan Perdomo
+    options:
+      control_node_inventory_link_enabled:
+        type: bool
+        default: true
+        description: False removes the symlink instead of creating it.
+      control_node_inventory_link_src:
+        type: str
+        description: Absolute path to the inventory file to expose. Defaults to the running inventory.
+      control_node_inventory_link_dir:
+        type: str
+        default: "~/.ansible/inventory"
+        description: Directory the symlink is placed in.
+      control_node_inventory_link_dest:
+        type: str
+        description: Full symlink path.
