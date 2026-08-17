@@ -18,7 +18,7 @@
       {% for c in k3s_disable_components %}
       --disable {{ c }}
       {% endfor %}
-      {% for lbl in k3s_node_labels %}
+      {% for lbl in k3s_registration_node_labels %}
       --node-label {{ lbl }}
       {% endfor %}
       {% for taint in k3s_node_taints %}

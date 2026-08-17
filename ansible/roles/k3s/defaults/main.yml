@@ -49,6 +49,11 @@ k3s_disable_components: []
 # closes that gap by reconciling this list onto the live Node objects on
 # every run — editing this list is enough, no manual kubectl. Additive:
 # a label removed from the list is not removed from the node.
+#
+# `node-role.kubernetes.io/<role>=` entries are legal here and are what
+# populates the ROLES column of `kubectl get nodes`, but they reach the node
+# via the reconcile pass ONLY — see vars/main.yml for why they must not be
+# handed to the kubelet.
 k3s_node_labels: []
 
 # Reconcile k3s_node_labels onto already-registered nodes (_node_labels.yml).

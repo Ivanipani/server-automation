@@ -44,6 +44,15 @@
 # metal-home-01 has SVM disabled in its UEFI and will report
 # kubevirt.io/schedulable=false until that is toggled; metal-home-02 (VT-x on)
 # is the one live VM host.
+# --- ROLES column ----------------------------------------------------
+#
+# Cosmetic + selector sugar: `kubectl get nodes` renders any
+# node-role.kubernetes.io/<role> key in ROLES, and these nodes otherwise show
+# <none>. Value is deliberately EMPTY (the k3s CP labels are the same shape),
+# so this reads as `node-role.kubernetes.io/worker=`. Carries no scheduling
+# semantics — placement is driven by poochella.club/virt-host and the CP
+# taint. Applied by the reconcile pass, never at registration.
 k3s_node_labels:
   - "{{ k3s_zone_label }}"
   - "poochella.club/virt-host=true"
+  - "node-role.kubernetes.io/worker="

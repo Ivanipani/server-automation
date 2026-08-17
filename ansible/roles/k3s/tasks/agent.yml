@@ -7,7 +7,7 @@
   ansible.builtin.set_fact:
     k3s_install_exec: >-
       agent
-      {% for lbl in k3s_node_labels %}
+      {% for lbl in k3s_registration_node_labels %}
       --node-label {{ lbl }}
       {% endfor %}
       {% for taint in k3s_node_taints %}
