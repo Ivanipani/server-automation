@@ -1,0 +1,22 @@
+#!/bin/sh
+{{ ansible_managed | comment }}
+# DEAD-MAN'S SWITCH — armed as a transient systemd timer immediately before a
+# cutover and cancelled by Ansible only once SSH is back. If it ever actually
+# fires, the cutover left this host unreachable and nobody could cancel it.
+#
+# Restores the pre-bridge /etc/network/interfaces and brings the plain NIC back
+# up, i.e. returns the host to exactly the layout it booted with.
+set -x
+
+PORT={{ net_bridge.port }}
+BR={{ net_bridge.name }}
+
+cp {{ net_bridge_backup_path }} /etc/network/interfaces
+
+ifdown "$BR" 2>/dev/null
+pkill -f "dhclient.*$BR" 2>/dev/null
+ip link set "$BR" down 2>/dev/null
+ip link delete "$BR" type bridge 2>/dev/null
+ip addr flush dev "$PORT" 2>/dev/null
+ip link set "$PORT" up
+ifup "$PORT" || dhclient "$PORT"

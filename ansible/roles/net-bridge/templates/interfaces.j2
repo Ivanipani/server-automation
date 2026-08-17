@@ -1,0 +1,29 @@
+{{ ansible_managed | comment }}
+# roles/net-bridge — {{ net_bridge.port }} is enslaved to {{ net_bridge.name }}; the bridge
+# holds the DHCP lease. The bridge adopts the MAC of its only port, so the
+# OPNsense dnsmasq reservation keyed on that MAC keeps resolving to the same
+# address ({{ ansible_host }}) across the cutover — no reservation edit needed.
+#
+# Guests attach here: the bridge CNI plugin (bundled with k3s) drops a veth
+# into {{ net_bridge.name }} for each KubeVirt VM pod, and KubeVirt's bridge binding puts
+# the VM behind it. The VM's own MAC is then learned on {{ net_bridge.name }} and reaches
+# the LAN directly, which is what makes it a real DHCP client of OPNsense.
+
+source /etc/network/interfaces.d/*
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+# Primary NIC — no L3 config of its own; it is a port of {{ net_bridge.name }}.
+auto {{ net_bridge.port }}
+iface {{ net_bridge.port }} inet manual
+
+auto {{ net_bridge.name }}
+iface {{ net_bridge.name }} inet dhcp
+    bridge_ports {{ net_bridge.port }}
+    # No STP: a single-port bridge cannot loop, and STP's listening/learning
+    # delay would stall DHCP on every boot.
+    bridge_stp off
+    bridge_fd 0
+    bridge_maxwait 0

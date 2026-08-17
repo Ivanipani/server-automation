@@ -19,6 +19,10 @@
 # 10-bootstrap and nothing depends on them — placed last in the tier so
 # the critical chain reads contiguously.
 #
+# 35-network-bridge is the one exception in that tail: it must follow
+# 30-firewall (it adds a ufw route rule) and it is a no-op on every host
+# without a `network_bridge:` block — today only the KubeVirt VM hosts.
+#
 # 15-storage-plan.yml is the read-only `just disk-plan` companion;
 # NOT imported here on purpose.
 - import_playbook: 10-bootstrap.yml
@@ -26,6 +30,7 @@
 - import_playbook: 16-nfs-mounts.yml
 - import_playbook: 20-ssh-hardening.yml
 - import_playbook: 30-firewall.yml
+- import_playbook: 35-network-bridge.yml
 - import_playbook: 40-tailscale.yml
 - import_playbook: 50-node-exporter.yml
 - import_playbook: 55-nic-offload.yml

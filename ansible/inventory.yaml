@@ -54,6 +54,25 @@
 #     DSM UI (Control Panel → Shared Folder → Edit → Permissions) or
 #     run synoacltool on the NAS — neither is automated by the
 #     synology-storage role today.
+#   - `network_bridge: {name, port}` on a physical host → the net-bridge
+#     role (17-host/35-network-bridge.yml) enslaves `port` into the Linux
+#     bridge `name` and moves the DHCP lease onto the bridge. The bridge
+#     adopts its port's MAC, so the host's own reservation above is
+#     unchanged. Declared only on the KubeVirt VM hosts: it is what the
+#     bridge CNI drops a veth into, and that is the only Multus binding
+#     KubeVirt supports for giving a VM a real LAN NIC (bridge binding
+#     moves the pod interface's MAC to the VM, which macvlan/ipvlan
+#     reject). Absent = plain unbridged NIC.
+#   - `kubevirt: {...}`             → this host is a KubeVirt VM living in
+#     the k3s cluster, NOT a Proxmox guest. It has NO `vm:`/`lxc:` block,
+#     so Tofu never sees it; the VirtualMachine manifest under
+#     k8s/infra/virtualization/vms/<name>/ is what actually creates it.
+#     The block is a cross-reference (namespace + sizing + the manifest
+#     path), NOT an input to anything — Flux cannot read this file.
+#     LOCKSTEP CONTRACT: `mac_address` and `ip_address` here are the same
+#     two values the manifest pins on the VM's interface, and they are
+#     what makes the dnsmasq reservation resolve; changing one without
+#     the other silently breaks the host's identity.
 #   - `vm: {...}`                   → Tofu creates this VM on Proxmox.
 #     VM boot disks live on the node-local `vms` PVE storage. NO VM
 #     receives a Longhorn-backed data disk: Longhorn replica state lives
@@ -318,6 +337,12 @@ workers:
         - "3c:7c:3f:1f:96:af"   # onboard 1GbE
         - "e8:eb:d3:8c:86:bc"   # Mellanox ConnectX-4 Lx port 1 (10GbE)
         - "e8:eb:d3:8c:86:bd"   # Mellanox ConnectX-4 Lx port 2 (10GbE)
+      # KubeVirt VM uplink — see the `network_bridge` convention note in the
+      # header. The bridge adopts e8:eb:d3:8c:86:bc (the cabled port), so this
+      # host's reservation above is unaffected.
+      network_bridge:
+        name: br0
+        port: enp4s0f0np0
       storage:
         # Each physical disk is its own independent plain-ext4 mount =
         # its own Longhorn disk (per-disk failure isolation; Longhorn
@@ -361,6 +386,12 @@ workers:
         - "38:05:25:3a:1f:08" # SFP28
         - "38:05:25:3a:1f:09" # SFP28
         - "38:05:25:3a:16:b2"
+      # KubeVirt VM uplink — see the `network_bridge` convention note in the
+      # header. The bridge adopts 38:05:25:3a:1f:08 (the cabled port), so this
+      # host's reservation above is unaffected.
+      network_bridge:
+        name: br0
+        port: eno1np0
       storage:
         # Per-disk plain-ext4 = per-disk Longhorn disk (see metal-home-01
         # for the rationale). NO LVM, no spanning pool.
@@ -478,6 +509,33 @@ virtual-machines:
       #       memory: 8192
       #       disk_size: 100
       #       tags: [dev, ivan]
+    kubevirt_guests:
+      # VMs that live in the k3s cluster (KubeVirt), not on Proxmox. They are
+      # ordinary fleet hosts in every way that matters to Ansible: a real LAN
+      # NIC on the worker's br0 (Multus + bridge CNI), a dnsmasq reservation
+      # keyed on `mac_address`, and the baked `ansible` user + fleet key, since
+      # the root disk is imported from the SAME bootserv01 qcow2 the Proxmox VM
+      # templates are cloned from.
+      #
+      # Under `virtual-machines`, so 30-guests/20-firewall.yml picks them up
+      # with no edit. NOT under `kubernetes` — these are workloads ON the
+      # cluster, not nodes OF it.
+      vars:
+        firewall_inbound_allow:
+          - { proto: tcp, port: 22, comment: "ssh" }
+      hosts:
+        vm-alpha:
+          ansible_host: vm-alpha.lan
+          ip_address: 10.1.1.115
+          # 02: locally-administered prefix; :03: is the KubeVirt-guest role
+          # slot (:02: is Proxmox kube VMs), :01 the index.
+          mac_address: "02:00:00:00:03:01"
+          kubevirt:
+            namespace: virtual-machines
+            manifest: k8s/infra/virtualization/vms/vm-alpha/
+            cores: 4
+            memory: 8192
+            disk_size: 50
 kubernetes:
   children:
     kube_control_plane:
