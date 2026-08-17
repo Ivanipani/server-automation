@@ -14,10 +14,13 @@ BR={{ net_bridge.name }}
 # Release whatever holds the lease now. `ifdown` is driven by the NEW config
 # file, so it cannot be trusted to know about the OLD layout — tear both
 # candidates down by hand and flush the addresses instead.
+#
+# Match dhcpcd as well as dhclient: which one ifupdown uses is a property of
+# the host's installed packages, not of this role.
 ifdown "$BR" 2>/dev/null
 ifdown "$PORT" 2>/dev/null
-pkill -f "dhclient.*$BR" 2>/dev/null
-pkill -f "dhclient.*$PORT" 2>/dev/null
+pkill -f "dhc(lient|pcd).*$BR" 2>/dev/null
+pkill -f "dhc(lient|pcd).*$PORT" 2>/dev/null
 ip addr flush dev "$BR" 2>/dev/null
 ip addr flush dev "$PORT" 2>/dev/null
 

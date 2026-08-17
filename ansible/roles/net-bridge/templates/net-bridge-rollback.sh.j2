@@ -14,9 +14,9 @@ BR={{ net_bridge.name }}
 cp {{ net_bridge_backup_path }} /etc/network/interfaces
 
 ifdown "$BR" 2>/dev/null
-pkill -f "dhclient.*$BR" 2>/dev/null
+pkill -f "dhc(lient|pcd).*$BR" 2>/dev/null
 ip link set "$BR" down 2>/dev/null
 ip link delete "$BR" type bridge 2>/dev/null
 ip addr flush dev "$PORT" 2>/dev/null
 ip link set "$PORT" up
-ifup "$PORT" || dhclient "$PORT"
+ifup "$PORT" || dhclient "$PORT" || dhcpcd "$PORT"

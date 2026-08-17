@@ -11,6 +11,27 @@
       net-bridge needs `network_bridge: {name: ..., port: ...}` on
       {{ inventory_hostname }} in inventory.yaml.
 
+- name: Read the primary NIC's MAC
+  # sysfs rather than a network fact: independent of gather_facts, and the port
+  # keeps its own address after enslaving, so this is stable across re-runs.
+  ansible.builtin.slurp:
+    src: "/sys/class/net/{{ net_bridge.port }}/address"
+  register: net_bridge_port_mac_raw
+
+- name: Pin the bridge MAC to it
+  ansible.builtin.set_fact:
+    net_bridge_port_mac: "{{ (net_bridge_port_mac_raw.content | b64decode) | trim }}"
+
+- name: Assert the bridge MAC resolved
+  # An empty `hwaddress ether` line makes ifup fail outright — catch it here,
+  # while the host is still reachable, rather than mid-cutover.
+  ansible.builtin.assert:
+    that:
+      - net_bridge_mac | length > 0
+    fail_msg: >-
+      Could not determine a MAC for {{ net_bridge.name }} on
+      {{ inventory_hostname }} (port {{ net_bridge.port }}).
+
 - name: Install bridge-utils
   # ifupdown shells out to brctl for `bridge_ports`. Kept installed even on the
   # disabled path so the reverse cutover (which deletes the bridge) still has
@@ -67,30 +88,69 @@
     - net_bridge_backup_stat.stat.exists | default(false)
 
 # ── Cutover ──────────────────────────────────────────────────────────────
-# Only when the config actually moved. A converged host re-runs as changed=0
-# and never touches its own networking.
+- name: Check whether the live host already matches the config
+  # The config file moving is not the only reason to cut over: a run that dies
+  # between rendering the file and completing the cutover (lost SSH, a console
+  # reboot) leaves the two permanently out of sync, and a config-only gate
+  # would skip the cutover forever. Ask the kernel instead.
+  ansible.builtin.command:
+    cmd: ip -brief addr show {{ net_bridge.name if (net_bridge_enabled | bool) else net_bridge.port }}
+  register: net_bridge_pre
+  failed_when: false
+  changed_when: false
+
+# Only when the config moved or the live state disagrees with it. A converged
+# host re-runs as changed=0 and never touches its own networking.
 - name: Cut the host over to the new network layout
   when:
-    - (net_bridge_conf is changed) or (net_bridge_unconf is changed)
+    - >-
+      (net_bridge_conf is changed) or (net_bridge_unconf is changed)
+      or (hostvars[inventory_hostname].ip_address not in (net_bridge_pre.stdout | default('')))
     - not ansible_check_mode
   block:
     - name: Arm the rollback timer
       # Fires in net_bridge_rollback_seconds unless cancelled below. This is
       # the ONLY thing standing between a bad bridge and a physical console.
+      #
+      # KillMode=process for the same reason as the cutover below — a rollback
+      # that takes its own DHCP client down with it heals nothing.
+      #
+      # Deliberately NOT --unit=: the surviving DHCP client keeps the transient
+      # unit's cgroup populated, so systemd cannot reap the unit and a fixed
+      # name is unusable ever after ("already loaded or has a fragment file") —
+      # i.e. a host could be cut over exactly once per boot. Let systemd name
+      # it and capture that name for the cancel below.
       ansible.builtin.command:
         cmd: >-
-          systemd-run --unit=net-bridge-rollback
+          systemd-run --collect --property=KillMode=process
+          --description="net-bridge rollback (dead-man's switch)"
           --on-active={{ net_bridge_rollback_seconds }}
           /usr/local/sbin/net-bridge-rollback.sh
+      register: net_bridge_armed
       changed_when: true
+
+    - name: Note the timer's unit name
+      ansible.builtin.set_fact:
+        net_bridge_rollback_unit: >-
+          {{ net_bridge_armed.stderr
+             | regex_search('Running timer as unit: (\S+)', '\1')
+             | first }}
 
     - name: Run the cutover detached
       # --no-block + a transient unit: the script survives the SSH connection
       # it is about to kill. A plain `command` (even async) dies with the
       # session's cgroup mid-teardown.
+      #
+      # KillMode=process is load-bearing: `ifup` daemonizes the DHCP client
+      # into THIS unit's cgroup, and the default control-group kill would
+      # SIGTERM it the moment the script exits — dhcpcd deconfigures the
+      # interface on the way out, so the host would lease the right address
+      # and then immediately drop it. --collect reaps the unit so a later run
+      # does not trip over a lingering one.
       ansible.builtin.command:
         cmd: >-
-          systemd-run --unit=net-bridge-cutover --no-block
+          systemd-run --no-block --collect --property=KillMode=process
+          --description="net-bridge cutover"
           /usr/local/sbin/net-bridge-cutover.sh
       changed_when: true
 
@@ -128,10 +188,12 @@
       # assert has had its say — a genuinely unreachable host never reaches
       # this task at all, which is the whole point.
       ansible.builtin.systemd:
-        name: net-bridge-rollback.timer
+        name: "{{ net_bridge_rollback_unit }}"
         state: stopped
       failed_when: false
       changed_when: false
+      # Undefined only if arming itself failed, in which case nothing is armed.
+      when: net_bridge_rollback_unit is defined
 
 # ── Forwarding policy ────────────────────────────────────────────────────
 # k3s loads br_netfilter with bridge-nf-call-iptables=1, so frames bridged

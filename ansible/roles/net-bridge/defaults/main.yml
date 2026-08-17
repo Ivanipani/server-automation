@@ -28,6 +28,16 @@ net_bridge: "{{ network_bridge | default({}) }}"
 # physical access. Must comfortably exceed DHCP + SSH re-establish time.
 net_bridge_rollback_seconds: 240
 
+# The MAC the bridge must present. The OPNsense dnsmasq reservation is keyed on
+# the primary NIC's MAC, so the bridge has to claim that same address or DHCP
+# hands back nothing and the host falls off the LAN. Do NOT rely on the kernel
+# adopting the port's MAC — it does so only when the port is enslaved before the
+# bridge comes up, and losing that race costs the host its address (observed:
+# br0 came up on a random MAC, got no offer, fell back to IPv4LL).
+# Overridable per host via `network_bridge: {mac: ...}`; otherwise read live
+# from sysfs by the role.
+net_bridge_mac: "{{ net_bridge.mac | default(net_bridge_port_mac | default('')) }}"
+
 # Saved copy of the pre-bridge /etc/network/interfaces. Written ONCE (never
 # overwritten on later runs, or it would capture the bridged config and make
 # the rollback a no-op) and used by both the rollback timer and the
