@@ -13,7 +13,7 @@
 # Flip per-run with -e k3s_enable=false.
 k3s_enable: true
 
-k3s_version: "v1.31.4+k3s1"
+k3s_version: "v1.36.3+k3s1"
 
 # kube-vip — floating L2 VIP across the control planes. Used as the
 # stable apiserver endpoint for kubectl from outside the cluster, and
