@@ -44,13 +44,21 @@
     # No virt-customize / virt-sysprep here — the foundation bake
     # (13-foundation/95-bake-publish-images.yml) already did both. This
     # node only has to import the disk and templatize.
+    # --cpu host (and NOT `--kvm 0`): every clone inherits the template's CPU
+    # model, so this line decides what every VM on the node can execute. It
+    # previously read `--cpu qemu64 --kvm 0`, a workaround from when pve-home-01
+    # was the only hypervisor and had VT-x disabled in firmware. That shipped an
+    # x86-64-v1 CPU under pure TCG emulation to the whole fleet — slow, and too
+    # old to run binaries built for x86-64-v2 (KubeVirt's virt-operator dies
+    # with SIGILL on `pmaxud`, an SSE4.1 instruction). VT-x is now enabled on
+    # every hypervisor; `--kvm` defaults to 1, so omitting it is correct.
     - name: "Create VM {{ vm_template.id }}"
       ansible.builtin.command: >
         qm create {{ vm_template.id }}
         --name {{ vm_template.name }}
         --memory 2048
         --cores 2
-        --cpu qemu64 --kvm 0
+        --cpu host
         --net0 virtio,bridge=vmbr0
         --scsihw virtio-scsi-single
       changed_when: true

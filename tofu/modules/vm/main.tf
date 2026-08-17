@@ -19,6 +19,15 @@ resource "proxmox_virtual_environment_vm" "vm" {
 
   cpu {
     cores = each.value.cores
+    # Pass the host CPU through verbatim. Safe *because* of the standalone
+    # topology: no cluster, no shared storage, no live migration, so a guest
+    # never has to boot on a different-generation CPU than it was started on.
+    # A named model would buy migration portability we do not use, and would
+    # cost real ISA — including `vmx`, and including the SSE4.x that KubeVirt's
+    # binaries require (the old `qemu64` model is x86-64-v1 and SIGILL'd
+    # virt-operator outright). Every hypervisor has VT-x enabled with
+    # kvm_intel nested=Y, so this is uniform across the fleet.
+    type = "host"
   }
 
   memory {

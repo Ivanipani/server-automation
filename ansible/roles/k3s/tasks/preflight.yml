@@ -31,6 +31,14 @@
     - { name: net.bridge.bridge-nf-call-iptables, value: "1" }
     - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
     - { name: net.ipv4.ip_forward, value: "1" }
+    # Debian ships 128 inotify instances per uid. Every pod that watches
+    # files (kubelet, CSI drivers, cert managers, log shippers) burns one or
+    # more as root, so a busy node runs out and the NEXT pod to start dies —
+    # not the one that consumed them. metal-home-02 hit exactly this at 65
+    # pods / 142 instances: virt-handler crash-looped on `Failed to create an
+    # inotify watcher: too many open files` while the identical DaemonSet was
+    # healthy on the lighter node. Raise the ceiling rather than chase it.
+    - { name: fs.inotify.max_user_instances, value: "512" }
   loop_control:
     label: "{{ item.name }}={{ item.value }}"
 
