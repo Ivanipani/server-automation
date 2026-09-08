@@ -468,6 +468,16 @@ storage:
                   squash: all_squash
                   security: sys
                   async: true
+          - name: immich
+            description: "Immich photo/video library (NFS-mounted into k3s)"
+            quota_gb: 500
+            nfs:
+              rules:
+                - host: 10.1.1.0/24
+                  privilege: rw
+                  squash: all_squash
+                  security: sys
+                  async: true
           - name: longhorn-backup
             description: "Longhorn BackupTarget"
             quota_gb: 1024
