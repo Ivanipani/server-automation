@@ -148,49 +148,6 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: virtualization-controllers
-  namespace: flux-system
-spec:
-  interval: 10m
-  retryInterval: 1m
-  # The vendored operator manifest is ~470KB, nearly all of it the kubevirts.io
-  # CRD; server-side apply of it plus a 2-replica Deployment rollout on the
-  # (software-emulated) control plane wants more than the usual 5m.
-  timeout: 10m
-  sourceRef:
-    kind: GitRepository
-    name: flux-system
-  path: ./k8s/infra/virtualization/controllers
-  prune: true
-  # Gates virtualization-configs below: virt-operator Ready means the
-  # kubevirts.kubevirt.io CRD is established, so the KubeVirt CR can dry-run.
-  wait: true
-  dependsOn:
-    - name: networking-configs
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
-  name: virtualization-configs
-  namespace: flux-system
-spec:
-  interval: 10m
-  retryInterval: 1m
-  # virt-operator rolls out virt-api + virt-controller + virt-handler and waits
-  # on cert generation before the KubeVirt CR reports Available.
-  timeout: 15m
-  sourceRef:
-    kind: GitRepository
-    name: flux-system
-  path: ./k8s/infra/virtualization/configs
-  prune: true
-  wait: true
-  dependsOn:
-    - name: virtualization-controllers
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
   name: monitoring-controllers
   namespace: flux-system
 spec:
