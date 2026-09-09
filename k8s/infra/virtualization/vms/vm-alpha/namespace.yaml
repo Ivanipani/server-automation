@@ -1,7 +1,0 @@
----
-# Home for KubeVirt guests. Deliberately separate from `kubevirt` (the
-# operator's own namespace) — VMs are workloads, not control plane.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: virtual-machines

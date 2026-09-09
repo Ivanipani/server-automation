@@ -1,8 +1,0 @@
----
-# One directory per KubeVirt guest. Each is a fleet host and appears in
-# ansible/inventory.yaml under `kubevirt_guests` — see the lockstep note in
-# vm-alpha/virtualmachine.yaml. NATO alphabet, in order.
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-resources:
-  - vm-alpha

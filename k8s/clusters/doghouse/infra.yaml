@@ -191,35 +191,6 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  # The VMs themselves, one directory per guest. Separate from
-  # virtualization-configs on purpose: a wedged VM must not stall the
-  # KubeVirt/CDI CRs that every other VM depends on.
-  name: virtual-machines
-  namespace: flux-system
-spec:
-  interval: 10m
-  retryInterval: 1m
-  timeout: 5m
-  sourceRef:
-    kind: GitRepository
-    name: flux-system
-  path: ./k8s/infra/virtualization/vms
-  prune: true
-  # wait:false — a VM's first boot begins with CDI importing a ~650MB qcow2
-  # into a fresh Longhorn volume. That is minutes of legitimate not-Ready, and
-  # blocking a Flux Kustomization on it buys nothing: nothing else in the tree
-  # depends on a VM being up.
-  wait: false
-  dependsOn:
-    # KubeVirt + CDI must be Available before a VirtualMachine / DataVolume can
-    # even dry-run against the API.
-    - name: virtualization-configs
-    # The root disk is a Longhorn PVC.
-    - name: storage-configs
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
   name: monitoring-controllers
   namespace: flux-system
 spec:
