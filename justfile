@@ -95,6 +95,19 @@ router-verify:
     cd ansible && ansible-playbook --vault-password-file {{vault_pass}} \
         components/router/tests/verify.yml
 
+# Layer-3 component: Synology DSM (nas01) — file services + storage +
+# ssh-access. Run via the poochella deployment wrapper, which builds
+# the inventory-derived storage desired state (shares, NFS rules)
+# before applying components/nas/site.yml.
+nas *options:
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} {{options}} \
+        playbooks/poochella/infra/12-nas.yml
+
+# Assert-only smoke test for the nas component. Mutates nothing.
+nas-verify:
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} \
+        components/nas/tests/verify.yml
+
 # READ-ONLY: report PRESENT/MISSING per declared partition on every physical host (host-disks role in info mode). Never halts. Safe anytime.
 disk-plan:
     cd ansible && ansible-playbook --vault-password-file {{vault_pass}} -e host_disks_action=info playbooks/poochella/infra/17-host/15-storage.yml

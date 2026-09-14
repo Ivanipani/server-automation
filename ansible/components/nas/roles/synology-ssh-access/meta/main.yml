@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: synology-ssh-access
+  description: Install/remove the controller's SSH pubkey in a Synology DSM user's authorized_keys

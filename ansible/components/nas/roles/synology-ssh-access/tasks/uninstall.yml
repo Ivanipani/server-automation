@@ -1,0 +1,29 @@
+---
+# Remove the controller's public key from pani's authorized_keys.
+# Self-contained + idempotent: safe to run whether or not the key is
+# currently present (raw, no ansible.posix.authorized_key — see
+# install.yml for why).
+
+- name: Assert the controller pubkey var is present and key-shaped
+  ansible.builtin.assert:
+    that:
+      - synology_ssh_access_pubkey | length > 0
+      - synology_ssh_access_pubkey is search('^(ssh-|ecdsa-|sk-)')
+    fail_msg: >-
+      synology_ssh_access_pubkey is empty or doesn't look like a public
+      key — check group_vars/all/vars.yml's ansible_user_ssh_public_key.
+    quiet: true
+
+- name: Check whether pani's authorized_keys contains the controller key
+  ansible.builtin.raw: >-
+    grep -qxF {{ synology_ssh_access_pubkey | quote }} ~/.ssh/authorized_keys 2>/dev/null
+  register: _synology_ssh_access_check
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: Drop the controller key from authorized_keys
+  ansible.builtin.raw: >-
+    grep -vxF {{ synology_ssh_access_pubkey | quote }} ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.tmp
+    && mv ~/.ssh/authorized_keys.tmp ~/.ssh/authorized_keys
+  when: _synology_ssh_access_check.rc == 0

@@ -21,7 +21,7 @@
 #
 # Mount options chosen for resilience (per-mount, declared in vars):
 #   vers=4          NFSv4 (matches the NAS's enabled protocol set by
-#                   15-nas/20-baseline.yml's synology_dsm_nfs_enable_v4)
+#                   12-nas.yml's synology_dsm_nfs_enable_v4)
 #   _netdev         Mount only after networking is up
 #   nofail          A NAS outage at boot does NOT block host boot —
 #                   the host comes up, the mount fails, you debug
@@ -31,7 +31,7 @@
 #                   for the interactive bake-images workflow; the data
 #                   being written is reproducible (re-bake on failure)
 #
-# Pre-conditions (asserted in 15-nas/30-storage.yml on its side):
+# Pre-conditions (asserted in components/nas/roles/synology-storage on its side):
 #   - nas01 is reachable on the LAN (10.1.1.0/24)
 #   - The shares listed in `nfs_mounts` exist with the right
 #     NFS export rules

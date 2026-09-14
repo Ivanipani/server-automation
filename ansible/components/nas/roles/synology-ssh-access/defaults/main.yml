@@ -1,0 +1,7 @@
+---
+synology_ssh_access_enabled: true
+
+# The fleet-wide controller public key. Same key the `ansible` user
+# uses everywhere else; authorizing it for `pani` on the NAS too means
+# one private key opens both accounts.
+synology_ssh_access_pubkey: "{{ ansible_user_ssh_public_key }}"

@@ -1,0 +1,43 @@
+---
+# Reconcile DSM storage state with the declared `synology_storage_*` vars.
+#
+# Scope is deliberately additive — the role manages objects ON TOP of
+# an existing pool + volume:
+#   - SHARES: create shares declared but missing on DSM
+#   - QUOTAS: set per-share size limits (drift-corrected)
+#   - NFS RULES: set per-share NFS export rules
+#
+# OUT OF SCOPE BY DESIGN:
+#   - Pool create/destroy
+#   - Volume create/destroy
+#   These are once-per-NAS-lifetime, long-running, destructive
+#   operations — better done deliberately in the DSM Storage Manager
+#   UI than automated. If you rebuild the pool, do it via the UI; then
+#   re-run this role to recreate the declared shares.
+#
+# Self-contained login/logout: reuses the sibling synology-dsm role's
+# login.yml/logout.yml task files (DRY — see CLAUDE.md) rather than
+# depending on the calling play to have logged in already.
+
+- name: wrapper block
+  module_defaults:
+    synology_dsm_api_request:
+      base_url: '{{ synology_dsm_base_url }}'
+      validate_certs: '{{ synology_dsm_validate_certs }}'
+      timeout: '{{ synology_dsm_request_timeout }}'
+      login_cookie: '{{ synology_dsm_login_cookie | default(omit) }}'
+      synotoken: '{{ synology_dsm_syno_token | default(omit) }}'
+  block:
+    - ansible.builtin.include_role:
+        name: synology-dsm
+        tasks_from: login.yml
+
+    - ansible.builtin.include_tasks: preflight.yml
+    - ansible.builtin.include_tasks: shares.yml
+    - ansible.builtin.include_tasks: nfs_exports.yml
+
+  always:
+    - ansible.builtin.include_role:
+        name: synology-dsm
+        tasks_from: logout.yml
+      when: synology_dsm_login_cookie is defined

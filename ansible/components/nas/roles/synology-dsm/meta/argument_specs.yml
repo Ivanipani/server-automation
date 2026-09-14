@@ -1,0 +1,106 @@
+---
+argument_specs:
+  main:
+    short_description: Declaratively configure a Synology DSM 7.x NAS over its JSON HTTP API.
+    description:
+      - "Logs in (SYNO.API.Auth), pushes Terminal/User-Home/Package-Feed/File-Service state, then always logs out. Never SSHes into DSM — run the calling play with `connection: local`."
+      - "Every service toggle below is independently reversible (flip it back to its previous value and re-run) — there is no single role-wide enabled flag because the role never installs anything, it only pushes config to services DSM already ships."
+    author:
+      - Ivan Perdomo
+    options:
+      synology_dsm_host:
+        type: str
+        default: "{{ ansible_host }}"
+        description: "Hostname/IP used to build synology_dsm_base_url. Defaults to ansible_host (NOT inventory_hostname — DSM's FQDN needs the search domain)."
+      synology_dsm_base_url:
+        type: str
+        default: "https://{{ synology_dsm_host }}:5001"
+      synology_dsm_base_path:
+        type: str
+        default: webapi
+      synology_dsm_cgi_name:
+        type: str
+        default: entry.cgi
+      synology_dsm_validate_certs:
+        type: bool
+        default: true
+        description: Set false if DSM still ships its self-signed cert.
+      synology_dsm_request_timeout:
+        type: int
+        default: 30
+      synology_dsm_username:
+        type: str
+        required: true
+        description: DSM administrator account used for API automation. No default — a missing override must fail loudly, not fall back to `admin`.
+      synology_dsm_password:
+        type: str
+        required: true
+        description: Vault-backed. See vault_synology_dsm_password in group_vars/all/vault.yml.
+      synology_dsm_otp_code:
+        type: str
+        required: false
+        description: Set per-run only if the account has 2FA enabled.
+      synology_dsm_ssh_enable:
+        type: bool
+        default: true
+      synology_dsm_ssh_port:
+        type: int
+        default: 22
+      synology_dsm_telnet_enable:
+        type: bool
+        default: false
+      synology_dsm_manage_user_home_service:
+        type: bool
+        default: false
+        description: "Opt-in: creates /volume<N>/homes/<user> for every DSM user. Off by default (a pure-NFS NAS doesn't need SSH user logins)."
+      synology_dsm_user_home_service_enable:
+        type: bool
+        default: true
+      synology_dsm_user_home_location:
+        type: str
+        default: /volume1
+      synology_dsm_user_home_enable_recycle_bin:
+        type: bool
+        default: false
+      synology_dsm_package_sources:
+        type: list
+        elements: dict
+        default: []
+        description: "List of {name, feed}. Additive only — the role never removes an existing package source."
+      synology_dsm_nfs_enable:
+        type: bool
+        default: false
+      synology_dsm_nfs_enable_v4:
+        type: bool
+        default: false
+      synology_dsm_nfs_enable_v4_1:
+        type: bool
+        default: false
+        description: "DSM 7.3 reports NFS minor version under enabled_minor_ver; this set field may be a silent no-op there — verify after toggling."
+      synology_dsm_smb_enable:
+        type: bool
+        default: true
+      synology_dsm_smb_workgroup:
+        type: str
+        default: WORKGROUP
+      synology_dsm_smb_disable_shadow_copy:
+        type: bool
+        default: false
+      synology_dsm_smb_enable_transfer_log:
+        type: bool
+        default: false
+      synology_dsm_rsync_enable:
+        type: bool
+        default: false
+        description: "DSM calls this the Network Backup Service (SYNO.Backup.Service.NetworkBackup)."
+      synology_dsm_rsync_enable_rsync_account:
+        type: bool
+        default: false
+        description: "Opts native rsync:// protocol auth (port 873) on, in addition to rsync-over-SSH."
+      synology_dsm_rsync_enable_custom_config:
+        type: bool
+        default: false
+      synology_dsm_rsync_sshd_port:
+        type: str
+        default: "22"
+        description: DSM's payload treats this as a string, not an int.

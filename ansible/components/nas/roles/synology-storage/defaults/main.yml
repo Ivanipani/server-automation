@@ -1,0 +1,16 @@
+---
+# Per-share defaults applied when a declared share doesn't override.
+# These match Synology-recommended choices for a homelab cold-storage
+# NAS (btrfs + CoW for snapshot efficiency, compression off since most
+# data here is already compressed qcow2 / backup blobs).
+synology_storage_share_defaults:
+  cow: true
+  compress: false
+  recycle_bin: false
+
+# Desired storage state. No sane default for vol_path — the deployment
+# layer computes both from inventory's `storage:` host block (see
+# playbooks/poochella/infra/12-nas.yml); this role never reads
+# hostvars itself.
+# synology_storage_vol_path: /volume1
+synology_storage_shares: []

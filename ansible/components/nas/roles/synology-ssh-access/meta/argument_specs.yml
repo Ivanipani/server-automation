@@ -1,0 +1,18 @@
+---
+argument_specs:
+  main:
+    short_description: Install/remove the controller's SSH pubkey in a DSM user's authorized_keys.
+    description:
+      - "Raw grep/printf over SSH (DSM has no guaranteed /usr/bin/python3), guarded by an idempotent grep -qxF check. install.yml appends the key when missing; uninstall.yml removes it when present."
+      - "Run over an SSH-connected play authenticated as the target DSM user with password auth (key auth would be chicken-and-egg on a freshly-baselined NAS) — see components/nas/site.yml."
+    author:
+      - Ivan Perdomo
+    options:
+      synology_ssh_access_enabled:
+        type: bool
+        default: true
+        description: False runs uninstall.yml instead of install.yml.
+      synology_ssh_access_pubkey:
+        type: str
+        default: "{{ ansible_user_ssh_public_key }}"
+        description: OpenSSH public key to authorize. Defaults to the fleet-wide ansible_user_ssh_public_key.

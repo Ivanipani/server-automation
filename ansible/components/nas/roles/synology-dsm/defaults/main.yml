@@ -13,7 +13,10 @@
 #      empty so a missing override fails loudly instead of trying
 #      `admin` (which DSM disables by default on new installs anyway).
 
-synology_dsm_host: '{{ inventory_hostname }}'
+# `ansible_host` (not `inventory_hostname`) because DSM's FQDN
+# (nas01.lan) needs the search domain that a bare inventory hostname
+# lacks.
+synology_dsm_host: '{{ ansible_host }}'
 synology_dsm_base_url: 'https://{{ synology_dsm_host }}:5001'
 synology_dsm_base_path: webapi
 synology_dsm_cgi_name: entry.cgi
@@ -45,12 +48,11 @@ synology_dsm_ssh_enable: true
 synology_dsm_ssh_port: 22
 synology_dsm_telnet_enable: false
 
-# User Home Service — OPT-IN. Default off because the nas-as-pure-NFS
-# design (poochella's choice as of 2026-05-21) doesn't need SSH user
-# logins, so DSM users don't need home dirs. Set
-# synology_dsm_manage_user_home_service: true in the play to manage
-# this; SYNO.Core.User.Home/set throws DSM error 3327 if it can't
-# reconcile state (typically post-pool-rebuild), so the role does
+# User Home Service — OPT-IN. Default off because a nas-as-pure-NFS
+# design doesn't need SSH user logins, so DSM users don't need home
+# dirs. Set synology_dsm_manage_user_home_service: true in the play to
+# manage this; SYNO.Core.User.Home/set throws DSM error 3327 if it
+# can't reconcile state (typically post-pool-rebuild), so the role does
 # drift-before-write and prints an actionable message on 3327.
 synology_dsm_manage_user_home_service: false
 synology_dsm_user_home_service_enable: true
@@ -76,7 +78,7 @@ synology_dsm_smb_enable_transfer_log: false
 # API — SYNO.Backup.Service.NetworkBackup). Toggling `enable` turns the
 # rsync daemon on; `enable_rsync_account` opts the rsync:// protocol's
 # native account auth (port 873) ON in addition to rsync-over-SSH.
-# Keep off by default; the baseline play enables what the homelab needs.
+# Keep off by default; the deployment layer enables what it needs.
 synology_dsm_rsync_enable: false
 synology_dsm_rsync_enable_rsync_account: false
 synology_dsm_rsync_enable_custom_config: false

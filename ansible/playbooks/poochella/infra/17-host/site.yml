@@ -1,6 +1,6 @@
 ---
 # Tier 17 — Baseline for every baremetal Linux host (hypervisors +
-# workers). Sits between 15-nas (independent storage appliance) and
+# workers). Sits between 12-nas (independent storage appliance) and
 # 20-hypervisor (PVE-only). Targets the `physical` group everywhere.
 #
 # Critical path (hard deps within this tier):

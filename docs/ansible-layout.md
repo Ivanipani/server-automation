@@ -123,7 +123,9 @@ Bottom-up, one component per change, legacy tier deleted as it lands:
    shared user-detection step is already pulled out as the
    `ssh-bootstrap-detect` role)
 4. `host-hardware`, `remote-access`, `observability` — split out of `17-host`
-5. `hypervisor` / `nas`
-6. `bootserv` — needs the heavy `infra/tasks/*.yml` bake/publish logic
+5. ~~`nas`~~ ✅ done — `components/nas/`, invoked via the deployment
+   wrapper `playbooks/poochella/infra/12-nas.yml`
+6. `hypervisor`
+7. `bootserv` — needs the heavy `infra/tasks/*.yml` bake/publish logic
    pulled into roles first
-7. `kube`
+8. `kube`

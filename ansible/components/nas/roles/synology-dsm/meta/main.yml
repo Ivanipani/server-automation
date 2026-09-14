@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: synology-dsm
+  description: Declarative Synology DSM 7.x configuration over its JSON HTTP API

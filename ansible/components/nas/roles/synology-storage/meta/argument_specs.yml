@@ -1,0 +1,42 @@
+---
+argument_specs:
+  main:
+    short_description: Reconcile DSM shares/quotas/NFS rules with a declared list.
+    description:
+      - "Additive only: creates shares in synology_storage_shares that are missing on DSM, corrects drifted quotas, and (re)saves each share's NFS export rules. Never deletes a share absent from the list — pool/volume/share deletion stays a manual DSM UI operation by design."
+      - "Self-contained: logs into DSM via the sibling synology-dsm role's login.yml/logout.yml (reused, not duplicated) so the calling play doesn't need to orchestrate auth itself."
+      - Run over `connection: local` — talks to the DSM REST API only.
+      - Never reads inventory hostvars/groups. The deployment layer computes synology_storage_vol_path/synology_storage_shares from inventory's `storage:` host block and passes them in as plain vars.
+    author:
+      - Ivan Perdomo
+    options:
+      synology_dsm_username:
+        type: str
+        required: true
+        description: Forwarded to the synology-dsm role's login.yml — see that role's argument_specs.
+      synology_dsm_password:
+        type: str
+        required: true
+      synology_dsm_base_url:
+        type: str
+        required: false
+        description: Defaults to the synology-dsm role's own default (https://{{ ansible_host }}:5001) when unset.
+      synology_dsm_validate_certs:
+        type: bool
+        default: true
+      synology_dsm_request_timeout:
+        type: int
+        default: 30
+      synology_storage_vol_path:
+        type: str
+        required: true
+        description: "Target volume, e.g. /volume1. Computed by the deployment layer from inventory's storage.vol_path."
+      synology_storage_shares:
+        type: list
+        elements: dict
+        default: []
+        description: "Declared shares: {name, description?, quota_gb?, recycle_bin?, cow?, compress?, nfs: {rules: [...]}}. Computed by the deployment layer from inventory's storage.shares."
+      synology_storage_share_defaults:
+        type: dict
+        default: {cow: true, compress: false, recycle_bin: false}
+        description: Per-share fallback values when a declared share doesn't override them.

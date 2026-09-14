@@ -1,0 +1,6 @@
+---
+- import_tasks: install.yml
+  when: synology_ssh_access_enabled | bool
+
+- import_tasks: uninstall.yml
+  when: not (synology_ssh_access_enabled | bool)

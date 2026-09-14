@@ -1,24 +1,20 @@
 ---
 # Assertions + state load for the synology-storage tasks.
 #
-# Asserts the host has a usable `storage:` block (just `vol_path` +
-# `shares` — pool/volume are EXPECTED to already exist; the role is
+# Asserts `synology_storage_vol_path` + `synology_storage_shares` are
+# usable (pool/volume are EXPECTED to already exist; the role is
 # additive and does not create them) and pre-computes the declared
 # shares list annotated with the target vol_path so the downstream
-# task files iterate without re-walking inventory.
+# task files iterate without re-reading these vars.
 
-- name: Assert this host has a storage block in inventory
+- name: Assert this host has a usable storage target
   ansible.builtin.assert:
     that:
-      - hostvars[inventory_hostname].storage is defined
-      - hostvars[inventory_hostname].storage.vol_path is defined
-      - hostvars[inventory_hostname].storage.vol_path is match('^/volume[0-9]+$')
-      - hostvars[inventory_hostname].storage.shares is defined
+      - synology_storage_vol_path is match('^/volume[0-9]+$')
     fail_msg: |
-      {{ inventory_hostname }} has no usable `storage:` block. Required keys:
-        storage.vol_path  — e.g. /volume1
-        storage.shares    — list of share declarations
-      See inventory.yaml's nas01 entry for the expected schema.
+      synology_storage_vol_path is unset or malformed (expected e.g.
+      /volume1). The deployment layer computes this from inventory's
+      `storage.vol_path` — see playbooks/poochella/infra/12-nas.yml.
     quiet: true
 
 - name: Find shares whose description exceeds DSM's 64-char limit
@@ -27,7 +23,7 @@
   # for a silent no-op. Surface it here with an actionable message.
   ansible.builtin.set_fact:
     _oversized_share_descriptions: >-
-      {{ hostvars[inventory_hostname].storage.shares
+      {{ synology_storage_shares
          | selectattr('description', 'defined')
          | rejectattr('description', 'match', '^.{0,64}$')
          | map(attribute='name') | list }}
@@ -46,14 +42,14 @@
 - name: Build the declared-shares list (each share annotated with vol_path)
   ansible.builtin.set_fact:
     _declared_shares: >-
-      {{ (hostvars[inventory_hostname].storage.shares | default([]))
-         | map('combine', {'_vol_path': hostvars[inventory_hostname].storage.vol_path})
+      {{ synology_storage_shares
+         | map('combine', {'_vol_path': synology_storage_vol_path})
          | list }}
 
 - name: Show what the role will reconcile
   ansible.builtin.debug:
     msg:
-      target_vol_path: "{{ hostvars[inventory_hostname].storage.vol_path }}"
+      target_vol_path: "{{ synology_storage_vol_path }}"
       declared_shares: "{{ _declared_shares | map(attribute='name') | list }}"
       shares_with_nfs_rules: >-
         {{ _declared_shares

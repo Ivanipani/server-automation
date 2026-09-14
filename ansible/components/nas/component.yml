@@ -1,0 +1,11 @@
+---
+name: nas
+layer: 3
+description: >-
+  Synology DSM (nas01): the fleet's NFS/SMB/rsync file server. Every
+  data path (Longhorn backups, VM /home, PXE artifacts, qcow2 image
+  publish) rides NFS off this box, and pani's SSH-as-user is managed
+  here too for rsync-over-SSH workflows.
+depends_on: [control-node]
+target_default: storage
+target_var: nas_hosts

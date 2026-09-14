@@ -1,0 +1,119 @@
+---
+# Assert-only smoke test for the nas component. Mutates nothing; safe
+# to run any time against a live DSM box.
+#
+#   ansible-playbook --vault-password-file ../../../secrets/ansible-pass \
+#     components/nas/tests/verify.yml
+#
+# Validates the failure-prone parts end-to-end:
+#   1. Vault indirection wires synology_dsm_password into the role
+#   2. HTTPS (port 5001) is reachable from this control node
+#   3. validate_certs accepts DSM's cert (self-signed or real)
+#   4. Login → an authenticated read succeeds → logout
+#   5. The Terminal (SSH) toggle matches synology_dsm_ssh_enable
+#   6. Every inventory-declared share exists on DSM
+
+- name: Verify DSM API reachability + baseline service state
+  hosts: "{{ nas_hosts | default('storage') }}"
+  gather_facts: false
+  connection: local
+  module_defaults:
+    synology_dsm_api_request:
+      base_url: '{{ synology_dsm_base_url }}'
+      validate_certs: '{{ synology_dsm_validate_certs }}'
+      timeout: '{{ synology_dsm_request_timeout }}'
+      login_cookie: '{{ synology_dsm_login_cookie | default(omit) }}'
+      synotoken: '{{ synology_dsm_syno_token | default(omit) }}'
+  tasks:
+    - block:
+        - ansible.builtin.assert:
+            that:
+              - synology_dsm_password is defined
+              - synology_dsm_password | length > 0
+            fail_msg: >-
+              synology_dsm_password is not set. Did you add
+              vault_synology_dsm_password to group_vars/all/vault.yml and
+              decrypt with --vault-password-file?
+            quiet: true
+
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: login.yml
+
+        - name: Query DSM system status (sanity-check the session)
+          synology_dsm_api_request:
+            api_name: SYNO.Core.System.Status
+            api_method: get
+          register: nas_verify_status
+
+        - name: DSM responded with model/serial info
+          ansible.builtin.assert:
+            that:
+              - nas_verify_status.json.success | default(false)
+              - nas_verify_status.json.data.model is defined
+            quiet: true
+
+        - name: Query Terminal config (SSH/Telnet)
+          synology_dsm_api_request:
+            api_name: SYNO.Core.Terminal
+            api_version: 3
+            api_method: get
+          register: nas_verify_terminal
+
+        - name: SSH service enablement matches synology_dsm_ssh_enable
+          ansible.builtin.assert:
+            that:
+              - nas_verify_terminal.json.data.enable_ssh == (synology_dsm_ssh_enable | default(true))
+            quiet: true
+
+      always:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: logout.yml
+          when: synology_dsm_login_cookie is defined
+
+- name: Verify DSM storage state matches inventory
+  hosts: "{{ nas_hosts | default('storage') }}"
+  gather_facts: false
+  connection: local
+  vars:
+    _declared_share_names: "{{ (storage.shares | default([])) | map(attribute='name') | list }}"
+  module_defaults:
+    synology_dsm_api_request:
+      base_url: '{{ synology_dsm_base_url }}'
+      validate_certs: '{{ synology_dsm_validate_certs }}'
+      timeout: '{{ synology_dsm_request_timeout }}'
+      login_cookie: '{{ synology_dsm_login_cookie | default(omit) }}'
+      synotoken: '{{ synology_dsm_syno_token | default(omit) }}'
+  tasks:
+    - block:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: login.yml
+
+        - name: List DSM shares
+          synology_dsm_api_request:
+            api_name: SYNO.Core.Share
+            api_method: list
+            api_version: 1
+            request_method: GET
+          register: nas_verify_shares
+
+        - name: Every inventory-declared share exists on DSM
+          ansible.builtin.assert:
+            that:
+              - >-
+                (_declared_share_names
+                 | difference(nas_verify_shares.json.data.shares | default([]) | map(attribute='name') | list))
+                | length == 0
+            fail_msg: >-
+              Shares declared in inventory's storage.shares are missing on
+              DSM: run `just nas` to reconcile.
+            quiet: true
+          when: _declared_share_names | length > 0
+
+      always:
+        - ansible.builtin.include_role:
+            name: synology-dsm
+            tasks_from: logout.yml
+          when: synology_dsm_login_cookie is defined

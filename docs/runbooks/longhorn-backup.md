@@ -5,7 +5,7 @@
 The Longhorn install in this cluster lives in a separate Flux repo (this repo manages substrate only — host disks, k3s, NFS exports, etc.). This document describes the **Flux-side** configuration required to point Longhorn at the `longhorn-backup` NFS share on `nas01` so workload volume data can be backed up off-box.
 
 This repo owns:
-- The `longhorn-backup` NFS share on `nas01` (declared at `nas01.storage.shares[].name == longhorn-backup` in `ansible/inventory.yaml`; reconciled by `ansible/playbooks/poochella/infra/15-nas/30-storage.yml`).
+- The `longhorn-backup` NFS share on `nas01` (declared at `nas01.storage.shares[].name == longhorn-backup` in `ansible/inventory.yaml`; reconciled by the `synology-storage` role via `ansible/playbooks/poochella/infra/12-nas.yml` → `ansible/components/nas/site.yml`).
 - The NFS export rules on that share (currently LAN-wide `10.1.1.0/24` RW with `all_squash`).
 - The 1 TiB quota on the share.
 
@@ -19,8 +19,8 @@ This repo does NOT own:
 
 1. The `longhorn-backup` share exists on DSM and exports NFSv4.1. Verify:
    ```bash
-   ansible-playbook --vault-password-file ../secrets/ansible-pass playbooks/poochella/infra/15-nas/25-storage-plan.yml
-   # Look for `"name": "longhorn-backup"` in the output.
+   just nas-verify
+   # Asserts every inventory-declared share (including longhorn-backup) exists on DSM.
    ```
 2. The `worker-home-02` baremetal worker can reach `nas01.lan:2049/tcp` (NFS). Verify:
    ```bash
@@ -71,8 +71,8 @@ kubectl logs -n longhorn-system -l app=longhorn-manager --tail=200 | grep -i bac
 ```
 
 Common failure modes:
-- `permission denied` from the NFS mount: the worker's IP isn't in the share's NFS rule list. Fix in `ansible/inventory.yaml` (nas01.storage.shares[longhorn-backup].nfs.rules) then re-run `15-nas/30-storage.yml`.
-- `connection refused`: nas01 NFS service is off. Check DSM → Control Panel → File Services → NFS (or run `15-nas/20-baseline.yml`).
+- `permission denied` from the NFS mount: the worker's IP isn't in the share's NFS rule list. Fix in `ansible/inventory.yaml` (nas01.storage.shares[longhorn-backup].nfs.rules) then re-run `just nas`.
+- `connection refused`: nas01 NFS service is off. Check DSM → Control Panel → File Services → NFS (or run `just nas`).
 - `stale file handle`: DSM was rebooted; the longhorn-manager DaemonSet pod needs to be restarted to re-mount.
 
 ### RecurringJob (scheduled backups)

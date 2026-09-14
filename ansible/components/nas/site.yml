@@ -1,0 +1,46 @@
+---
+# Component: nas (layer 3) — see component.yml / README.md.
+#
+# Apply:  just nas
+#
+# DSM is administered over its HTTPS JSON API for every phase except
+# ssh-access, which bootstraps key-based login for pani over SSH with
+# password auth — hence the separate connection context per play, same
+# reasoning as the router component's install/configure split.
+#
+# Critical path (hard deps): baseline → storage → ssh-access.
+# baseline enables User Home Service (pani's $HOME) + SSH; ssh-access
+# drops the controller's pubkey into /volume1/homes/pani/.ssh/authorized_keys.
+
+- name: Configure DSM baseline (terminal, file services, package sources)
+  hosts: "{{ nas_hosts | default('storage') }}"
+  gather_facts: false
+  connection: local
+  roles:
+    - role: synology-dsm
+      tags: [baseline]
+
+- name: Reconcile DSM storage (shares, quotas, NFS export rules)
+  hosts: "{{ nas_hosts | default('storage') }}"
+  gather_facts: false
+  connection: local
+  roles:
+    - role: synology-storage
+      tags: [storage]
+
+- name: Install controller's SSH key in pani's authorized_keys
+  hosts: "{{ nas_hosts | default('storage') }}"
+  gather_facts: false
+  become: false
+  vars:
+    ansible_connection: ssh
+    ansible_user: pani
+    ansible_password: "{{ synology_dsm_password }}"
+    # The DSM Python3 package is not at /usr/bin/python3, and `raw`
+    # doesn't need any interpreter on the target — explicitly set to
+    # /bin/false so any accidental module call fails loud instead of
+    # running under whatever Python ansible auto-discovers.
+    ansible_python_interpreter: /bin/false
+  roles:
+    - role: synology-ssh-access
+      tags: [ssh-access]

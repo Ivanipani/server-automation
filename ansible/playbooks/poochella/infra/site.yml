@@ -14,9 +14,14 @@
 #                    component). OPNsense DNS/DHCP/PXE/tailnet
 #                    foundation; precedes everything else. See
 #                    docs/ansible-layout.md.
-#   15-nas         → Synology NAS (gap-5 break — independent of host
-#                    bootstrap; admin'd via DSM, not the ansible
-#                    user/key path the 17-host tier sets up)
+#   12-nas         → layer-3 component (components/nas), invoked via
+#                    the deployment wrapper 12-nas.yml (builds the
+#                    storage.vol_path/storage.shares desired state from
+#                    inventory, then imports the component). Synology
+#                    NAS — gap-5 break from the gap-10 convention,
+#                    independent of host bootstrap; admin'd via DSM,
+#                    not the ansible user/key path the 17-host tier
+#                    sets up. See docs/ansible-layout.md.
 #   13-foundation  → Foundational subset (the `foundation` group, today
 #                    just pve-home-01): full 17-host + 20-hypervisor
 #                    stack PLUS a bootstrap-only LXC template bake PLUS
@@ -55,7 +60,7 @@
 # this ordering is the happy path, not the only one.
 - import_playbook: ../../../components/control-node/site.yml
 - import_playbook: 10-router.yml
-- import_playbook: 12-nas/site.yml
+- import_playbook: 12-nas.yml
 - import_playbook: 13-foundation/site.yml
 - import_playbook: 17-host/site.yml
 - import_playbook: 20-hypervisor/site.yml

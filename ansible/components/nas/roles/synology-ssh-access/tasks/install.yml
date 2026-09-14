@@ -1,0 +1,52 @@
+---
+# Ensure the controller's ansible public key is installed in pani's
+# authorized_keys on the NAS, so subsequent Ansible plays + rsync-over-
+# SSH workflows can connect as pani@nas01.lan without a password.
+#
+# Connection model: the calling play authenticates as pani with
+# password auth (vault-backed `synology_dsm_password`) — key auth
+# would be a chicken-and-egg on a freshly-baselined NAS. The task
+# itself is idempotent — once the key is present, the lookup-then-
+# append pattern is a no-op (changed=0).
+#
+# Pre-conditions:
+#   - The synology-dsm role has run with
+#     synology_dsm_manage_user_home_service: true so /volume1/homes/pani
+#     exists, and DSM's SSH service is on.
+#
+# Why not ansible.posix.authorized_key:
+#   Synology DSM doesn't have a system Python interpreter at
+#   /usr/bin/python3 by default — it lives under
+#   /var/packages/Python3/target/… and isn't always present. `raw`
+#   shells out to whatever sh+grep DSM ships, which is unconditional,
+#   and the manual idempotency pattern keeps `changed` honest.
+
+- name: Assert the controller pubkey var is present and key-shaped
+  ansible.builtin.assert:
+    that:
+      - synology_ssh_access_pubkey | length > 0
+      - synology_ssh_access_pubkey is search('^(ssh-|ecdsa-|sk-)')
+    fail_msg: >-
+      synology_ssh_access_pubkey is empty or doesn't look like a public
+      key — check group_vars/all/vars.yml's ansible_user_ssh_public_key.
+    quiet: true
+
+- name: Check whether pani's authorized_keys already contains the controller key
+  # grep -qxF: silent, exact-line match, fixed string (no regex meta).
+  # 2>/dev/null swallows the "no such file" message on a clean home dir.
+  ansible.builtin.raw: >-
+    grep -qxF {{ synology_ssh_access_pubkey | quote }} ~/.ssh/authorized_keys 2>/dev/null
+  register: _synology_ssh_access_check
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: Ensure ~/.ssh exists with the right perms + install the key
+  ansible.builtin.raw: |
+    set -e
+    mkdir -p ~/.ssh
+    chmod 700 ~/.ssh
+    touch ~/.ssh/authorized_keys
+    chmod 600 ~/.ssh/authorized_keys
+    printf '%s\n' {{ synology_ssh_access_pubkey | quote }} >> ~/.ssh/authorized_keys
+  when: _synology_ssh_access_check.rc != 0

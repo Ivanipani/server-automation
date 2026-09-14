@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: synology-storage
+  description: Reconcile Synology DSM shares, quotas, and NFS export rules with a declared list

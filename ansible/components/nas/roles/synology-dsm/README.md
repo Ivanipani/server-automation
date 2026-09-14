@@ -3,7 +3,7 @@
 Declarative configuration of a Synology NAS running DSM 7.x, via the same
 JSON-over-HTTP API DSM's own web UI uses. Treats the NAS like any other
 managed host in poochella — credentials in the vault, vars in inventory,
-state pushed by `just run`.
+state pushed by `just nas`.
 
 ## Provenance + fork notes
 
@@ -88,3 +88,6 @@ request, paste in here.
   (`synology_dsm_login_cookie`) inside the wrapper block. It is wiped in
   the `always:` logout, but if a run is interrupted between login and
   logout the cookie idles out on DSM's side (default 30 min).
+- The sibling `synology-storage` role reuses `login.yml`/`logout.yml`
+  from this role (via `include_role: tasks_from:`) rather than
+  duplicating the auth flow — see `components/nas/roles/synology-storage/tasks/main.yml`.
