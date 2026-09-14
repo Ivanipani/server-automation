@@ -1,0 +1,46 @@
+---
+argument_specs:
+  main:
+    short_description: Configure the os-tailscale plugin and bring the tailnet up.
+    description:
+      - "`configure.yml` (enabled) drives the plugin's config-DB REST API
+        (settings, auth, subnet routes), reconfigures rc.conf.d, and
+        polls/restarts until tailscaled reaches Running with every
+        declared subnet advertised. `deconfigure.yml` (disabled) flips
+        the plugin off and reconfigures to stop the service, cleanly,
+        without touching the package."
+      - "Run over `connection: local` — talks to the OPNsense API only.
+        Auth params come from module_defaults on `ansible.builtin.uri`
+        in the calling play. Plugin must already be installed by the
+        sibling opnsense-tailscale-install role; that role's
+        uninstall.yml stops the daemon itself via raw rc.d, so order
+        relative to this role's deconfigure.yml doesn't matter."
+    author:
+      - Ivan Perdomo
+    options:
+      opnsense_tailscale_enabled:
+        type: bool
+        default: true
+        description: False runs deconfigure.yml (disable + stop) instead of configure.yml.
+      opnsense_tailscale_auth_key:
+        type: str
+        description: Tailscale reusable pre-auth key, tagged tag:subnet-router. Normally the vaulted vault_opnsense_tailscale_auth_key.
+      opnsense_tailscale_login_server:
+        type: str
+        default: "https://controlplane.tailscale.com"
+      opnsense_tailscale_advertise_subnets:
+        type: list
+        elements: dict
+        default:
+          - subnet: 10.1.1.0/24
+            description: lan
+        description: Subnets to advertise, as {subnet, description} pairs.
+      opnsense_tailscale_accept_dns:
+        type: bool
+        default: false
+      opnsense_tailscale_accept_subnet_routes:
+        type: bool
+        default: false
+      opnsense_tailscale_ssh:
+        type: bool
+        default: false

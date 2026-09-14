@@ -115,12 +115,15 @@ how deep the layer stack is, not by how big the cluster is.
 
 Bottom-up, one component per change, legacy tier deleted as it lands:
 
-1. ~~`control-node`~~ ✅ done — `playbooks/poochella/infra/00-control-node/`
-2. `os-baseline` — the biggest win: `17-host` (physical), `30-guests`
-   (VMs) and `10-networking` (OPNsense) today re-declare the same roles
-   against different groups
-3. `host-hardware`, `remote-access`, `observability` — split out of `17-host`
-4. `hypervisor` / `nas` / `router`
-5. `bootserv` — needs the heavy `infra/tasks/*.yml` bake/publish logic
+1. ~~`control-node`~~ ✅ done — `components/control-node/`
+2. ~~`router`~~ ✅ done — `components/router/`, invoked via the
+   deployment wrapper `playbooks/poochella/infra/10-router.yml`
+3. `os-baseline` — the biggest win: `17-host` (physical) and `30-guests`
+   (VMs) today re-declare the same roles against different groups (the
+   shared user-detection step is already pulled out as the
+   `ssh-bootstrap-detect` role)
+4. `host-hardware`, `remote-access`, `observability` — split out of `17-host`
+5. `hypervisor` / `nas`
+6. `bootserv` — needs the heavy `infra/tasks/*.yml` bake/publish logic
    pulled into roles first
-6. `kube`
+7. `kube`

@@ -1,0 +1,10 @@
+---
+# Install (or remove) the os-node_exporter plugin package via raw SSH.
+# Expects: SSH-connected play (`become: true`). FreeBSD lacks Python by
+# default, hence raw throughout.
+
+- import_tasks: install.yml
+  when: opnsense_node_exporter_enabled
+
+- import_tasks: uninstall.yml
+  when: not opnsense_node_exporter_enabled

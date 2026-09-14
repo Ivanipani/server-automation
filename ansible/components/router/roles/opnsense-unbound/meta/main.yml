@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: opnsense-unbound
+  description: Apply + reconcile OPNsense Unbound host overrides via its REST API

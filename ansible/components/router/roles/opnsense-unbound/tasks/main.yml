@@ -1,0 +1,69 @@
+---
+# Applies OPNsense Unbound host overrides and reconciles (removes) any
+# stale entry that carries our prefix but is no longer desired.
+#
+# Auth params + the unbound_host module's match_fields override come
+# from module_defaults in the calling play — see the role's
+# argument_specs for why match_fields must be [description].
+#
+# Pre-condition: an OPNsense API key/secret pair exists in vault as
+# `vault_opnsense_api_key` / `vault_opnsense_api_secret`. Same key/secret
+# as the dnsmasq role.
+
+- name: Fetch current OPNsense Unbound state (for orphan detection)
+  ansible.builtin.uri:
+    url: "https://{{ opnsense_firewall }}/api/unbound/settings/get"
+    method: GET
+    user: "{{ opnsense_api_key }}"
+    password: "{{ opnsense_api_secret }}"
+    force_basic_auth: true
+    validate_certs: "{{ opnsense_api_ssl_verify }}"
+    return_content: true
+  register: _opnsense_unbound_state
+  # Always fetch — even in `--check`. The GET is read-only; without
+  # this the orphan detector would see an empty state under check mode
+  # and report "nothing to clean up" even when entries are actually stale.
+  check_mode: false
+
+- name: Compute the set of descriptions we want present
+  ansible.builtin.set_fact:
+    _unbound_desired_descriptions: "{{ unbound_host_overrides | map(attribute='description') | list }}"
+
+- name: Find orphan host-overrides (our prefix, not in desired set)
+  ansible.builtin.set_fact:
+    _unbound_stale_descriptions: >-
+      {{ (_opnsense_unbound_state.json.unbound.hosts.host | default({}) | dict2items)
+         | map(attribute='value')
+         | selectattr('description', 'defined')
+         | selectattr('description', 'match', '^' ~ (unbound_host_prefix | regex_escape))
+         | rejectattr('description', 'in', _unbound_desired_descriptions)
+         | map(attribute='description')
+         | list }}
+
+# hostname/domain/value are required parameters on the module but
+# ignored for matching here (match_fields is [description], set via
+# module_defaults in the calling play), so any syntactically-valid
+# placeholder works.
+- name: Remove orphan Unbound host-overrides (rename / deletion cleanup)
+  oxlorg.opnsense.unbound_host:
+    description: "{{ item }}"
+    hostname: orphan
+    domain: orphan.invalid
+    record_type: A
+    value: 0.0.0.0
+    state: absent
+  loop: "{{ _unbound_stale_descriptions }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Apply desired Unbound host-overrides
+  oxlorg.opnsense.unbound_host:
+    hostname: "{{ item.hostname }}"
+    domain: "{{ item.domain }}"
+    record_type: "{{ item.record_type }}"
+    value: "{{ item.value }}"
+    description: "{{ item.description }}"
+    state: present
+  loop: "{{ unbound_host_overrides }}"
+  loop_control:
+    label: "{{ item.description }}"

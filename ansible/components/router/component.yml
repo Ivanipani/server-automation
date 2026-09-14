@@ -1,0 +1,11 @@
+---
+name: router
+layer: 3
+description: >-
+  OPNsense: the LAN's DHCP+DNS+PXE server, tailnet subnet router, and a
+  node_exporter target. Every other fleet host resolves names and gets
+  its address from this box, so it must be fully configured before any
+  other physical host is provisioned.
+depends_on: [control-node]
+target_default: router
+target_var: router_hosts

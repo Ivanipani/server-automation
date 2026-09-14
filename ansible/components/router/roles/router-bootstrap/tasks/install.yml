@@ -1,0 +1,48 @@
+---
+- name: Check for ansible group
+  ansible.builtin.raw: pw groupshow ansible
+  register: _router_bootstrap_group_check
+  changed_when: false
+  failed_when: false
+
+- name: Create ansible group
+  ansible.builtin.raw: pw groupadd ansible
+  when: _router_bootstrap_group_check.rc != 0
+
+- name: Check for ansible user
+  ansible.builtin.raw: pw usershow ansible
+  register: _router_bootstrap_user_check
+  changed_when: false
+  failed_when: false
+
+- name: Create ansible user
+  ansible.builtin.raw: pw useradd ansible -g ansible -s /bin/sh -m -d /home/ansible
+  when: _router_bootstrap_user_check.rc != 0
+
+- name: Create .ssh directory
+  ansible.builtin.raw: mkdir -p /home/ansible/.ssh && chown ansible:ansible /home/ansible/.ssh && chmod 700 /home/ansible/.ssh
+  changed_when: true
+
+- name: Deploy SSH public key
+  ansible.builtin.raw: "echo '{{ router_bootstrap_ssh_public_key }}' > /home/ansible/.ssh/authorized_keys"
+  changed_when: true
+
+- name: Set ownership + permissions on authorized_keys
+  ansible.builtin.raw: chown ansible:ansible /home/ansible/.ssh/authorized_keys && chmod 600 /home/ansible/.ssh/authorized_keys
+  changed_when: true
+
+- name: Add ansible user to wheel group
+  ansible.builtin.raw: pw groupmod wheel -m ansible
+  changed_when: true
+
+- name: Create sudoers.d directory
+  ansible.builtin.raw: mkdir -p /usr/local/etc/sudoers.d
+  changed_when: true
+
+- name: Configure passwordless sudo for ansible
+  ansible.builtin.raw: "echo 'ansible ALL=(ALL) NOPASSWD: ALL' > /usr/local/etc/sudoers.d/ansible"
+  changed_when: true
+
+- name: Set permissions on sudoers file
+  ansible.builtin.raw: chmod 440 /usr/local/etc/sudoers.d/ansible
+  changed_when: true

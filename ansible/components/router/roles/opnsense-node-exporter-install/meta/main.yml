@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: opnsense-node-exporter-install
+  description: Install/remove the OPNsense os-node_exporter plugin package over raw SSH

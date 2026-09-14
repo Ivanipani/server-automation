@@ -1,0 +1,78 @@
+---
+# Assert-only smoke test for the router component. Mutates nothing;
+# safe to run any time against a live OPNsense box.
+#
+#   ansible-playbook --vault-password-file ../../../secrets/ansible-pass \
+#     components/router/tests/verify.yml
+
+- name: Verify router-bootstrap
+  hosts: "{{ router_hosts | default('router') }}"
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Check ansible user + group exist
+      ansible.builtin.raw: pw usershow ansible && pw groupshow ansible
+      register: router_verify_user
+      changed_when: false
+
+    - name: Check ansible has passwordless sudo
+      ansible.builtin.raw: test -f /usr/local/etc/sudoers.d/ansible && cat /usr/local/etc/sudoers.d/ansible
+      register: router_verify_sudoers
+      changed_when: false
+
+    - name: Ansible user + sudoers are present
+      ansible.builtin.assert:
+        that:
+          - router_verify_user.rc == 0
+          - router_verify_sudoers.rc == 0
+          - "'NOPASSWD' in router_verify_sudoers.stdout"
+        quiet: true
+
+- name: Verify OPNsense plugin state via REST API
+  hosts: "{{ router_hosts | default('router') }}"
+  gather_facts: false
+  connection: local
+  module_defaults:
+    ansible.builtin.uri:
+      url_username: "{{ opnsense_api_key }}"
+      url_password: "{{ opnsense_api_secret }}"
+      force_basic_auth: true
+      validate_certs: false
+      return_content: true
+  tasks:
+    - name: Fetch dnsmasq settings
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}/api/dnsmasq/settings/get"
+      register: router_verify_dnsmasq
+
+    - name: Fetch tailscale status
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}/api/tailscale/status/status"
+      register: router_verify_tailscale
+      failed_when: false
+
+    - name: Fetch node_exporter status
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}/api/nodeexporter/service/status"
+      register: router_verify_node_exporter
+      failed_when: false
+
+    - name: dnsmasq is enabled
+      ansible.builtin.assert:
+        that:
+          - router_verify_dnsmasq.json.dnsmasq.general.enabled == "1"
+        quiet: true
+
+    - name: Tailscale is Running (only when opnsense_tailscale_enabled)
+      ansible.builtin.assert:
+        that:
+          - router_verify_tailscale.json.BackendState | default('') == 'Running'
+        quiet: true
+      when: opnsense_tailscale_enabled | default(true)
+
+    - name: node_exporter is running (only when opnsense_node_exporter_enabled)
+      ansible.builtin.assert:
+        that:
+          - (router_verify_node_exporter.json.status | default('')) == 'running'
+        quiet: true
+      when: opnsense_node_exporter_enabled | default(true)

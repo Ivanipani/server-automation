@@ -65,7 +65,7 @@ Groups define topology:
 
 Plays/roles that install a service should have a boolean enable/disable flag capable of reversing or unapplying the change. Use blocks to group together each side.
 
-**Layout is mid-migration from tiers to components — see `docs/ansible-layout.md`.** New work goes in `ansible/components/<name>/` (roles + a task-free `site.yml` + `tests/verify.yml` + `component.yml` declaring its layer and `depends_on`), NOT in `ansible/playbooks/poochella/infra/<NN>-tier/`. A component never hardcodes a group — it targets `{{ <name>_hosts | default(...) }}` — and never reads inventory topology; that is the deployment layer's job. Role names must be globally unique (`roles_path` is a flat search path) and each component's `roles/` dir must be appended to `roles_path` in `ansible/ansible.cfg`. Migrated so far: `control-node` (layer 0).
+**Layout is mid-migration from tiers to components — see `docs/ansible-layout.md`.** New work goes in `ansible/components/<name>/` (roles + a task-free `site.yml` + `tests/verify.yml` + `component.yml` declaring its layer and `depends_on`), NOT in `ansible/playbooks/poochella/infra/<NN>-tier/`. A component never hardcodes a group — it targets `{{ <name>_hosts | default(...) }}` — and never reads inventory topology; that is the deployment layer's job. Role names must be globally unique (`roles_path` is a flat search path) and each component's `roles/` dir must be appended to `roles_path` in `ansible/ansible.cfg`. Migrated so far: `control-node` (layer 0), `router` (layer 3).
 
 ## Collaboration rules (for Claude)
 

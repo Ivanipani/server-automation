@@ -1,0 +1,25 @@
+---
+argument_specs:
+  main:
+    short_description: Install/remove the os-node_exporter plugin package on OPNsense.
+    description:
+      - "Raw `pkg install`/`pkg delete` over SSH. `install.yml` runs when
+        enabled, `uninstall.yml` when not — both idempotent via
+        `pkg info -q`. `uninstall.yml` stops node_exporter via raw
+        rc.d before deleting the package — self-contained, doesn't
+        depend on the sibling opnsense-node-exporter-configure role's
+        API-based deconfigure.yml having run (or even existing — the
+        API disappears once the package is gone)."
+      - "Run over an SSH-connected play with `become: true`. Configuration
+        is the sibling opnsense-node-exporter-configure role, run
+        separately over `connection: local` against the API."
+    author:
+      - Ivan Perdomo
+    options:
+      opnsense_node_exporter_enabled:
+        type: bool
+        default: true
+        description: False runs uninstall.yml (pkg delete) instead of install.yml.
+      opnsense_node_exporter_plugin_pkg:
+        type: str
+        default: os-node_exporter

@@ -1,0 +1,32 @@
+---
+argument_specs:
+  main:
+    short_description: Configure/disable the os-node_exporter plugin via its REST API.
+    description:
+      - "`configure.yml` (enabled) pushes the full general model (plugin
+        validates against it wholesale — a partial POST leaves it
+        `disabled`), reconfigures, and verifies the service is running.
+        `deconfigure.yml` (disabled) pushes the same model with
+        `enabled: '0'` and reconfigures to stop it — cleanly, without
+        touching the package."
+      - "Run over `connection: local` — talks to the OPNsense API only.
+        Plugin must already be installed by the sibling
+        opnsense-node-exporter-install role; that role's uninstall.yml
+        stops the daemon itself via raw rc.d, so order relative to
+        this role's deconfigure.yml doesn't matter."
+    author:
+      - Ivan Perdomo
+    options:
+      opnsense_node_exporter_enabled:
+        type: bool
+        default: true
+        description: False runs deconfigure.yml (disable + stop) instead of configure.yml.
+      opnsense_node_exporter_listen_address:
+        type: str
+        default: "0.0.0.0"
+      opnsense_node_exporter_listen_port:
+        type: str
+        default: "9100"
+      opnsense_node_exporter_collectors:
+        type: dict
+        description: Per-collector "1"/"0" toggles. Defaults match the web-UI defaults (every collector on).

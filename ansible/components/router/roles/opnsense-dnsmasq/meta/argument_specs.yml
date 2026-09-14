@@ -1,0 +1,90 @@
+---
+argument_specs:
+  main:
+    short_description: Configure OPNsense's dnsmasq plugin via its REST API.
+    description:
+      - General settings, DHCP range, static DHCP+DNS reservations, and
+        optional PXE chainload/dispatch rules. Idempotent; also reconciles
+        (removes) stale reservations whose description carries our prefix
+        but is no longer in `dnsmasq_static_leases`.
+      - Auth params (firewall/api_key/api_secret/ssl_verify) are expected
+        via `module_defaults` on `group/oxlorg.opnsense.dnsmasq` in the
+        calling play, not as role vars — this role's tasks stay terse and
+        the orphan-cleanup URI call reuses the same values under
+        `opnsense_firewall` / `opnsense_api_key` / `opnsense_api_secret`.
+      - Run over `connection: local` — talks to the OPNsense API only.
+    author:
+      - Ivan Perdomo
+    options:
+      opnsense_firewall:
+        type: str
+        description: OPNsense host/IP for the orphan-cleanup GET. Defaults to ansible_host.
+      opnsense_api_ssl_verify:
+        type: bool
+        default: false
+        description: Verify OPNsense's TLS cert.
+      dnsmasq_enabled:
+        type: bool
+        default: true
+        description: Whether the dnsmasq service itself is enabled.
+      dnsmasq_listen_interfaces:
+        type: list
+        elements: str
+        default: [lan]
+      dnsmasq_dns_port:
+        type: int
+        default: 53053
+        description: dnsmasq's DNS port. 53053 avoids clashing with Unbound on 53.
+      dnsmasq_dhcp_domain:
+        type: str
+        default: lan
+      dnsmasq_dhcp_authoritative:
+        type: bool
+        default: true
+      dnsmasq_dhcp_fqdn:
+        type: bool
+        default: true
+      dnsmasq_register_static_dns:
+        type: bool
+        default: true
+      dnsmasq_register_dynamic_dns:
+        type: bool
+        default: false
+        description: Register DHCP-leased clients as <hostname>.<domain> in DNS.
+      dnsmasq_dhcp_lease_max:
+        type: int
+        default: 1000
+      dnsmasq_log_queries:
+        type: bool
+        default: true
+      dnsmasq_dhcp_range:
+        type: dict
+        default: {}
+        description: DHCP pool {description, interface, start_addr, end_addr, lease_time, domain}. Empty dict skips range management.
+      dnsmasq_static_leases:
+        type: list
+        elements: dict
+        default: []
+        description: "Desired reservations: {hostname, address, macs}. Built by the deployment layer from inventory hostvars."
+      dnsmasq_static_lease_prefix:
+        type: str
+        default: lan-static
+        description: Description prefix scoping which OPNsense entries this role owns (and may delete as orphans).
+      dnsmasq_pxe_enabled:
+        type: bool
+        default: false
+        description: Turn on the iPXE chainload/dispatch rules.
+      dnsmasq_pxe_tftp_servername:
+        type: str
+        default: ""
+        description: TFTP/HTTP boot server hostname, e.g. bootserv01.lan.
+      dnsmasq_pxe_chain_uefi:
+        type: str
+        default: ipxe.efi
+      dnsmasq_pxe_chain_bios:
+        type: str
+        default: undionly.kpxe
+      dnsmasq_pxe_script_url:
+        type: str
+        default: ""
+        description: iPXE script URL, e.g. http://bootserv01.lan/boot.ipxe.

@@ -1,0 +1,13 @@
+---
+# Configure (or cleanly disable) the os-node_exporter plugin via its
+# REST API. Expects: connection-local play. Auth credentials come from
+# module_defaults in the calling play. Plugin must already be
+# installed — see the sibling opnsense-node-exporter-install role.
+# Order relative to that role doesn't matter: its uninstall.yml stops
+# the daemon itself via raw rc.d before removing the package.
+
+- import_tasks: configure.yml
+  when: opnsense_node_exporter_enabled
+
+- import_tasks: deconfigure.yml
+  when: not opnsense_node_exporter_enabled

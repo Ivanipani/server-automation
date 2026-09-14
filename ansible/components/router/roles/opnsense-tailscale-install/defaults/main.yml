@@ -1,0 +1,10 @@
+---
+# Toggle. Default-on so the role is opt-in via host/group_vars; the
+# task's `meta: end_host` guard short-circuits when off. Shared with
+# the sibling opnsense-tailscale-configure role — set both together.
+opnsense_tailscale_enabled: true
+
+# Plugin pkg. The plugin owns /etc/rc.conf.d/tailscaled via its Jinja
+# template; opnsense-tailscale-configure drives its config DB and lets
+# it render the rc.d state.
+opnsense_tailscale_plugin_pkg: os-tailscale

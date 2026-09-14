@@ -6,10 +6,14 @@
 #
 #   control-node   → layer-0 component (components/control-node):
 #                    control-node prerequisites — vaulted ansible
-#                    keypair, inventory symlink, tool deps. The
-#                    first tier migrated to the component layout;
-#                    see docs/ansible-layout.md.
-#   10-router      → OPNsense DNS/DHCP foundation (precedes everything)
+#                    keypair, inventory symlink, tool deps.
+#   10-router      → layer-3 component (components/router), invoked via
+#                    the deployment wrapper 10-router.yml (builds
+#                    poochella-specific desired state — static leases,
+#                    Unbound records — from inventory, then imports the
+#                    component). OPNsense DNS/DHCP/PXE/tailnet
+#                    foundation; precedes everything else. See
+#                    docs/ansible-layout.md.
 #   15-nas         → Synology NAS (gap-5 break — independent of host
 #                    bootstrap; admin'd via DSM, not the ansible
 #                    user/key path the 17-host tier sets up)
@@ -46,11 +50,11 @@
 #   40-kube        → VM/container config + k3s
 #
 # Single-host piecemeal dev: fzf-pick any one tier playbook via
-# `just run --limit <host>`. Each playbook self-bootstraps
-# (../tasks/detect-bootstrap-user.yml) and asserts its own
-# pre-conditions, so this ordering is the happy path, not the only one.
+# `just run --limit <host>`. Each playbook self-bootstraps (via the
+# ssh-bootstrap-detect role) and asserts its own pre-conditions, so
+# this ordering is the happy path, not the only one.
 - import_playbook: ../../../components/control-node/site.yml
-- import_playbook: 10-networking/site.yml
+- import_playbook: 10-router.yml
 - import_playbook: 12-nas/site.yml
 - import_playbook: 13-foundation/site.yml
 - import_playbook: 17-host/site.yml

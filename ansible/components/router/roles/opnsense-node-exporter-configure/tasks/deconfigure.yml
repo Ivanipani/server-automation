@@ -1,0 +1,25 @@
+---
+# Cleanly disable the os-node_exporter plugin via its API — stops the
+# service — without touching the plugin package itself (that's the
+# sibling opnsense-node-exporter-install role's uninstall.yml, which
+# should run AFTER this).
+
+- name: Push plugin settings (disabled)
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/nodeexporter/general/set"
+    method: POST
+    body_format: json
+    body:
+      general: "{{ opnsense_node_exporter_collectors | combine({
+                    'enabled': '0',
+                    'listenaddress': opnsense_node_exporter_listen_address,
+                    'listenport': opnsense_node_exporter_listen_port,
+                 }) }}"
+  changed_when: true
+
+- name: Reconfigure node_exporter (stop the service now that it's disabled)
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/nodeexporter/service/reconfigure"
+    method: POST
+    body_format: json
+    body: {}

@@ -1,0 +1,35 @@
+---
+argument_specs:
+  main:
+    short_description: Apply + reconcile OPNsense Unbound host overrides.
+    description:
+      - Applies every entry in `unbound_host_overrides` and removes any
+        existing override whose description carries `unbound_host_prefix`
+        but is no longer in that list (rename/deletion cleanup).
+      - "Requires the calling play to set, via module_defaults: a
+        `group/oxlorg.opnsense.unbound` block with firewall/api_key/
+        api_secret/ssl_verify, AND `oxlorg.opnsense.unbound_host:
+        match_fields: [description]`. The default matcher compares the
+        module's coerced `prio: None` against the API's `prio: ''`,
+        which never matches — so without this override every run
+        appends a duplicate A record instead of updating the existing
+        one, and enough duplicates eventually crash Unbound."
+      - Run over `connection: local` — talks to the OPNsense API only.
+    author:
+      - Ivan Perdomo
+    options:
+      opnsense_firewall:
+        type: str
+        description: OPNsense host/IP for the state GET. Defaults to ansible_host.
+      opnsense_api_ssl_verify:
+        type: bool
+        default: false
+      unbound_host_overrides:
+        type: list
+        elements: dict
+        default: []
+        description: "Desired overrides: {description, hostname, domain, record_type, value}. Built by the deployment layer."
+      unbound_host_prefix:
+        type: str
+        default: ""
+        description: Description prefix scoping which entries this role owns (and may delete as orphans).

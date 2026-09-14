@@ -1,0 +1,21 @@
+---
+# Ensures (or removes) the 'ansible' automation user on OPNsense.
+# Raw commands throughout — OPNsense is FreeBSD-based and has no Python
+# until this role has run.
+#
+# Expects: remote_user set to whatever `ssh-bootstrap-detect` resolved
+# (ansible if it already exists, a fallback otherwise), become: true.
+
+- import_tasks: install.yml
+  when: router_bootstrap_enabled
+
+- import_tasks: uninstall.yml
+  when: not router_bootstrap_enabled
+
+# NOTE: a former play also set the OPNsense root password via
+# oxlorg.opnsense.user. It was removed: OPNsense's Usermanager API
+# refuses edits to the authenticated root account ("User root can not
+# lock itself out", HTTP 500), so it never worked. This role's job is
+# the `ansible` automation user (above); managing the router root
+# password is a separate, manual concern (console / supported path),
+# not something to drive through /api/auth/user/set on root.

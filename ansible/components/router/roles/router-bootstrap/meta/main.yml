@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: router-bootstrap
+  description: Bootstrap (or remove) the ansible automation user on OPNsense

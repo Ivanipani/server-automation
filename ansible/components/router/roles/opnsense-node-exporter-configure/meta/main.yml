@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: opnsense-node-exporter-configure
+  description: Configure/disable the OPNsense os-node_exporter plugin via its REST API

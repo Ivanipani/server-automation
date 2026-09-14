@@ -1,0 +1,22 @@
+---
+argument_specs:
+  main:
+    short_description: Bootstrap (or remove) the 'ansible' automation user on OPNsense.
+    description:
+      - "Raw commands throughout (FreeBSD, no Python until this has run).
+        `install.yml` creates the ansible group/user, stages its
+        authorized_keys, adds it to wheel, and grants passwordless sudo.
+        `uninstall.yml` (when `router_bootstrap_enabled: false`) removes
+        all three cleanly."
+      - "Run over `remote_user` resolved by the sibling
+        `ssh-bootstrap-detect` role, with `become: true`."
+    author:
+      - Ivan Perdomo
+    options:
+      router_bootstrap_enabled:
+        type: bool
+        default: true
+        description: False removes the ansible user/group/sudoers file instead of creating them.
+      router_bootstrap_ssh_public_key:
+        type: str
+        description: Public key written to the ansible user's authorized_keys. Defaults to the fleet-wide ansible_user_ssh_public_key.

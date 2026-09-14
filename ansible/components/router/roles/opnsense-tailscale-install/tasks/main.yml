@@ -1,0 +1,10 @@
+---
+# Install (or remove) the os-tailscale plugin package via raw SSH.
+# Expects: SSH-connected play (`become: true`). FreeBSD lacks Python by
+# default, hence raw throughout.
+
+- import_tasks: install.yml
+  when: opnsense_tailscale_enabled
+
+- import_tasks: uninstall.yml
+  when: not opnsense_tailscale_enabled

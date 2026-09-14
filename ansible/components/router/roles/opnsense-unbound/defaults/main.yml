@@ -1,0 +1,15 @@
+---
+# OPNsense connection (consumed via module_defaults in the calling play).
+opnsense_firewall: "{{ ansible_host }}"
+opnsense_api_ssl_verify: false
+
+# Desired host-overrides: {description, hostname, domain, record_type,
+# value}. Built by the deployment layer (poochella-specific hostnames/
+# IPs), passed straight through here.
+unbound_host_overrides: []
+
+# Description prefix scoping which OPNsense entries this role owns (and
+# may delete as orphans). Every entry in unbound_host_overrides MUST
+# carry a description starting with this, so hand-managed OPNsense
+# entries are never touched.
+unbound_host_prefix: ""

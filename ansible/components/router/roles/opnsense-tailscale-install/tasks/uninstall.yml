@@ -1,0 +1,24 @@
+---
+# Self-contained: stops the daemon via raw rc.d BEFORE removing the
+# package, rather than depending on the sibling
+# opnsense-tailscale-configure role's deconfigure.yml having run first
+# — the plugin's REST API (and thus that role) stops working the
+# moment its package is gone, so ordering two separate roles around
+# that would be fragile. Running both roles in either order still
+# leaves the system stopped and clean.
+
+- name: Stop tailscaled (best-effort — may already be stopped/absent)
+  ansible.builtin.raw: service tailscaled stop
+  changed_when: true
+  failed_when: false
+
+- name: Check if os-tailscale plugin is installed
+  ansible.builtin.raw: pkg info -q {{ opnsense_tailscale_plugin_pkg }}
+  register: tsplugin_check
+  changed_when: false
+  failed_when: false
+
+- name: Remove os-tailscale plugin
+  ansible.builtin.raw: pkg delete -y {{ opnsense_tailscale_plugin_pkg }}
+  when: tsplugin_check.rc == 0
+  changed_when: true

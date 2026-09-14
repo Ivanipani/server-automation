@@ -1,0 +1,10 @@
+---
+# Toggle. Default-on so the role is opt-in via host/group_vars. Shared
+# with the sibling opnsense-node-exporter-configure role — set both
+# together.
+opnsense_node_exporter_enabled: true
+
+# Plugin pkg. Runs the standard prom node_exporter on FreeBSD and owns
+# its rc.d state; opnsense-node-exporter-configure drives its config
+# DB via REST.
+opnsense_node_exporter_plugin_pkg: os-node_exporter

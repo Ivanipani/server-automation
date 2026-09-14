@@ -1,0 +1,21 @@
+---
+# Cleanly disable the os-tailscale plugin via its API — logs the
+# daemon out and stops it — without touching the plugin package itself
+# (that's the sibling opnsense-tailscale-install role's uninstall.yml,
+# which should run AFTER this).
+
+- name: Disable os-tailscale plugin
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/tailscale/settings/set"
+    method: POST
+    body_format: json
+    body:
+      settings:
+        enabled: "0"
+
+- name: Reconfigure tailscaled (stop the service now that it's disabled)
+  ansible.builtin.uri:
+    url: "https://{{ ansible_host }}/api/tailscale/service/reconfigure"
+    method: POST
+    body_format: json
+    body: {}

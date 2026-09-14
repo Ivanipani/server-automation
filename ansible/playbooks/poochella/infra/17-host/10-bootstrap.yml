@@ -16,12 +16,10 @@
   hosts: "{{ target_hosts | default('physical') }}"
   gather_facts: false
   connection: local
-  tasks:
-    - name: Detect bootstrap user
-      ansible.builtin.include_tasks:
-        file: ../tasks/detect-bootstrap-user.yml
-      vars:
-        fallback_user: root
+  vars:
+    fallback_user: root
+  roles:
+    - role: ssh-bootstrap-detect
 
 - name: Apply baseline (host-base role) on every physical host
   hosts: "{{ target_hosts | default('physical') }}"
@@ -39,7 +37,7 @@
     #
     # Debian baremetal workers DO NOT need the root fallback: their
     # preseed (img/debian/) locks root entirely and creates the ansible
-    # user with the canonical key, so detect-bootstrap-user resolves to
+    # user with the canonical key, so ssh-bootstrap-detect resolves to
     # `ansible` on the very first probe.
     ansible_password: "{{ host_root_pass if use_root_password | default(false) else omit }}"
   roles:

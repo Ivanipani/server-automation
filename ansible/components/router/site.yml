@@ -1,0 +1,116 @@
+---
+# Component: router (layer 3) — see component.yml / README.md.
+#
+# Apply:  just router
+#
+# OPNsense is FreeBSD-based and lacks Python until router-bootstrap has
+# run, so the bootstrap-user phase is raw SSH; every plugin phase then
+# splits into an SSH/raw install play and a connection-local/API
+# configure play, matching the plugin's own install-vs-configure split.
+
+- name: Detect SSH bootstrap user for OPNsense
+  hosts: "{{ router_hosts | default('router') }}"
+  gather_facts: false
+  connection: local
+  vars:
+    fallback_user: root
+  roles:
+    - role: ssh-bootstrap-detect
+      tags: [bootstrap]
+
+- name: Bootstrap ansible user on OPNsense
+  hosts: "{{ router_hosts | default('router') }}"
+  gather_facts: false
+  remote_user: "{{ bootstrap_user }}"
+  vars:
+    ansible_password: "{{ router_root_pass if use_root_password | default(false) else omit }}"
+    ansible_shell_type: csh
+  become: true
+  roles:
+    - role: router-bootstrap
+      tags: [bootstrap]
+
+- name: Configure OPNsense dnsmasq
+  hosts: "{{ router_hosts | default('router') }}"
+  gather_facts: false
+  connection: local
+  module_defaults:
+    group/oxlorg.opnsense.dnsmasq:
+      firewall: "{{ ansible_host }}"
+      api_key: "{{ opnsense_api_key }}"
+      api_secret: "{{ opnsense_api_secret }}"
+      ssl_verify: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  roles:
+    - role: opnsense-dnsmasq
+      tags: [dnsmasq]
+
+- name: Configure OPNsense Unbound
+  hosts: "{{ router_hosts | default('router') }}"
+  gather_facts: false
+  connection: local
+  module_defaults:
+    group/oxlorg.opnsense.unbound:
+      firewall: "{{ ansible_host }}"
+      api_key: "{{ opnsense_api_key }}"
+      api_secret: "{{ opnsense_api_secret }}"
+      ssl_verify: false
+    # Match on description, not the module default fields — see the
+    # role's argument_specs for why the default matcher never matches
+    # A/AAAA records and silently piles up duplicates.
+    oxlorg.opnsense.unbound_host:
+      match_fields: [description]
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  roles:
+    - role: opnsense-unbound
+      tags: [unbound]
+
+- name: Install os-tailscale plugin on OPNsense
+  hosts: "{{ router_hosts | default('router') }}"
+  gather_facts: false
+  become: true
+  roles:
+    - role: opnsense-tailscale-install
+      tags: [tailscale]
+
+- name: Configure os-tailscale plugin via REST API
+  hosts: "{{ router_hosts | default('router') }}"
+  gather_facts: false
+  connection: local
+  module_defaults:
+    ansible.builtin.uri:
+      url_username: "{{ opnsense_api_key }}"
+      url_password: "{{ opnsense_api_secret }}"
+      force_basic_auth: true
+      validate_certs: false
+      return_content: true
+      status_code: [200]
+  roles:
+    - role: opnsense-tailscale-configure
+      tags: [tailscale]
+
+- name: Install os-node_exporter plugin on OPNsense
+  hosts: "{{ router_hosts | default('router') }}"
+  gather_facts: false
+  become: true
+  roles:
+    - role: opnsense-node-exporter-install
+      tags: [node-exporter]
+
+- name: Configure os-node_exporter plugin via REST API
+  hosts: "{{ router_hosts | default('router') }}"
+  gather_facts: false
+  connection: local
+  module_defaults:
+    ansible.builtin.uri:
+      url_username: "{{ opnsense_api_key }}"
+      url_password: "{{ opnsense_api_secret }}"
+      force_basic_auth: true
+      validate_certs: false
+      return_content: true
+      status_code: [200]
+  roles:
+    - role: opnsense-node-exporter-configure
+      tags: [node-exporter]

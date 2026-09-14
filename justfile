@@ -81,6 +81,20 @@ control-node-verify:
 
 alias stage-ansible-key := control-node
 
+# Layer-3 component: OPNsense DHCP/DNS/PXE + tailnet subnet router +
+# node_exporter. Run via the poochella deployment wrapper, which builds
+# the inventory-derived desired state (static leases, Unbound records)
+# before applying components/router/site.yml. Must precede every other
+# fleet component.
+router *options:
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} {{options}} \
+        playbooks/poochella/infra/10-router.yml
+
+# Assert-only smoke test for the router component. Mutates nothing.
+router-verify:
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} \
+        components/router/tests/verify.yml
+
 # READ-ONLY: report PRESENT/MISSING per declared partition on every physical host (host-disks role in info mode). Never halts. Safe anytime.
 disk-plan:
     cd ansible && ansible-playbook --vault-password-file {{vault_pass}} -e host_disks_action=info playbooks/poochella/infra/17-host/15-storage.yml

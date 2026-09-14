@@ -1,0 +1,18 @@
+---
+# ssh-bootstrap-detect role
+#
+# Probes whether the 'ansible' automation user can already SSH into a
+# host and falls back to a caller-supplied user (root, a temp installer
+# account, ...) when it can't. Sets `bootstrap_user` +
+# `use_root_password` facts for the caller's next play to key
+# `remote_user` / `ansible_password` off of.
+#
+# Shared by every "create the ansible user for the first time" flow —
+# today the 17-host tier (Linux baremetal) and the router component
+# (OPNsense). Deliberately connection-local and dependency-free so it
+# runs before the target host has Python.
+dependencies: []
+
+galaxy_info:
+  role_name: ssh-bootstrap-detect
+  description: Detect the SSH user to bootstrap a fresh host with

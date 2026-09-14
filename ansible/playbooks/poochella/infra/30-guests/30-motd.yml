@@ -6,7 +6,7 @@
 #
 # Runs after 20-firewall.yml so SSH is settled. Idempotent and safe to
 # run in isolation. Guests are reached as the cloud-init-baked `ansible`
-# user (no detect-bootstrap-user dance needed by this tier).
+# user (no ssh-bootstrap-detect dance needed by this tier).
 
 - name: Install the poochella MOTD on login-shell guests
   hosts: kube_control_plane:containers

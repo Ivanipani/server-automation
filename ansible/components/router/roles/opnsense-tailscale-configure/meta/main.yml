@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: opnsense-tailscale-configure
+  description: Configure the OPNsense os-tailscale plugin via its REST API and bring the tailnet up

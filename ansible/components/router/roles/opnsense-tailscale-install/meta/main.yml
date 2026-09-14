@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: opnsense-tailscale-install
+  description: Install the OPNsense os-tailscale plugin package over raw SSH

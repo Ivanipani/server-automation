@@ -1,0 +1,255 @@
+---
+# Configures the OPNsense dnsmasq plugin: general settings, a DHCP range,
+# static host reservations, and (optionally) PXE chainload/dispatch rules.
+# Idempotent — each module diffs against existing state and reloads
+# dnsmasq only when something actually changes.
+#
+# Auth params (firewall, api_key, api_secret, ssl_verify) come from
+# module_defaults in the calling play so individual tasks stay terse.
+#
+# Pre-condition: an OPNsense API key/secret pair exists in vault as
+# `vault_opnsense_api_key` and `vault_opnsense_api_secret`. Create them in
+# the OPNsense GUI: System -> Access -> Users -> (your user) -> API keys -> +.
+
+# ── Orphan cleanup ────────────────────────────────────────────────
+# Drop any static-lease reservation whose `descr` matches our prefix but
+# is no longer in `dnsmasq_static_leases`. This is what makes RENAMING
+# a host safe: oxlorg's dnsmasq_host keys on `description`
+# (FIELD_ID = 'description'), so renaming a host orphans its old
+# `<prefix>-<old-name>` entry and a fresh `<prefix>-<new-name>` would be
+# created with the same IP — which OPNsense rejects (unique IP per
+# entry). Same fix handles a host being dropped from the desired list
+# entirely. Only entries whose description starts with our prefix are
+# touched, so hand-managed OPNsense entries are never disturbed.
+- name: Fetch current OPNsense dnsmasq state (for orphan detection)
+  ansible.builtin.uri:
+    url: "https://{{ opnsense_firewall }}/api/dnsmasq/settings/get"
+    method: GET
+    user: "{{ opnsense_api_key }}"
+    password: "{{ opnsense_api_secret }}"
+    force_basic_auth: true
+    validate_certs: "{{ opnsense_api_ssl_verify }}"
+    return_content: true
+  register: _opnsense_dnsmasq_state
+  # Always fetch — even in `--check`. The GET is read-only; without
+  # this the orphan detector would see an empty state under check mode
+  # and report "nothing to clean up" even when entries are actually stale.
+  check_mode: false
+
+- name: Compute the set of descriptions we want present
+  ansible.builtin.set_fact:
+    _dnsmasq_desired_descriptions: >-
+      {{ dnsmasq_static_leases
+         | map(attribute='hostname')
+         | map('regex_replace', '^', dnsmasq_static_lease_prefix ~ '-')
+         | list }}
+
+- name: Find orphan reservations (our prefix, not in current desired state)
+  ansible.builtin.set_fact:
+    _dnsmasq_stale_descriptions: >-
+      {{ (_opnsense_dnsmasq_state.json.dnsmasq.hosts | default({}) | dict2items)
+         | map(attribute='value')
+         | selectattr('descr', 'defined')
+         | selectattr('descr', 'match', '^' ~ (dnsmasq_static_lease_prefix | regex_escape) ~ '-')
+         | rejectattr('descr', 'in', _dnsmasq_desired_descriptions)
+         | map(attribute='descr')
+         | list }}
+
+- name: Remove orphan reservations (rename / deletion cleanup)
+  oxlorg.opnsense.dnsmasq_host:
+    description: "{{ item }}"
+    state: absent
+  loop: "{{ _dnsmasq_stale_descriptions }}"
+  loop_control:
+    label: "{{ item }}"
+
+# ── Desired state ─────────────────────────────────────────────────
+- name: Configure dnsmasq general settings
+  oxlorg.opnsense.dnsmasq_general:
+    enabled: "{{ dnsmasq_enabled }}"
+    interfaces: "{{ dnsmasq_listen_interfaces }}"
+    port: "{{ dnsmasq_dns_port }}"
+    dhcp_authoritative: "{{ dnsmasq_dhcp_authoritative }}"
+    dhcp_fqdn: "{{ dnsmasq_dhcp_fqdn }}"
+    dhcp_domain: "{{ dnsmasq_dhcp_domain }}"
+    dhcp_lease_max: "{{ dnsmasq_dhcp_lease_max }}"
+    regdhcp: "{{ dnsmasq_register_dynamic_dns }}"
+    regdhcpstatic: "{{ dnsmasq_register_static_dns }}"
+    log_queries: "{{ dnsmasq_log_queries }}"
+
+- name: Configure DHCP range
+  oxlorg.opnsense.dnsmasq_range:
+    description: "{{ dnsmasq_dhcp_range.description }}"
+    interface: "{{ dnsmasq_dhcp_range.interface }}"
+    start_addr: "{{ dnsmasq_dhcp_range.start_addr }}"
+    end_addr: "{{ dnsmasq_dhcp_range.end_addr }}"
+    lease_time: "{{ dnsmasq_dhcp_range.lease_time }}"
+    domain: "{{ dnsmasq_dhcp_range.domain | default(omit) }}"
+    state: present
+  when: dnsmasq_dhcp_range | length > 0
+
+- name: Configure static DHCP+DNS reservations
+  oxlorg.opnsense.dnsmasq_host:
+    description: "{{ dnsmasq_static_lease_prefix }}-{{ lease.hostname }}"
+    host: "{{ lease.hostname }}"
+    # The dnsmasq_host module's validator requires a multi-label FQDN here
+    # (must contain a dot). When dhcp_domain is single-label like 'lan', omit
+    # the per-host domain — entries inherit the global dhcp_domain anyway.
+    domain: "{{ dnsmasq_dhcp_domain if '.' in dnsmasq_dhcp_domain else omit }}"
+    ip: ["{{ lease.address }}"]
+    hardware_addr: "{{ lease.macs | map('lower') | list }}"
+    state: present
+  loop: "{{ dnsmasq_static_leases }}"
+  loop_control:
+    loop_var: lease
+    label: "{{ lease.hostname }} -> {{ lease.address }} ({{ lease.macs | join(',') }})"
+
+# --- PXE / iPXE chainload + script dispatch -------------------------
+# Per CLAUDE.md's bootstrap invariant, bootserv01 (the TFTP/HTTP boot
+# server) precedes any net-bootable host. Below: tag clients by
+# user-class (iPXE vs vanilla PXE) and architecture (UEFI vs BIOS),
+# then point them at the right thing — chainload binary for vanilla
+# PXE, script URL for already-iPXE clients.
+- name: PXE — define dnsmasq tags
+  oxlorg.opnsense.dnsmasq_tag:
+    tag: "{{ item }}"
+    state: present
+  loop:
+    - ipxe       # set when DHCP user-class (option 77) contains "iPXE"
+    - uefi       # set when DHCP arch (option 93) is x86_64 UEFI (0x0007)
+    - bios       # set when DHCP arch (option 93) is legacy PC (0x0000)
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — match DHCP user-class "iPXE" → tag `ipxe`
+  oxlorg.opnsense.dnsmasq_option:
+    description: pxe-userclass-ipxe
+    type: match
+    option: "77"
+    value: iPXE
+    set_tag: ipxe
+    state: present
+  when: dnsmasq_pxe_enabled
+
+# Map all the option-93 (PXE Client System Architecture) values we want
+# to treat as "UEFI x86-64" onto the same `uefi` tag, so a single
+# `dhcp-boot=tag:uefi,...` rule covers every modern UEFI ROM
+# (the standard 0007, plus the EFI Byte Code 0009 some Mellanox
+# FlexBoot revs report, plus the HTTP-boot 000F that newer
+# UEFI HTTP-Boot firmware sends instead of vanilla PXE).
+- name: "PXE — match DHCP arch {{ item.code }} ({{ item.label }}) → tag `uefi`"
+  oxlorg.opnsense.dnsmasq_option:
+    description: "pxe-arch-uefi-{{ item.code }}"
+    type: match
+    option: "93"
+    value: "{{ item.code }}"
+    set_tag: uefi
+    state: present
+  loop:
+    - { code: "0007", label: "x86_64 UEFI" }
+    - { code: "0009", label: "EFI byte code" }
+    - { code: "000f", label: "HTTP boot UEFI x86_64" }
+  loop_control:
+    label: "{{ item.code }}"
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — match DHCP arch 0x0000 (legacy BIOS) → tag `bios`
+  oxlorg.opnsense.dnsmasq_option:
+    description: pxe-arch-bios
+    type: match
+    option: "93"
+    value: "0000"
+    set_tag: bios
+    state: present
+  when: dnsmasq_pxe_enabled
+
+# dnsmasq picks the LAST-defined matching dhcp-boot entry, so this
+# ordering matters: UEFI/BIOS chainload entries are defined FIRST,
+# then the iPXE script entry. A vanilla UEFI client matches only the
+# `uefi` entry → chainloads ipxe.efi. After chainload, the same
+# client (now also tagged `ipxe`) matches both `uefi` and `ipxe`;
+# dnsmasq returns the later-defined `ipxe` entry → fetches the HTTP
+# script. The opnsense module's `tag` field is a single tag name
+# (not the dnsmasq `tag:a,!b` comma+negation syntax), so we rely on
+# this precedence rather than per-entry exclusions.
+- name: PXE — chainload ipxe.efi for UEFI clients (vanilla PXE path)
+  oxlorg.opnsense.dnsmasq_boot:
+    description: pxe-chain-uefi
+    filename: "{{ dnsmasq_pxe_chain_uefi }}"
+    servername: "{{ dnsmasq_pxe_tftp_servername }}"
+    tag: uefi
+    state: present
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — chainload undionly.kpxe for BIOS clients (vanilla PXE path)
+  oxlorg.opnsense.dnsmasq_boot:
+    description: pxe-chain-bios
+    filename: "{{ dnsmasq_pxe_chain_bios }}"
+    servername: "{{ dnsmasq_pxe_tftp_servername }}"
+    tag: bios
+    state: present
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — serve iPXE script URL to already-iPXE clients (post-chainload)
+  oxlorg.opnsense.dnsmasq_boot:
+    description: pxe-script-ipxe
+    # iPXE accepts an HTTP(S) URL in the filename field — that's what
+    # tells iPXE to fetch + chain into our dispatcher. Defined LAST
+    # so iPXE+UEFI / iPXE+BIOS clients prefer this over the chainload
+    # entries above.
+    filename: "{{ dnsmasq_pxe_script_url }}"
+    tag: ipxe
+    state: present
+  when: dnsmasq_pxe_enabled
+
+# Direct-script path for Mellanox FlexBoot specifically. FlexBoot IS
+# iPXE under the hood and runs HTTP-served iPXE scripts natively, but
+# does NOT chainload a separate iPXE binary (iPXE-in-iPXE bails). Its
+# DHCP vendor-class is `PXEClient:Arch:0000X:UNDI:003001` — `003001`
+# is Mellanox's specific UNDI revision and uniquely identifies their
+# FlexBoot stack. We match on the substring `UNDI:003001` (NOT the
+# broader `PXEClient` prefix) because every OTHER UEFI PXE stack also
+# starts its vendor-class with `PXEClient`; matching too broadly hands
+# the script URL to clients (e.g. ASUS motherboard's native UEFI
+# Network Stack) that can't execute iPXE scripts and just hang.
+#
+# Non-FlexBoot PXE clients fall through to the per-arch chainload
+# rules above (uefi → ipxe.efi, bios → undionly.kpxe). They chainload
+# iPXE, which then re-DHCPs as user-class=iPXE and gets the URL via
+# the `ipxe` tag — same flow as before this rule existed.
+#
+# Tasks defined LAST so dnsmasq's "later-matching dhcp-boot wins"
+# rule selects the direct script URL over the chainload binary when
+# FlexBoot is what's actually doing PXE.
+- name: PXE — define `pxeclient` tag for Mellanox FlexBoot (direct-script-capable)
+  oxlorg.opnsense.dnsmasq_tag:
+    tag: pxeclient
+    state: present
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — remove old broad-PXEClient match (orphan from previous narrower-now design)
+  oxlorg.opnsense.dnsmasq_option:
+    description: pxe-vendorclass-pxeclient
+    type: match
+    option: "60"
+    value: PXEClient
+    set_tag: pxeclient
+    state: absent
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — match DHCP vendor-class substring "UNDI:003001" (Mellanox FlexBoot) → tag `pxeclient`
+  oxlorg.opnsense.dnsmasq_option:
+    description: pxe-vendorclass-flexboot
+    type: match
+    option: "60"
+    value: "UNDI:003001"
+    set_tag: pxeclient
+    state: present
+  when: dnsmasq_pxe_enabled
+
+- name: PXE — serve iPXE script URL directly to FlexBoot clients (skip the chainload)
+  oxlorg.opnsense.dnsmasq_boot:
+    description: pxe-script-pxeclient
+    filename: "{{ dnsmasq_pxe_script_url }}"
+    tag: pxeclient
+    state: present
+  when: dnsmasq_pxe_enabled

@@ -1,0 +1,24 @@
+---
+# Self-contained: stops the daemon via raw rc.d BEFORE removing the
+# package, rather than depending on the sibling
+# opnsense-node-exporter-configure role's deconfigure.yml having run
+# first — the plugin's REST API (and thus that role) stops working the
+# moment its package is gone, so ordering two separate roles around
+# that would be fragile. Running both roles in either order still
+# leaves the system stopped and clean.
+
+- name: Stop node_exporter (best-effort — may already be stopped/absent)
+  ansible.builtin.raw: service node_exporter stop
+  changed_when: true
+  failed_when: false
+
+- name: Check if os-node_exporter plugin is installed
+  ansible.builtin.raw: pkg info -q {{ opnsense_node_exporter_plugin_pkg }}
+  register: nexp_plugin_check
+  changed_when: false
+  failed_when: false
+
+- name: Remove os-node_exporter plugin
+  ansible.builtin.raw: pkg delete -y {{ opnsense_node_exporter_plugin_pkg }}
+  when: nexp_plugin_check.rc == 0
+  changed_when: true

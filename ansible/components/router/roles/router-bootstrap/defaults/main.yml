@@ -1,0 +1,3 @@
+---
+router_bootstrap_enabled: true
+router_bootstrap_ssh_public_key: "{{ ansible_user_ssh_public_key }}"

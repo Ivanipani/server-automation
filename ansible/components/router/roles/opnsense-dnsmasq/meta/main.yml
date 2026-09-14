@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: opnsense-dnsmasq
+  description: Configure OPNsense's dnsmasq plugin (DHCP/DNS/PXE) via its REST API
