@@ -386,12 +386,15 @@ workers:
                   fstype: ext4
     # First node converted from Proxmox to baremetal — see CLAUDE.md's
     # "Servers" section and the migration plan. Same physical box as the
-    # old pve-home-03 (same MAC/disk), reimaged straight to Ubuntu 24.04
-    # via bootserv's autoinstall path (os: below) instead of carrying a
-    # kube-ctl-03 VM on top of Proxmox. Also a kube_control_plane member
-    # (see that group's hosts: block) — k3s_node_taints: [] there drops
-    # the default CP-only taint since it's schedulable + Longhorn-capable
-    # like the other workers, per the merge-CP+worker migration decision.
+    # old pve-home-03 (same MAC/disk), reimaged straight to Debian 13 via
+    # bootserv's preseed path (same as metal-home-01/02 — no `os:`
+    # override needed, that field only exists to opt a host INTO the
+    # ubuntu-24.04 path; everything else defaults to Debian) instead of
+    # carrying a kube-ctl-03 VM on top of Proxmox. Also a
+    # kube_control_plane member (see that group's hosts: block) —
+    # k3s_node_taints: [] there drops the default CP-only taint since
+    # it's schedulable + Longhorn-capable like the other workers, per the
+    # merge-CP+worker migration decision.
     kube-master-03:
       ansible_host: kube-master-03.lan
       ip_address: 10.1.1.109
@@ -399,8 +402,6 @@ workers:
         - "f8:b4:6a:b8:55:af"
       # e1000e "Detected Hardware Unit Hang" — run roles/nic-offload here.
       disable_nic_offloads: true
-      # Drives bootserv's boot.ipxe dispatch (PVE / ubuntu-24.04 / debian).
-      os: ubuntu-24.04
       storage:
         # Same physical disk pve-home-03 booted from, repartitioned from
         # LVM-thin vm-storage to plain ext4 (see metal-home-01/02 for the
