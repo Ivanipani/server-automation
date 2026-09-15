@@ -1,7 +1,7 @@
 ---
 # Tier 30-guests — Install the dynamic "poochella" MOTD on the guests
 # that have a real Linux login shell: the kube control-plane VMs and the
-# bootserv01 infra LXC. The baremetal counterpart is the os-baseline
+# bootserv01 infra LXC. The baremetal counterpart is the host-base
 # component's motd play; both apply the same `motd` role.
 #
 # Runs after 20-firewall.yml so SSH is settled. Idempotent and safe to

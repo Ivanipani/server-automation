@@ -3,11 +3,10 @@
 #
 # Mounts nas01 NFS shares declared in `nfs_mounts` onto the host, plus
 # a transitional cleanup of the obsolete /mnt/nas/pxe mount. Shared
-# across the host-hardware component (physical hosts) and the
-# 30-guests deployment tier (kube_control_plane VMs) — same schema,
-# same module, different target group — so it lives here rather than
-# being owned by a single component (docs/ansible-layout.md's "shared
-# logic" rule).
+# across the host-base component (physical hosts) and the 30-guests
+# deployment tier (kube_control_plane VMs) — same schema, same module,
+# different target group — so it lives here rather than being owned by
+# a single component (docs/ansible-layout.md's "shared logic" rule).
 #
 # Additive only: removing an entry from `nfs_mounts` does not unmount
 # it (matches the synology-storage role's shares convention).

@@ -18,13 +18,13 @@
 - import_playbook: 20-firewall.yml
 
 # Dynamic "poochella" MOTD on the login-shell guests (kube control-plane
-# VMs + bootserv01 LXC). Same `motd` role as the os-baseline component
+# VMs + bootserv01 LXC). Same `motd` role as the host-base component
 # uses; runs after the firewall settles. Order-independent day-2 service.
 - import_playbook: 30-motd.yml
 
 # Mount nas01 NFS shares onto VM groups that declare `nfs_mounts`
 # (today: kube_control_plane). Re-uses the shared `nfs-mounts` role —
-# same one the host-hardware component applies to physical hosts —
+# same one the host-base component applies to physical hosts —
 # scoped to the VM group.
 - name: Resolve nas01's address for NFS mounts on kube_control_plane
   hosts: kube_control_plane

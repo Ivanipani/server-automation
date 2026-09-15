@@ -28,7 +28,7 @@
 # apt shell calls), not part of any component's site.yml. Run via
 # `just firmware-plan`.
 #
-# Pre-condition: host-hardware has run (fwupd installed, LVFS remote on).
+# Pre-condition: host-base has run (fwupd installed, LVFS remote on).
 #
 # Out-of-scope: HP MP9 G2 system BIOS (Skylake-era HP, no UEFI capsule),
 # Samsung NVMe firmware (Samsung does not publish to LVFS), Synology

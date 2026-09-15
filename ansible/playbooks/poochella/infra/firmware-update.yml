@@ -17,7 +17,7 @@
 # of any component's site.yml (see firmware-plan.yml's companion
 # header).
 #
-# Pre-condition: host-hardware has run (fwupd installed, LVFS remote on).
+# Pre-condition: host-base has run (fwupd installed, LVFS remote on).
 #
 # Out-of-scope: HP MP9 G2 system BIOS — see firmware-plan.yml's header.
 

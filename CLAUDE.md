@@ -35,7 +35,7 @@ Per-host fields:
 
 Groups define topology:
 - `router` → OPNsense (`opnsense01` at `10.1.1.1`)
-- `physical` → umbrella for **every** baremetal Linux box (the os-baseline/host-hardware/remote-access/observability components target this by default). Children:
+- `physical` → umbrella for **every** baremetal Linux box (the host-base component targets this by default). Children:
   - `hypervisors` → PVE hosts only (the 20-hypervisor tier targets this). Children:
     - `pve_standalone` → every PVE host lives here (today: `pve-home-01` only). No corosync, no shared storage.
     - `pve_cluster` → **gated off**: empty group kept as deprecated scaffolding only. `20-hypervisor/20-cluster.yml` asserts this group is empty and fails the play otherwise.
@@ -65,7 +65,7 @@ Groups define topology:
 
 Plays/roles that install a service should have a boolean enable/disable flag capable of reversing or unapplying the change. Use blocks to group together each side.
 
-**Layout is mid-migration from tiers to components — see `docs/ansible-layout.md`.** New work goes in `ansible/components/<name>/` (roles + a task-free `site.yml` + `tests/verify.yml` + `component.yml` declaring its layer and `depends_on`), NOT in `ansible/playbooks/poochella/infra/<NN>-tier/`. A component never hardcodes a group — it targets `{{ <name>_hosts | default(...) }}` — and never reads inventory topology; that is the deployment layer's job. Role names must be globally unique (`roles_path` is a flat search path) and each component's `roles/` dir must be appended to `roles_path` in `ansible/ansible.cfg`. Migrated so far: `control-node` (layer 0), `os-baseline` (layer 1), `host-hardware` (layer 2), `remote-access` (layer 2), `observability` (layer 2), `router` (layer 3), `nas` (layer 3).
+**Layout is mid-migration from tiers to components — see `docs/ansible-layout.md`.** New work goes in `ansible/components/<name>/` (roles + a task-free `site.yml` + `tests/verify.yml` + `component.yml` declaring its layer and `depends_on`), NOT in `ansible/playbooks/poochella/infra/<NN>-tier/`. A component never hardcodes a group — it targets `{{ <name>_hosts | default(...) }}` — and never reads inventory topology; that is the deployment layer's job. Role names must be globally unique (`roles_path` is a flat search path) and each component's `roles/` dir must be appended to `roles_path` in `ansible/ansible.cfg`. Migrated so far: `control-node` (layer 0), `host-base` (layer 1), `router` (layer 3), `nas` (layer 3).
 
 ## Collaboration rules (for Claude)
 

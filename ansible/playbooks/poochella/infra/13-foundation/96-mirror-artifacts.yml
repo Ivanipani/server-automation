@@ -18,7 +18,7 @@
 # Ordering: runs AFTER 90-bootserv.yml (bootserv01 up, Caddy serving,
 # bootserv_static_dirs incl. /srv/http/artifacts created) and relies on the
 # build-artifacts NFS share being mounted on the foundation node (the
-# shared nfs-mounts role, applied from 15-host-hardware.yml; hypervisors
+# shared nfs-mounts role, applied from 14-host-base.yml; hypervisors
 # inherit it from `physical`).
 #
 # Idempotency: the NAS download is force:false (re-pulls only when a version

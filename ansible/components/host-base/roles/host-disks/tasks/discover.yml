@@ -1,0 +1,93 @@
+---
+# READ-ONLY disk plan. Inspects every whole disk on the node and prints
+# a report + a paste-ready `storage.disks` skeleton (stable selectors,
+# never /dev/disk/by-id). Never writes — safe to run anytime. Driven by
+# `just disk-plan` (14-host-base.yml, --tags storage). Use it after any disk
+# add/swap to see what changed and update inventory.yaml deliberately.
+
+- name: Build the disk plan report
+  ansible.builtin.shell: |
+    set -eu
+    # Portable boot-disk detection — works on PVE and plain Debian.
+    src=$(findmnt -no SOURCE /)
+    pkname=$(lsblk -dno PKNAME "$src" 2>/dev/null || true)
+    if [ -z "$pkname" ]; then
+      vg=$(lvs --noheadings -o vg_name "$src" 2>/dev/null | awk '{print $1}')
+      [ -n "$vg" ] && pv=$(pvs --noheadings -o pv_name -S vg_name="$vg" | head -1 | awk '{print $1}')
+      [ -n "${pv:-}" ] && pkname=$(lsblk -dno PKNAME "$pv")
+    fi
+    boot="${pkname:-?}"
+
+    is_hyper="{{ 'yes' if host_disks_is_hypervisor | bool else 'no' }}"
+
+    echo "================================================================"
+    echo " {{ inventory_hostname }} — disk plan   (boot disk: $boot)"
+    echo "================================================================"
+    printf '%-14s %7s %4s %4s  %-26s %-20s\n' DEVICE GiB ROTA RM MODEL SERIAL
+    suggest=""
+    lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}' | while read -r dev; do
+      base="${dev#/dev/}"
+      rm=$(lsblk -dno RM   "$dev" | tr -d ' ')
+      rota=$(lsblk -dno ROTA "$dev" | tr -d ' ')
+      szb=$(lsblk -bdno SIZE "$dev" | tr -d ' ')
+      gib=$(( szb / 1073741824 ))
+      model=$(lsblk -dno MODEL  "$dev" | sed -e 's/[[:space:]]\{1,\}$//')
+      serial=$(lsblk -dno SERIAL "$dev" | tr -d ' ')
+      tag=""
+      [ "$base" = "$boot" ] && tag=" <- BOOT"
+      [ "$rm" = "1" ] && tag="$tag (removable: never selected)"
+      printf '%-14s %7s %4s %4s  %-26s %-20s%s\n' \
+        "$dev" "$gib" "$rota" "$rm" "${model:-?}" "${serial:-?}" "$tag"
+      sigs=$(wipefs -n "$dev" 2>/dev/null | tail -n +2 | awk '{print $NF}' | paste -sd, -)
+      pls=$(lsblk -no PARTLABEL "$dev" 2>/dev/null | sed '/^$/d' | paste -sd, -)
+      [ -n "$sigs" ] && echo "                 signatures: $sigs"
+      [ -n "$pls" ]  && echo "                 partlabels: $pls (ours if already provisioned)"
+
+      # Suggested selector skeleton for non-boot, non-removable disks.
+      # Hypervisors today have no data-disk convention (Longhorn replicas
+      # live on baremetal kube_workers only); the skeleton emits a worker-
+      # shaped DIRECT ext4 mount (one disk = one Longhorn disk) so the
+      # operator can repurpose it deliberately.
+      if [ "$base" != "$boot" ] && [ "$rm" != "1" ]; then
+        floor=$(( (gib / 100) * 100 ))
+        rotflag=false; [ "$rota" = "1" ] && rotflag=true
+        wipe=""; [ -n "$sigs" ] && wipe="
+        wipe: force            # disk holds foreign signatures"
+        suggest="$suggest
+      - select: { min_size_gib: $floor, rotational: $rotflag }$wipe
+        partitions:
+          - label: <unique-partlabel>
+            size: \"0\"
+            mount: { path: /var/lib/longhorn-disks/<unique-partlabel>, fstype: ext4 }"
+      fi
+    done
+
+    echo
+    echo "--- paste-ready skeleton (review before committing) -------------"
+    echo "    storage:"
+    echo "      disks:"
+    if [ "$is_hyper" = "yes" ]; then
+      echo "        - select: boot"
+      echo "          partitions:"
+      echo "            - label: vm-storage"
+      echo "              vg: vmdata"
+      echo "              thinpool: vmthin"
+      echo "              pve_storage: vms"
+      echo "              content: images,rootdir"
+      echo "              size: \"0\"        # fill the boot tail"
+      if [ -n "$suggest" ]; then echo "      # extra disks (decide pve_storage / mount intent before pasting):"; echo "$suggest"; fi
+    else
+      echo "      # Worker convention: each physical disk is its OWN plain-ext4"
+      echo "      # mount under /var/lib/longhorn-disks/<label> = its own Longhorn"
+      echo "      # disk (no LVM). Declare \`mount:\` with NO vg/thinpool; the role"
+      echo "      # puts ext4 straight on the bare partition. The boot tail (p4)"
+      echo "      # is also a direct mount."
+      if [ -n "$suggest" ]; then echo "$suggest"; fi
+    fi
+    echo "-----------------------------------------------------------------"
+  register: _disk_plan
+  changed_when: false
+
+- name: Print the disk plan
+  ansible.builtin.debug:
+    msg: "{{ _disk_plan.stdout_lines }}"

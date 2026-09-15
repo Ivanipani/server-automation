@@ -108,55 +108,24 @@ nas-verify:
     cd ansible && ansible-playbook --vault-password-file {{vault_pass}} \
         components/nas/tests/verify.yml
 
-# Layer-1 component: users, ssh-hardening, firewall, MOTD on every baremetal
-# Linux host. Run via the poochella deployment wrapper, which computes
-# host_base_pve_host from group membership before applying
-# components/os-baseline/site.yml.
-os-baseline *options:
+# Layer-1 component: users, ssh-hardening, firewall, MOTD, node-local
+# disks, NFS mounts, NIC-offload workaround, firmware baseline,
+# Tailscale, node_exporter — every baseline condition a baremetal Linux
+# host needs. Run via the poochella deployment wrapper, which computes
+# host_base_pve_host / host_disks_is_hypervisor / nfs_mounts_server
+# from inventory before applying components/host-base/site.yml.
+host-base *options:
     cd ansible && ansible-playbook --vault-password-file {{vault_pass}} {{options}} \
-        playbooks/poochella/infra/14-os-baseline.yml
+        playbooks/poochella/infra/14-host-base.yml
 
-# Assert-only smoke test for the os-baseline component. Mutates nothing.
-os-baseline-verify:
+# Assert-only smoke test for the host-base component. Mutates nothing.
+host-base-verify:
     cd ansible && ansible-playbook --vault-password-file {{vault_pass}} \
-        components/os-baseline/tests/verify.yml
-
-# Layer-2 component: node-local disks, NFS mounts, NIC-offload workaround,
-# firmware baseline on every baremetal Linux host. Run via the poochella
-# deployment wrapper, which computes host_disks_is_hypervisor +
-# nfs_mounts_server before applying components/host-hardware/site.yml.
-host-hardware *options:
-    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} {{options}} \
-        playbooks/poochella/infra/15-host-hardware.yml
-
-# Assert-only smoke test for the host-hardware component. Mutates nothing.
-host-hardware-verify:
-    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} \
-        components/host-hardware/tests/verify.yml
-
-# Layer-2 component: Tailscale (default-off in poochella).
-remote-access *options:
-    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} {{options}} \
-        playbooks/poochella/infra/16-remote-access.yml
-
-# Assert-only smoke test for the remote-access component. Mutates nothing.
-remote-access-verify:
-    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} \
-        components/remote-access/tests/verify.yml
-
-# Layer-2 component: Prometheus node_exporter.
-observability *options:
-    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} {{options}} \
-        playbooks/poochella/infra/17-observability.yml
-
-# Assert-only smoke test for the observability component. Mutates nothing.
-observability-verify:
-    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} \
-        components/observability/tests/verify.yml
+        components/host-base/tests/verify.yml
 
 # READ-ONLY: report PRESENT/MISSING per declared partition on every physical host (host-disks role in info mode). Never halts. Safe anytime.
 disk-plan:
-    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} --tags storage -e host_disks_action=info playbooks/poochella/infra/15-host-hardware.yml
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} --tags storage -e host_disks_action=info playbooks/poochella/infra/14-host-base.yml
 
 # READ-ONLY: refresh LVFS metadata on every baremetal and report available component firmware updates (NVMe SSDs, NICs, TPMs, etc.). Does NOT cover the HP MP9 G2 system BIOS — see runbooks/firmware-updates.md.
 firmware-plan:

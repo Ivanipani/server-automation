@@ -10,8 +10,8 @@ outbound_deny: []
 # don't trample each other's rules — see files/ufw_reconcile.py.
 #
 # Use a unique scope per role-invocation site. worker-home-02 is in both
-# `physical` (managed by the os-baseline component, scope kept as the
-# legacy "17-host" label — see components/os-baseline/site.yml) and
+# `physical` (managed by the host-base component, scope kept as the
+# legacy "17-host" label — see components/host-base/site.yml) and
 # `kube_workers` (managed by 30-guests/40-firewall.yml); each play
 # passes a distinct scope so the two invocations stay in separate
 # ownership lanes.

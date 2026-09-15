@@ -5,7 +5,7 @@ no OS and no `inventory.yaml` entry yet — to read its real hardware and emit a
 paste-ready inventory fragment. It is the pre-install counterpart to:
 
 - `img/debian/` — *installs* a host from a **known** inventory entry.
-- `ansible/components/host-hardware/roles/host-disks/tasks/discover.yml` (`just disk-plan`) — inspects an
+- `ansible/components/host-base/roles/host-disks/tasks/discover.yml` (`just disk-plan`) — inspects an
   **already-booted, already-in-inventory** host over SSH.
 
 This image needs neither: it runs locally on the bare box before any install.

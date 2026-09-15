@@ -1,0 +1,51 @@
+---
+# Layer-1 component: host-base (users, ssh-hardening, firewall, motd,
+# disks, NFS mounts, NIC-offload workaround, firmware baseline,
+# Tailscale, node_exporter) on every baremetal Linux host (`physical` =
+# hypervisors + workers).
+#
+# This file is the deployment layer: it computes the inventory-derived
+# facts the component's roles need (a role never reads group
+# membership or another host's hostvars — see docs/ansible-layout.md)
+# and hands them to the host-base component as plain vars, then imports
+# the component.
+#
+# Numbered 14- (not the gap-10 convention) to sit between 13-foundation
+# and 20-hypervisor without renumbering either — same pragmatism as
+# 12-nas's gap-5 break (see that file's header).
+
+- name: Compute host-base desired state from inventory
+  hosts: "{{ target_hosts | default('physical') }}"
+  gather_facts: false
+  connection: local
+  tasks:
+    # set_fact (not a play `vars:` block) so these persist as host
+    # facts into the host-base/site.yml plays imported below. Computed
+    # once and assigned to both names below: host-base and host-disks
+    # each prefix their own vars with their own role name, so the same
+    # boolean needs two names.
+    - name: Compute whether this host is a PVE hypervisor
+      ansible.builtin.set_fact:
+        host_base_pve_host: "{{ inventory_hostname in groups.get('hypervisors', []) }}"
+        host_disks_is_hypervisor: "{{ inventory_hostname in groups.get('hypervisors', []) }}"
+
+    - name: Resolve nas01's address for NFS mounts
+      ansible.builtin.set_fact:
+        nfs_mounts_server: "{{ hostvars['nas01'].ansible_host }}"
+      when: "'nas01' in hostvars"
+
+    # Re-emitted via set_fact (not just accepted as a play var) so a
+    # caller overriding these via `import_playbook: 14-host-base.yml /
+    # vars:` (13-foundation does, for its read-only reconcile pass) —
+    # or `-e` on the CLI — reaches the host-disks role one
+    # import_playbook hop down. A plain `vars:` only reliably reaches
+    # plays in THIS file; set_fact persists as a host fact for the rest
+    # of the run, including the nested component import below.
+    - name: Re-emit host_disks_action / host_disks_register_pve as host facts
+      ansible.builtin.set_fact:
+        host_disks_action: "{{ host_disks_action | default('info') }}"
+        host_disks_register_pve: "{{ host_disks_register_pve | default(false) }}"
+
+- import_playbook: ../../../components/host-base/site.yml
+  vars:
+    host_base_hosts: "{{ target_hosts | default('physical') }}"

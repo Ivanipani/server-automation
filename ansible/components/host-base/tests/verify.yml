@@ -1,0 +1,132 @@
+---
+# Assert-only smoke test for the host-base component. Mutates nothing;
+# safe to run any time against a live host.
+#
+#   ansible-playbook --vault-password-file ../../../secrets/ansible-pass \
+#     components/host-base/tests/verify.yml
+
+- name: Verify host-base
+  hosts: "{{ host_base_hosts | default('physical') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check the ansible/tourmanager users exist
+      ansible.builtin.command: "id {{ item }}"
+      loop:
+        - ansible
+        - tourmanager
+      register: host_base_verify_users
+      changed_when: false
+
+    - name: root account is password-locked
+      ansible.builtin.command: passwd -S root
+      register: host_base_verify_root
+      changed_when: false
+
+    - name: root is locked (L)
+      ansible.builtin.assert:
+        that:
+          - "' L ' in (' ' + host_base_verify_root.stdout + ' ')"
+        quiet: true
+
+    - name: sshd hardening drop-in is present
+      ansible.builtin.stat:
+        path: "{{ image_baseline_sshd.drop_in_path }}"
+      register: host_base_verify_sshd
+
+    - name: sshd hardening drop-in exists
+      ansible.builtin.assert:
+        that:
+          - host_base_verify_sshd.stat.exists
+        fail_msg: "{{ image_baseline_sshd.drop_in_path }} missing — run `just host-base`."
+        quiet: true
+
+    - name: ufw is active
+      ansible.builtin.command: ufw status
+      register: host_base_verify_ufw
+      changed_when: false
+
+    - name: ufw reports active
+      ansible.builtin.assert:
+        that:
+          - "'Status: active' in host_base_verify_ufw.stdout"
+        quiet: true
+
+    - name: poochella MOTD script is installed
+      ansible.builtin.stat:
+        path: /etc/update-motd.d/00-poochella-banner
+      register: host_base_verify_motd
+      when: motd_enabled | default(true)
+
+    - name: MOTD script present when enabled
+      ansible.builtin.assert:
+        that:
+          - host_base_verify_motd.stat.exists
+        quiet: true
+      when: motd_enabled | default(true)
+
+    - name: Every declared NFS mount is a live mountpoint
+      ansible.builtin.command: "mountpoint -q {{ item.path }}"
+      loop: "{{ nfs_mounts | default([]) }}"
+      loop_control:
+        label: "{{ item.path }}"
+      changed_when: false
+      when: nfs_mounts | default([]) | length > 0
+
+    - name: fwupd is installed when firmware_enabled
+      ansible.builtin.command: dpkg-query -W -f '${Status}' fwupd
+      register: host_base_verify_fwupd
+      changed_when: false
+      failed_when: false
+      when: firmware_enabled | default(true)
+
+    - name: fwupd package state matches firmware_enabled
+      ansible.builtin.assert:
+        that:
+          - "'install ok installed' in host_base_verify_fwupd.stdout"
+        fail_msg: "fwupd not installed — run `just host-base`."
+        quiet: true
+      when: firmware_enabled | default(true)
+
+    - name: NIC offload tuning applied when disable_nic_offloads
+      ansible.builtin.stat:
+        path: /usr/local/sbin/nic-offload-tune
+      register: host_base_verify_nic_offload
+      when: disable_nic_offloads | default(false) | bool
+
+    - name: NIC offload helper script present
+      ansible.builtin.assert:
+        that:
+          - host_base_verify_nic_offload.stat.exists
+        quiet: true
+      when: disable_nic_offloads | default(false) | bool
+
+    - name: Check tailscaled unit state
+      ansible.builtin.systemd_service:
+        name: tailscaled
+      register: host_base_verify_tailscaled
+      check_mode: true
+      when: tailscale_enabled | default(true)
+
+    - name: tailscaled is active when enabled
+      ansible.builtin.assert:
+        that:
+          - host_base_verify_tailscaled.status.ActiveState == 'active'
+        fail_msg: "tailscaled not active — run `just host-base`."
+        quiet: true
+      when: tailscale_enabled | default(true)
+
+    - name: Check node_exporter unit state
+      ansible.builtin.systemd_service:
+        name: node_exporter
+      register: host_base_verify_node_exporter
+      check_mode: true
+      when: node_exporter_enabled | default(true)
+
+    - name: node_exporter is active when enabled
+      ansible.builtin.assert:
+        that:
+          - host_base_verify_node_exporter.status.ActiveState == 'active'
+        fail_msg: "node_exporter not active — run `just host-base`."
+        quiet: true
+      when: node_exporter_enabled | default(true)

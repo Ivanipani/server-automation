@@ -3,7 +3,7 @@
 # netboot home base) as an LXC on pve-home-01. Penultimate play of the
 # 13-foundation tier (95-bake-publish-images.yml follows, publishing
 # centrally-baked VM/LXC artifacts into bootserv01's docroot) so that
-# by the time os-baseline/host-hardware run against the wider `physical`
+# by the time host-base runs against the wider `physical`
 # group, every other baremetal can already PXE-fetch its kernel / initrd / preseed
 # from a known-good bootserv AND every hypervisor can fetch the
 # centrally-baked VM qcow2 + LXC vzdump tarball.

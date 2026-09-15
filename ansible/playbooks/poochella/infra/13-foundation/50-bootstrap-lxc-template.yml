@@ -17,9 +17,9 @@
 #   13-foundation/site.yml runs this BEFORE 80-tofu-infra-lxcs.yml.
 #
 # Pre-conditions:
-#   - os-baseline bootstrap + host-hardware storage (which now also
-#     registers the PVE `vms` storage on hypervisors) + 20-hypervisor
-#     bootstrap have run on the foundation node (the `vms` LVM-thin
+#   - host-base bootstrap + storage (which now also registers the PVE
+#     `vms` storage on hypervisors) + 20-hypervisor bootstrap have run
+#     on the foundation node (the `vms` LVM-thin
 #     storage exists on local).
 #
 # What gets baked: the canonical pre-bake baseline (ansible user with

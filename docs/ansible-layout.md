@@ -29,17 +29,28 @@ pre-apply to the ephemeral VM.
 
 ```
 L0  control-node      localhost prerequisites (keys, inventory link, tool deps)
-L1  os-baseline       any Linux: users, apt hygiene, ssh-hardening, firewall, motd
-L2  host-hardware     baremetal only: disks, nfs mounts, nic-offload, firmware, bridges
-L2  remote-access     tailscale
-L2  observability     node-exporter
+L1  host-base         baremetal baseline: users, apt hygiene, ssh-hardening,
+                      firewall, motd, disks, nfs mounts, nic-offload, firmware,
+                      tailscale, node-exporter
 L3  hypervisor        Proxmox VE fabric
 L3  nas               Synology DSM
 L3  router            OPNsense
-L4  bootserv          netboot + artifact publishing (needs hypervisor + os-baseline)
+L4  bootserv          netboot + artifact publishing (needs hypervisor + host-base)
 L4  kube              k3s, longhorn host prep, flux bootstrap
 L5  workstation       dev users, dotfiles, tooling
 ```
+
+A layer groups components by dependency depth, not by how finely their
+concerns could be split. `host-base` bundles several things that a
+strict single-responsibility reading would separate (OS baseline,
+local disks, remote-access, observability) because they're always
+applied together, to the same hosts, in the same run, and should be
+tested/versioned as one unit — splitting them into same-layer sibling
+components bought no independent reuse or reordering, only more
+`component.yml`/`site.yml`/`README.md` boilerplate to keep in sync.
+Split a component when a piece of it needs a genuinely different
+target, a different depends_on, or gets consumed independently — not
+by default.
 
 The layer numbers are advisory ordering, not ordinals in a filename —
 two components on the same layer are independent and may run in any
@@ -92,9 +103,9 @@ live: which groups get which component, in what order, with what
 overrides. Post-migration a deployment file is nothing but:
 
 ```yaml
-- import_playbook: ../../components/os-baseline/site.yml
+- import_playbook: ../../components/host-base/site.yml
   vars:
-    os_baseline_hosts: physical
+    host_base_hosts: physical
 ```
 
 ## Integration tests (planned)
@@ -118,21 +129,19 @@ Bottom-up, one component per change, legacy tier deleted as it lands:
 1. ~~`control-node`~~ ✅ done — `components/control-node/`
 2. ~~`router`~~ ✅ done — `components/router/`, invoked via the
    deployment wrapper `playbooks/poochella/infra/10-router.yml`
-3. ~~`os-baseline`~~ ✅ done — `components/os-baseline/`, invoked via
-   the deployment wrapper `playbooks/poochella/infra/14-os-baseline.yml`.
-   `firewall-basic` and `motd` stayed shared top-level roles
-   (`ansible/roles/`) rather than moving in — `30-guests`/`40-kube`
-   consume them too.
-4. ~~`host-hardware`, `remote-access`, `observability`~~ ✅ done — split
-   out of the old `17-host` tier into `components/host-hardware/`,
-   `components/remote-access/`, `components/observability/`, invoked
-   via `playbooks/poochella/infra/{15-host-hardware,16-remote-access,
-   17-observability}.yml`. `nfs-mounts` (extracted from the old
-   `17-host/16-nfs-mounts.yml`) became a shared top-level role — the
-   `30-guests` tier mounts NFS onto `kube_control_plane` VMs with it too.
-5. ~~`nas`~~ ✅ done — `components/nas/`, invoked via the deployment
+3. ~~`host-base`~~ ✅ done — `components/host-base/`, invoked via the
+   deployment wrapper `playbooks/poochella/infra/14-host-base.yml`.
+   Replaces the old `17-host` tier wholesale: `host-base`,
+   `ssh-hardening`, `host-disks`, `nic-offload`, `firmware`,
+   `tailscale`, and `node-exporter` all live as sibling roles in this
+   one component (see the "Layers" note above on why this isn't split
+   further). `firewall-basic`, `motd`, and `nfs-mounts` (the last
+   extracted from the old `17-host/16-nfs-mounts.yml`) stayed/became
+   shared top-level roles (`ansible/roles/`) rather than moving in —
+   `30-guests`/`40-kube` consume them too.
+4. ~~`nas`~~ ✅ done — `components/nas/`, invoked via the deployment
    wrapper `playbooks/poochella/infra/12-nas.yml`
-6. `hypervisor`
-7. `bootserv` — needs the heavy `infra/tasks/*.yml` bake/publish logic
+5. `hypervisor`
+6. `bootserv` — needs the heavy `infra/tasks/*.yml` bake/publish logic
    pulled into roles first
-8. `kube`
+7. `kube`

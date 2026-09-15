@@ -86,7 +86,7 @@ replicas, then reboot manually.
 
 ### Adding a new baremetal
 
-Nothing extra to do. The `firmware` role is part of the `host-hardware`
+Nothing extra to do. The `firmware` role is part of the `host-base`
 component, which applies to every member of the `physical` group. New
 baremetal → `just do-host-init` → fwupd is there.
 
