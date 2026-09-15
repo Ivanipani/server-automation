@@ -1,0 +1,17 @@
+---
+# host-disks role
+#
+# Per-host disk -> LVM-thin -> (PVE storage OR ext4 mount) realisation.
+# See defaults/main.yml for the full schema and design rationale
+# (stable disk selectors, tri-state host_disks_action dispatcher,
+# idempotency keys).
+#
+# `host_disks_action: skip` is this role's "disabled" state — a silent
+# no-op via `meta: end_host` — rather than a `host_disks_enabled` flag,
+# because the role is a 3-way dispatcher (info/overwrite/skip), not a
+# binary install/uninstall.
+dependencies: []
+
+galaxy_info:
+  role_name: host-disks
+  description: Disk-to-LVM-thin-to-(PVE-storage|ext4-mount) realisation from a declared, stable-selector layout

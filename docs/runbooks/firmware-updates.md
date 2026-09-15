@@ -43,7 +43,7 @@ just firmware-update <host>  # DESTRUCTIVE: apply, ONE host at a time
 ### What the plan prints
 
 `just firmware-plan` shells out to
-`playbooks/poochella/infra/17-host/60-firmware-plan.yml`, which
+`playbooks/poochella/infra/firmware-plan.yml`, which
 runs `fwupdmgr refresh --force` and then `apt-get update`, and prints
 four sections per host:
 
@@ -86,9 +86,9 @@ replicas, then reboot manually.
 
 ### Adding a new baremetal
 
-Nothing extra to do. The `firmware` role runs as part of `host-base`,
-which the `17-host` tier applies to every member of the `physical`
-group. New baremetal → `just do-host-init` → fwupd is there.
+Nothing extra to do. The `firmware` role is part of the `host-hardware`
+component, which applies to every member of the `physical` group. New
+baremetal → `just do-host-init` → fwupd is there.
 
 ### What the plan does and does not verify
 

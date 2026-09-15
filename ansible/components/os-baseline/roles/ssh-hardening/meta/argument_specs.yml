@@ -1,0 +1,36 @@
+---
+argument_specs:
+  main:
+    short_description: Lock down sshd to key-only with a per-user password break-glass
+    author:
+      - Ivan Perdomo
+    options:
+      image_baseline_sshd:
+        type: dict
+        required: true
+        description: "sshd hardening policy — set in group_vars/all/image-baseline.yml, shared with the pre-bake image-baseline script."
+        options:
+          drop_in_path:
+            type: str
+            default: /etc/ssh/sshd_config.d/10-hardening.conf
+          password_authentication:
+            type: bool
+            default: false
+          permit_root_login:
+            type: bool
+            default: false
+          kbd_interactive_authentication:
+            type: bool
+            default: false
+          challenge_response_authentication:
+            type: bool
+            default: false
+          pubkey_authentication:
+            type: bool
+            default: true
+          permit_empty_passwords:
+            type: bool
+            default: false
+          password_breakglass_user:
+            type: str
+            description: "Account that retains password auth via a Match block. Empty string disables the Match block entirely. Must already exist (asserted) — host-base creates it."

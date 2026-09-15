@@ -4,14 +4,14 @@
 # mediums (netboot Debian preseed, VM qcow2 bake, LXC bake, PVE
 # auto-install). Consumed by:
 #
-#   - files/image-baseline.sh.j2  (the rendered baseline script)
-#   - roles/host-base             (post-boot reconcile of users)
-#   - roles/ssh-hardening         (post-boot reconcile of sshd drop-in)
-#   - roles/apt-no-auto-upgrades  (post-boot reconcile of apt periodic
-#                                  + masked units)
+#   - files/image-baseline.sh.j2                      (the rendered baseline script)
+#   - components/os-baseline/roles/host-base          (post-boot reconcile of users)
+#   - components/os-baseline/roles/ssh-hardening      (post-boot reconcile of sshd drop-in)
+#   - roles/apt-no-auto-upgrades                       (post-boot reconcile of apt periodic
+#                                                        + masked units)
 #
 # The post-boot roles MUST produce byte-identical output to the bash
-# script so a 17-host run against a baked host stays no-op (changed=0).
+# script so an os-baseline run against a baked host stays no-op (changed=0).
 # When changing the baseline, update this file ONCE — all consumers
 # follow.
 
@@ -26,8 +26,8 @@
 #
 # Hash strategy: passwords are hashed with `password_hash('sha512',
 # item.name)` — username-salted SHA512, matching create-user's idiom
-# at roles/create-user/tasks/main.yml:29 so re-running 17-host against
-# a baked host doesn't rewrite /etc/shadow.
+# at roles/create-user/tasks/main.yml:29 so re-running os-baseline
+# against a baked host doesn't rewrite /etc/shadow.
 image_baseline_users:
   - name: ansible
     groups: [sudo]
@@ -78,9 +78,10 @@ image_baseline_sshd:
 # stock /etc/zsh/zshrc is empty and sources no drop-in, so we ship our
 # own fully-owned `config_path` file and append ONE idempotent source
 # hook to the package's `system_zshrc`. The config body lives in
-# roles/host-base/templates/zshrc.local.j2 and is duplicated byte-for-byte
-# in files/image-baseline.sh.j2 (same convention as the sshd drop-in) so a
-# 17-host reconcile over a baked host stays no-op.
+# components/os-baseline/roles/host-base/templates/zshrc.local.j2 and is
+# duplicated byte-for-byte in files/image-baseline.sh.j2 (same convention
+# as the sshd drop-in) so an os-baseline reconcile over a baked host
+# stays no-op.
 image_baseline_zsh:
   config_path: /etc/zsh/zshrc.local
   system_zshrc: /etc/zsh/zshrc

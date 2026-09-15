@@ -1,0 +1,5 @@
+---
+- name: Remove fwupd
+  ansible.builtin.apt:
+    name: fwupd
+    state: absent

@@ -1,0 +1,17 @@
+---
+# nic-offload role
+#
+# Disables TX-offload features (+ EEE) on driver-matched NICs to work
+# around the Intel I219 / e1000e "Detected Hardware Unit Hang" —
+# stranded pve-home-02 network-dark for ~21h on 2026-06-16. Installs a
+# udev rule + per-NIC oneshot systemd service so the tuning re-applies
+# on boot / hotplug, plus applies it immediately to NICs present now.
+#
+# `nic_offload_tuning_enabled: false` reverts: restores default
+# offloads + EEE on currently-present matching NICs, then removes the
+# udev rule / oneshot unit / helper script.
+dependencies: []
+
+galaxy_info:
+  role_name: nic-offload
+  description: Work around e1000e TX-hang by disabling NIC offloads on affected drivers

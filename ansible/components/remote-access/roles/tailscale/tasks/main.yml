@@ -1,0 +1,6 @@
+---
+- import_tasks: install.yml
+  when: tailscale_enabled
+
+- import_tasks: uninstall.yml
+  when: not tailscale_enabled

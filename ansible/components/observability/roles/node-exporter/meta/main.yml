@@ -1,0 +1,14 @@
+---
+# node-exporter role
+#
+# Installs Prometheus node_exporter from the upstream release tarball,
+# runs it as a dedicated system user under systemd.
+#
+# `node_exporter_enabled: false` stops + disables the service but
+# leaves the installed binary in place — re-enabling is a service
+# start, not a re-download.
+dependencies: []
+
+galaxy_info:
+  role_name: node-exporter
+  description: Install and run Prometheus node_exporter

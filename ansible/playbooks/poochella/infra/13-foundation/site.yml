@@ -6,16 +6,23 @@
 # (workers, future hypervisors) is installed via iPXE/preseed netboot,
 # which depends on bootserv01.lan. bootserv01 is an LXC pinned to a
 # hypervisor in the `foundation` inventory group (today: pve-home-01).
-# So that hypervisor's full 17-host + 20-hypervisor stack, plus the
-# bootserv01 LXC, plus the bootserv role, must be reconciled BEFORE the
-# 17-host tier runs against the wider `physical` group — otherwise a
-# fresh worker would have no netboot target.
+# So that hypervisor's full os-baseline + host-hardware + 20-hypervisor
+# stack, plus the bootserv01 LXC, plus the bootserv role, must be
+# reconciled BEFORE those components run against the wider `physical`
+# group — otherwise a fresh worker would have no netboot target.
 #
-# How it's implemented. This tier reuses 17-host / 20-hypervisor
-# playbooks via import_playbook with `target_hosts: foundation` so they
-# scope to the foundation group; those playbooks default `hosts:` back
-# to `physical` / `hypervisors` when target_hosts is unset, so the
-# regular tiers below are unchanged.
+# How it's implemented. This tier reuses the os-baseline /
+# host-hardware / 20-hypervisor deployment wrappers via import_playbook
+# with `target_hosts: foundation` so they scope to the foundation
+# group; those wrappers default `hosts:` back to `physical` /
+# `hypervisors` when target_hosts is unset, so the regular tiers below
+# are unchanged. Importing the FULL os-baseline + host-hardware
+# components here (not just the bootstrap/storage/firewall subset the
+# old 17-host tier cherry-picked) also settles ssh-hardening/motd and
+# nfs-mounts/nic-offload/firmware early — all idempotent, order-
+# independent day-2 steps — which incidentally satisfies
+# 96-mirror-artifacts.yml's pre-condition that the build-artifacts NFS
+# share is already mounted on the foundation node.
 #
 # Image build flow (the bootstrap chicken-and-egg + the publish path):
 #   50-bootstrap-lxc-template.yml  — LOCAL-only LXC bake on foundation.
@@ -46,8 +53,9 @@
 #
 # Idempotency story (the user invariant). Re-running this tier on a
 # fully-built fleet is a no-op end-to-end:
-#   - 17-host roles short-circuit (user/storage/ssh/firewall/tailscale/
-#     node-exporter all idempotent).
+#   - os-baseline / host-hardware roles short-circuit (user/ssh/
+#     firewall/motd/storage/nfs-mounts/nic-offload/firmware all
+#     idempotent).
 #   - 50-bootstrap-lxc-template.yml: per-template `pct status` check
 #     short-circuits when the local template CTID already exists.
 #   - 20-hypervisor steps short-circuit (repo flip / pve storage register).
@@ -58,9 +66,10 @@
 #   - 95-bake-publish-images.yml: per-artifact `pct exec test -f` check
 #     short-circuits when the artifact already exists on bootserv01.
 #     `-e force_rebuild=true` opts in to a rebake.
-# When the regular 17-host / 20-hypervisor / 30-guests tiers run after
-# this, pve-home-01 sees another no-op pass and 30-guests' un-targeted
-# `tofu apply` reconciles the rest of the inventory.
+# When the regular 14-os-baseline / 15-host-hardware / 20-hypervisor /
+# 30-guests tiers run after this, pve-home-01 sees another no-op pass
+# and 30-guests' un-targeted `tofu apply` reconciles the rest of the
+# inventory.
 #
 # What's deliberately NOT here:
 #   - 20-cluster.yml — gated off (PVE clustering is no longer a
@@ -69,10 +78,11 @@
 #     even if the gate were lifted, a standalone foundation hypervisor
 #     wouldn't sit under `pve_cluster`.
 
-# ── 17-host baseline on the foundation hypervisor(s) ────────────────────
-- import_playbook: ../17-host/10-bootstrap.yml
+# ── os-baseline + host-hardware on the foundation hypervisor(s) ─────────
+- import_playbook: ../14-os-baseline.yml
   vars: { target_hosts: foundation }
-- import_playbook: ../17-host/15-storage.yml
+
+- import_playbook: ../15-host-hardware.yml
   vars:
     target_hosts: foundation
     host_disks_action: info
@@ -81,9 +91,6 @@
     # opt-in folds in the former 30-pve-storage-register step without
     # re-carving. `just disk-plan` omits this flag, so it stays read-only.
     host_disks_register_pve: true
-
-- import_playbook: ../17-host/30-firewall.yml
-  vars: { target_hosts: foundation }
 
 # advanceteam@pve Tofu service account — MUST exist before the targeted
 # `tofu apply` in 80-tofu-infra-lxcs.yml (the provider authenticates as it).

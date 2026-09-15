@@ -1,0 +1,15 @@
+---
+# tailscale role
+#
+# Installs the tailscale/tailscaled binaries from the upstream release
+# tarball (no apt repo — pinned version, reproducible), brings tailscaled
+# up as a systemd service, and authenticates with an auth key.
+#
+# `tailscale_enabled: false` stops + disables tailscaled but leaves the
+# installed binaries in place (matches node-exporter's convention —
+# re-enabling is then just a service start, not a re-download).
+dependencies: []
+
+galaxy_info:
+  role_name: tailscale
+  description: Install and authenticate the Tailscale client

@@ -20,32 +20,46 @@
 #                    inventory, then imports the component). Synology
 #                    NAS — gap-5 break from the gap-10 convention,
 #                    independent of host bootstrap; admin'd via DSM,
-#                    not the ansible user/key path the 17-host tier
-#                    sets up. See docs/ansible-layout.md.
+#                    not the ansible user/key path the os-baseline
+#                    component sets up. See docs/ansible-layout.md.
 #   13-foundation  → Foundational subset (the `foundation` group, today
-#                    just pve-home-01): full 17-host + 20-hypervisor
-#                    stack PLUS a bootstrap-only LXC template bake PLUS
-#                    a TARGETED Tofu apply that creates ONLY the infra
-#                    LXCs (bootserv01) PLUS the bootserv role PLUS the
-#                    full PRODUCER step that bakes the Debian VM qcow2
-#                    and snapshots the LXC template, publishing both to
-#                    bootserv01 HTTP. Must complete before 17-host below
-#                    — fresh baremetals need bootserv01.lan to netboot
-#                    AND fresh hypervisors need the published artifacts
-#                    to consume. The tier re-imports 17-host /
-#                    20-hypervisor playbooks with `target_hosts:
-#                    foundation` rather than duplicating them.
-#   17-host        → Baseline for every baremetal Linux host
-#                    (`physical` = hypervisors + workers): ansible /
-#                    pani / tourmanager users, SSH hardening, firewall,
-#                    tailscale, node-exporter. Re-applied here against
-#                    the wider `physical` group — pve-home-01 sees a
-#                    no-op second pass (13-foundation already did it).
+#                    just pve-home-01): full os-baseline + host-hardware
+#                    + 20-hypervisor stack PLUS a bootstrap-only LXC
+#                    template bake PLUS a TARGETED Tofu apply that
+#                    creates ONLY the infra LXCs (bootserv01) PLUS the
+#                    bootserv role PLUS the full PRODUCER step that
+#                    bakes the Debian VM qcow2 and snapshots the LXC
+#                    template, publishing both to bootserv01 HTTP. Must
+#                    complete before 14-os-baseline below — fresh
+#                    baremetals need bootserv01.lan to netboot AND
+#                    fresh hypervisors need the published artifacts to
+#                    consume. The tier re-imports the os-baseline /
+#                    host-hardware / 20-hypervisor deployment wrappers
+#                    with `target_hosts: foundation` rather than
+#                    duplicating them.
+#   14-os-baseline → Layer-1 component (components/os-baseline), invoked
+#                    via the deployment wrapper 14-os-baseline.yml:
+#                    ansible/pani/tourmanager users, SSH hardening,
+#                    firewall, MOTD on every baremetal Linux host
+#                    (`physical` = hypervisors + workers). Re-applied
+#                    here against the wider `physical` group —
+#                    pve-home-01 sees a no-op second pass (13-foundation
+#                    already did it).
+#   15-host-hardware → Layer-2 component (components/host-hardware),
+#                    invoked via the deployment wrapper
+#                    15-host-hardware.yml: node-local disks, NFS mounts,
+#                    NIC-offload workaround, firmware baseline. Same
+#                    re-apply-is-a-no-op relationship to 13-foundation
+#                    as 14-os-baseline above.
+#   16-remote-access → Layer-2 component (components/remote-access):
+#                    Tailscale (default-off in poochella).
+#   17-observability → Layer-2 component (components/observability):
+#                    Prometheus node_exporter.
 #   20-hypervisor  → Proxmox-only fabric (repo flip, cluster, LVM-thin
 #                    register, template consume from bootserv01).
-#                    Depends on 17-host having created the ansible
-#                    user and on 13-foundation having published the
-#                    centrally-baked VM/LXC artifacts to bootserv01.
+#                    Depends on 14-os-baseline having created the
+#                    ansible user and on 13-foundation having published
+#                    the centrally-baked VM/LXC artifacts to bootserv01.
 #                    Also re-applied against the wider `hypervisors`
 #                    group; no-op on foundation hypervisors.
 #   30-guests      → OpenTofu barrier (router + hypervisor converge)
@@ -62,7 +76,10 @@
 - import_playbook: 10-router.yml
 - import_playbook: 12-nas.yml
 - import_playbook: 13-foundation/site.yml
-- import_playbook: 17-host/site.yml
+- import_playbook: 14-os-baseline.yml
+- import_playbook: 15-host-hardware.yml
+- import_playbook: 16-remote-access.yml
+- import_playbook: 17-observability.yml
 - import_playbook: 20-hypervisor/site.yml
 - import_playbook: 30-guests/site.yml
 - import_playbook: 40-kube/site.yml

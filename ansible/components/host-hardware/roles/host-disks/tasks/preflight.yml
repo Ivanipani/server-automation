@@ -1,0 +1,351 @@
+---
+# Hard gates before any sgdisk write. No auto-recovery on failure.
+# Resolves each declared `select:` to EXACTLY ONE device (in
+# _resolve_disk.yml), building two facts consumed downstream:
+#   host_disks_resolved  — one entry per PARTITION, in carve order
+#   host_disks_devices   — one entry per unique DISK to act on
+
+# PVE hypervisors ship gdisk+lvm2 as Proxmox dependencies; plain Debian
+# workers don't. Install them at the start of preflight so the carve +
+# pool-build stages have the binaries they shell out to. Idempotent
+# no-op once present (hypervisors), and runs BEFORE the boot-disk
+# detection below which already uses `lvs`.
+- name: Install disk-management utilities (gdisk for sgdisk, lvm2)
+  ansible.builtin.apt:
+    name:
+      - gdisk
+      - lvm2
+    state: present
+
+- name: Assert this node declares a storage layout
+  ansible.builtin.assert:
+    that:
+      - storage is defined
+      - storage.disks is defined
+      - storage.disks | length > 0
+      - storage.disks | map(attribute='partitions') | map('length') | min > 0
+    fail_msg: >-
+      No `storage.disks` (with non-empty `partitions`) declared for
+      {{ inventory_hostname }} in inventory.yaml. The disk layout is
+      declared, not discovered — add a `storage:` block to this host (see
+      the inventory.yaml header / host-disks role defaults), or remove
+      this host from the storage playbook's `when:` guard if it should
+      not run.
+
+# ── PVE-only guest-classification gates ──────────────────────────────
+# `qm list` / `pct list` and the template-vs-real classification only
+# make sense on hypervisors — workers have no PVE guests. Workers skip
+# this entire block.
+
+- name: List existing VMs (qm list)
+  ansible.builtin.command: qm list
+  register: qm_list
+  changed_when: false
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+
+- name: List existing containers (pct list)
+  ansible.builtin.command: pct list
+  register: pct_list
+  changed_when: false
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+
+# Overwrite mode is the "nuke from orbit" path: every guest on this
+# hypervisor — real or template — is stopped + `--purge` destroyed before
+# the carve, so the VMs' LVs (which sit on the very storage we're about
+# to rebuild) are gone. Real guests come back via 30-guests Tofu apply;
+# regenerable templates come back via 20-hypervisor/40-templates.yml.
+# `qm list` cannot tell template from real guest apart (a stopped real
+# VM looks identical to a template), so classify every listed guest by
+# its `template:` config key — only so the stop step can skip templates
+# (they're not running).
+- name: Extract VMIDs / CTIDs (drop the listing header line)
+  ansible.builtin.set_fact:
+    _vmids: >-
+      {{ qm_list.stdout_lines[1:]
+         | map('regex_replace', '^\s*(\d+).*$', '\1')
+         | select('match', '^\d+$') | list }}
+    _ctids: >-
+      {{ pct_list.stdout_lines[1:]
+         | map('regex_replace', '^\s*(\d+).*$', '\1')
+         | select('match', '^\d+$') | list }}
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+
+- name: Read each VM config (template detection)
+  ansible.builtin.command: "qm config {{ item }}"
+  loop: "{{ _vmids | default([]) }}"
+  register: _vm_cfg
+  changed_when: false
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+
+- name: Read each container config (template detection)
+  ansible.builtin.command: "pct config {{ item }}"
+  loop: "{{ _ctids | default([]) }}"
+  register: _ct_cfg
+  changed_when: false
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+
+- name: Partition listed guests into templates vs real guests
+  ansible.builtin.set_fact:
+    _tmpl_vmids: "{{ _vm_cfg.results | selectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
+    _real_vmids: "{{ _vm_cfg.results | rejectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
+    _tmpl_ctids: "{{ _ct_cfg.results | selectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
+    _real_ctids: "{{ _ct_cfg.results | rejectattr('stdout', 'search', '(\n|^)template:') | map(attribute='item') | list }}"
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+
+# ── Stop + destroy every guest (real + template) ─────────────────────
+# Real guests first: shutdown gracefully (60s), then purge. Templates
+# don't need stopping (they don't run). Idempotent: an already-stopped
+# VM / already-destroyed guest is tolerated.
+
+- name: "Stop real VMs (graceful, 60s timeout)"
+  ansible.builtin.command: "qm stop {{ item }} --timeout 60 --skiplock"
+  loop: "{{ _real_vmids | default([]) }}"
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+  register: _vm_stop
+  changed_when: _vm_stop.rc == 0
+  failed_when:
+    - _vm_stop.rc != 0
+    - "'not running' not in (_vm_stop.stderr | default(''))"
+    - "'does not exist' not in (_vm_stop.stderr | default(''))"
+
+- name: "Destroy real VMs (--purge)"
+  ansible.builtin.command: "qm destroy {{ item }} --purge --skiplock"
+  loop: "{{ _real_vmids | default([]) }}"
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+  register: _vm_destroy
+  changed_when: _vm_destroy.rc == 0
+  failed_when:
+    - _vm_destroy.rc != 0
+    - "'does not exist' not in (_vm_destroy.stderr | default(''))"
+
+- name: "Stop real containers"
+  ansible.builtin.command: "pct stop {{ item }}"
+  loop: "{{ _real_ctids | default([]) }}"
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+  register: _ct_stop
+  changed_when: _ct_stop.rc == 0
+  failed_when:
+    - _ct_stop.rc != 0
+    - "'not running' not in (_ct_stop.stderr | default(''))"
+    - "'does not exist' not in (_ct_stop.stderr | default(''))"
+
+- name: "Destroy real containers (--purge)"
+  ansible.builtin.command: "pct destroy {{ item }} --purge"
+  loop: "{{ _real_ctids | default([]) }}"
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+  register: _ct_destroy
+  changed_when: _ct_destroy.rc == 0
+  failed_when:
+    - _ct_destroy.rc != 0
+    - "'does not exist' not in (_ct_destroy.stderr | default(''))"
+
+- name: "Destroy VM templates (--purge); 40-templates.yml re-bakes them"
+  ansible.builtin.command: "qm destroy {{ item }} --purge"
+  loop: "{{ _tmpl_vmids | default([]) }}"
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+  register: _vm_tmpl_destroy
+  changed_when: _vm_tmpl_destroy.rc == 0
+  failed_when:
+    - _vm_tmpl_destroy.rc != 0
+    - "'does not exist' not in (_vm_tmpl_destroy.stderr | default(''))"
+
+- name: "Destroy CT templates (--purge); 40-templates.yml re-bakes them"
+  ansible.builtin.command: "pct destroy {{ item }} --purge"
+  loop: "{{ _tmpl_ctids | default([]) }}"
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'
+  register: _ct_tmpl_destroy
+  changed_when: _ct_tmpl_destroy.rc == 0
+  failed_when:
+    - _ct_tmpl_destroy.rc != 0
+    - "'does not exist' not in (_ct_tmpl_destroy.stderr | default(''))"
+
+# ── Boot-disk detection (portable — PVE + plain Debian) ──────────────
+# Find the disk hosting the root filesystem. Works for PVE (root LV in
+# the `pve` VG over a single PV) and for plain Debian workers (root on
+# a partition directly, or some other LVM layout). For LV-backed roots,
+# trace through the VG's PVs and take the parent of any one of them.
+
+- name: Detect the boot disk (parent of the root filesystem)
+  ansible.builtin.shell: |
+    set -eu
+    src=$(findmnt -no SOURCE /)
+    [ -n "$src" ] || { echo "no root mount" >&2; exit 1; }
+    pkname=$(lsblk -dno PKNAME "$src" 2>/dev/null || true)
+    if [ -z "$pkname" ]; then
+      # root is an LVM LV — find its VG, then any PV, then that PV parent
+      vg=$(lvs --noheadings -o vg_name "$src" 2>/dev/null | awk '{print $1}')
+      [ -n "$vg" ] || { echo "no VG for $src" >&2; exit 1; }
+      pv=$(pvs --noheadings -o pv_name -S vg_name="$vg" | head -1 | awk '{print $1}')
+      [ -n "$pv" ] || { echo "no PV in VG $vg" >&2; exit 1; }
+      pkname=$(lsblk -dno PKNAME "$pv")
+    fi
+    echo "$pkname"
+  register: boot_disk_detect
+  changed_when: false
+
+- name: Set boot_disk fact
+  ansible.builtin.set_fact:
+    boot_disk: "{{ boot_disk_detect.stdout.strip() }}"
+
+- name: Assert boot disk was detected
+  ansible.builtin.assert:
+    that:
+      - boot_disk | length > 0
+    fail_msg: >-
+      Could not detect the boot disk on {{ inventory_hostname }}
+      (got '{{ boot_disk }}'). Check `findmnt /` and `lsblk`.
+
+# If the `select: boot` entry carries an `hw: {model, serial}` pin (used
+# by the netboot/img-debian preseeds to identify the install target), we
+# can also use it as a runtime sanity check: assert the disk currently
+# mounted at / matches the declared model+serial. Cheap insurance against
+# inventory/reality drift (e.g. boot NVMe physically swapped without an
+# inventory edit). Skipped silently when no boot entry declares `hw:`.
+- name: Find boot-disk entry that declares `hw:`
+  ansible.builtin.set_fact:
+    _hw_pinned_boot: >-
+      {{ ((storage.disks | default([]))
+          | selectattr('select', 'eq', 'boot')
+          | selectattr('hw', 'defined')
+          | list | first | default({})).hw | default({}) }}
+
+# Two separate lsblk calls because MODEL strings can contain internal
+# whitespace (e.g. "Samsung SSD 980 1TB"), so MODEL,SERIAL as one column
+# would be ambiguous to split.
+- name: Read live model of the detected boot disk
+  ansible.builtin.command: "lsblk -ndo MODEL /dev/{{ boot_disk }}"
+  register: _boot_model
+  changed_when: false
+  when: _hw_pinned_boot | length > 0
+
+- name: Read live serial of the detected boot disk
+  ansible.builtin.command: "lsblk -ndo SERIAL /dev/{{ boot_disk }}"
+  register: _boot_serial
+  changed_when: false
+  when: _hw_pinned_boot | length > 0
+
+- name: Assert declared boot-disk `hw:` matches the live boot disk
+  ansible.builtin.assert:
+    that:
+      - (_boot_model.stdout | trim) == _hw_pinned_boot.model
+      - (_boot_serial.stdout | trim) == _hw_pinned_boot.serial
+    fail_msg: >-
+      {{ inventory_hostname }}: inventory pins the boot disk to
+      model='{{ _hw_pinned_boot.model }}' serial='{{ _hw_pinned_boot.serial }}'
+      but the disk currently mounted at / (/dev/{{ boot_disk }})
+      reports model='{{ _boot_model.stdout | trim }}'
+      serial='{{ _boot_serial.stdout | trim }}'. Inventory and reality
+      have drifted — update the `hw:` block under `storage.disks` (the
+      entry marked `select: boot`) to match the new hardware, or move
+      the cabling back.
+  when: _hw_pinned_boot | length > 0
+
+- name: Reset resolved accumulators
+  ansible.builtin.set_fact:
+    host_disks_resolved: []      # one entry per PARTITION (carve order)
+    host_disks_devices: []       # one entry per unique DISK to act on
+
+- name: Resolve and validate each declared disk
+  ansible.builtin.include_tasks: _resolve_disk.yml
+  loop: "{{ storage.disks }}"
+  loop_control:
+    loop_var: disk
+    label: "{{ disk.select | string }}"
+
+# ── Cross-pool sanity (content-addressed contract) ────────────────────
+
+- name: Assert partition labels are unique on this node
+  ansible.builtin.assert:
+    that:
+      - (host_disks_resolved | map(attribute='label') | list) ==
+        (host_disks_resolved | map(attribute='label') | unique | list)
+    fail_msg: >-
+      Duplicate `label` (GPT partlabel) in {{ inventory_hostname }}'s
+      storage.disks. Each partlabel must be unique per node (it is the
+      GPT label and the idempotency key).
+  when: host_disks_action == 'overwrite'
+
+# Cross-pool consistency: partitions naming the same (vg,thinpool) must
+# (a) include AT LEAST ONE targeted partition (pve_storage OR mount) and
+# (b) any partitions that DO declare a target must agree on it. `_sig`
+# (set in _resolve_disk.yml) is `pve|…` / `mnt|…` for targeted partitions
+# and `bare|…` for pool members with no target. We filter `bare|…` out
+# before the uniqueness check, then assert the remaining set is exactly
+# one. Length 0 means the whole pool is bare (no target declared
+# anywhere); length > 1 means targets disagree. Applies to pve_storage-
+# and mount-backed pools alike — both may span multiple disks (NVMe +
+# HDD → one larger LVM pool) and the convention is to declare the target
+# on exactly one partition per pool. (Workers use direct mounts now, not
+# spanning pools — see the __direct__ exclusion below.)
+#
+# DIRECT-mount partitions (mount, no vg/thinpool → plain ext4 on the bare
+# partition) carry a `__direct__|<label>` pool key and are NOT LVM pools,
+# so they're excluded from this accounting entirely (each is its own
+# self-targeting singleton; a length-0 filtered list would otherwise
+# trip the `== 1` assert).
+- name: "Assert every (vg,thinpool) has exactly one declared target"
+  ansible.builtin.assert:
+    that:
+      - >-
+        host_disks_resolved
+        | selectattr('_pool_key', 'equalto', item)
+        | rejectattr('_sig', 'match', '^bare\|')
+        | map(attribute='_sig') | unique | length == 1
+    fail_msg: >-
+      On {{ inventory_hostname }} the (vg,thinpool) pair '{{ item }}'
+      must have AT LEAST ONE partition declaring a target (pve_storage +
+      content, or mount) and any other targeted partitions must agree
+      with it. Multiple disks may back ONE pool (NVMe + HDD → one larger
+      pool) — declare the target on exactly ONE partition (the
+      convention) or repeat it identically on all. Got sigs:
+      {{ host_disks_resolved
+         | selectattr('_pool_key', 'equalto', item)
+         | map(attribute='_sig') | list }}.
+  loop: >-
+    {{ host_disks_resolved
+       | rejectattr('_pool_key', 'match', '^__direct__\|')
+       | map(attribute='_pool_key') | unique | list }}
+  when: host_disks_action == 'overwrite'
+
+# ── Hypervisor-only frozen-contract assertion ────────────────────────
+# Tofu hardcodes `vms` as the PVE storage for every VM/LXC boot disk +
+# the cloud-init drive — so `vms` is the one frozen storage NAME that
+# every hypervisor must yield. Longhorn replica state lives on baremetal
+# kube_workers only, never on a hypervisor; no VM receives a Longhorn-
+# backed data disk.
+- name: Assert this hypervisor provides `vms` storage (universal)
+  ansible.builtin.assert:
+    that:
+      - "'vms' in (host_disks_resolved | selectattr('pve_storage', 'defined') | map(attribute='pve_storage') | list)"
+    fail_msg: >-
+      {{ inventory_hostname }} would NOT produce the frozen PVE storage
+      `vms` (Tofu hardcodes it for every VM/LXC boot disk + cloud-init
+      drive). Got {{ host_disks_resolved | selectattr('pve_storage', 'defined')
+                     | map(attribute='pve_storage') | unique | list }}.
+  when:
+    - host_disks_is_hypervisor | bool
+    - host_disks_action == 'overwrite'

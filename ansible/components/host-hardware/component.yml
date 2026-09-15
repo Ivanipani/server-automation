@@ -1,0 +1,11 @@
+---
+name: host-hardware
+layer: 2
+description: >-
+  Baremetal-only hardware setup: node-local disks realised into
+  LVM-thin pools (PVE storage or ext4 mounts), NAS NFS shares mounted,
+  the e1000e NIC-offload workaround, and the fwupd/LVFS firmware
+  baseline.
+depends_on: [control-node, os-baseline]
+target_default: physical
+target_var: host_hardware_hosts

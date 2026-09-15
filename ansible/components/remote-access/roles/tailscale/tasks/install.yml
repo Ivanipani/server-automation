@@ -1,0 +1,101 @@
+---
+- name: Check if tailscale is already installed
+  ansible.builtin.stat:
+    path: "{{ tailscale_bin }}"
+  register: tailscale_check
+
+- name: Check tailscale version
+  ansible.builtin.command:
+    cmd: "{{ tailscale_bin }} version --short"
+  register: tailscale_version_check
+  changed_when: false
+  failed_when: false
+  when: tailscale_check.stat.exists
+
+- name: Install tailscale
+  when: >-
+    not tailscale_check.stat.exists
+    or tailscale_version not in (tailscale_version_check.stdout | default(''))
+  block:
+    - name: Ensure tailscale install dir exists
+      ansible.builtin.file:
+        path: "{{ tailscale_install_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download tailscale release tarball
+      ansible.builtin.get_url:
+        url: "{{ tailscale_url }}"
+        dest: /tmp/tailscale.tgz
+        mode: "0644"
+
+    - name: Extract tailscale tarball
+      ansible.builtin.unarchive:
+        src: /tmp/tailscale.tgz
+        dest: "{{ tailscale_install_dir }}"
+        remote_src: true
+        extra_opts: ["--strip-components=1"]
+
+    - name: Symlink tailscale CLI into /usr/local/bin
+      ansible.builtin.file:
+        src: "{{ tailscale_bin }}"
+        dest: /usr/local/bin/tailscale
+        state: link
+        force: true
+
+    - name: Symlink tailscaled daemon into /usr/sbin
+      ansible.builtin.file:
+        src: "{{ tailscaled_bin }}"
+        dest: /usr/sbin/tailscaled
+        state: link
+        force: true
+
+    - name: Install tailscaled systemd unit
+      ansible.builtin.copy:
+        src: "{{ tailscale_install_dir }}/systemd/tailscaled.service"
+        dest: /etc/systemd/system/tailscaled.service
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+      notify: "restart tailscaled"
+
+    - name: Install tailscaled environment defaults
+      ansible.builtin.copy:
+        src: "{{ tailscale_install_dir }}/systemd/tailscaled.defaults"
+        dest: /etc/default/tailscaled
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+      notify: "restart tailscaled"
+
+- name: Ensure tailscale state directory exists
+  ansible.builtin.file:
+    path: "{{ tailscale_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Enable and start tailscaled
+  ansible.builtin.systemd_service:
+    name: tailscaled
+    daemon_reload: true
+    state: started
+    enabled: true
+
+- name: Check tailscale auth status
+  ansible.builtin.command:
+    cmd: tailscale status --json
+  register: tailscale_status
+  changed_when: false
+  failed_when: false
+
+- name: Bring tailscale up with auth key
+  ansible.builtin.command:
+    cmd: "tailscale up --auth-key={{ tailscale_auth_key }} {{ tailscale_up_args }}"
+  when: >-
+    tailscale_status.rc != 0
+    or (tailscale_status.stdout | from_json).BackendState | default('') != 'Running'
+  no_log: true

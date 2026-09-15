@@ -1,0 +1,16 @@
+---
+argument_specs:
+  main:
+    short_description: Mount nas01 NFS shares declared in nfs_mounts
+    author:
+      - Ivan Perdomo
+    options:
+      nfs_mounts:
+        type: list
+        elements: dict
+        default: []
+        description: "Desired mounts: each item is {share, path, options}. Empty = no mounts."
+      nfs_mounts_server:
+        type: str
+        default: ""
+        description: "nas01's address. Required (asserted) whenever nfs_mounts is non-empty. The caller resolves hostvars['nas01'].ansible_host via set_fact — this role never reads another host's hostvars."

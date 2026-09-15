@@ -15,10 +15,10 @@
 # k3s startup; only the mirror step fails, the cluster keeps running.
 #
 # Pre-condition: the nas01 k3s-snapshots share is mounted on this host
-# at /mnt/nas/k3s-snapshots (set up by 17-host/16-nfs-mounts.yml,
-# re-imported from 30-guests/site.yml scoped to kube_control_plane —
-# `nfs_mounts` is declared on the kube_control_plane group's
-# vars block in inventory.yaml).
+# at /mnt/nas/k3s-snapshots (the shared `nfs-mounts` role, applied from
+# 30-guests/site.yml scoped to kube_control_plane — `nfs_mounts` is
+# declared on the kube_control_plane group's vars block in
+# inventory.yaml).
 #
 # Invoked from 40-kube/20-k3s.yml after the joiners complete, scoped to
 # kube_control_plane.

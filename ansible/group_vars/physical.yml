@@ -1,7 +1,8 @@
 ---
 # Vars shared by EVERY baremetal Linux host (hypervisors + workers).
-# Consumed by the 17-host tier (host-base, ssh-hardening, firewall-basic,
-# tailscale, node-exporter). PVE-only knobs live in hypervisors.yml.
+# Consumed by the os-baseline (host-base, ssh-hardening, firewall-basic,
+# motd), remote-access (tailscale), and observability (node-exporter)
+# components. PVE-only knobs live in hypervisors.yml.
 
 # Tailscale on physical hosts is OFF: the OPNsense subnet router
 # (10-router/40-tailscale.yml advertises 10.1.1.0/24) gives off-LAN

@@ -263,7 +263,7 @@
 # timer that rsyncs /var/lib/rancher/k3s/server/db/snapshots/ + the
 # cluster join token to /mnt/nas/k3s-snapshots/<hostname>/ every 4h.
 # Pre-condition: the NFS mount at /mnt/nas/k3s-snapshots was set up by
-# 30-guests/site.yml re-importing 17-host/16-nfs-mounts.yml scoped to
+# 30-guests/site.yml applying the shared nfs-mounts role scoped to
 # kube_control_plane. See roles/k3s/tasks/_snapshot_sync.yml for why
 # the sidecar approach (vs. k3s native --etcd-snapshot-dir).
 - name: Install etcd-snapshot off-box mirror sidecar

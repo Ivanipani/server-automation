@@ -1,0 +1,12 @@
+---
+- name: Check if tailscaled unit exists
+  ansible.builtin.stat:
+    path: /etc/systemd/system/tailscaled.service
+  register: tailscaled_unit
+
+- name: Stop and disable tailscaled
+  ansible.builtin.systemd_service:
+    name: tailscaled
+    state: stopped
+    enabled: false
+  when: tailscaled_unit.stat.exists

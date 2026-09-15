@@ -1,6 +1,6 @@
 # Storage disk runbook — swap, grow, add (poochella)
 
-Operational companion to `playbooks/poochella/infra/17-host/15-storage.yml`
+Operational companion to `playbooks/poochella/infra/15-host-hardware.yml`
 (local LVM substrate, all physical hosts — including the PVE-only
 `pvesm add lvmthin` publication, folded into the `host-disks` role's
 `tasks/pve_register.yml`). Read the playbook + role headers first; this
@@ -106,8 +106,8 @@ Goal: zero data loss, minimal disruption.
    ```bash
    cd ansible
    ansible-playbook --vault-password-file ../secrets/ansible-pass --limit <node> \
-     -e host_disks_action=overwrite \
-     playbooks/poochella/infra/17-host/15-storage.yml
+     --tags storage -e host_disks_action=overwrite \
+     playbooks/poochella/infra/15-host-hardware.yml
    ```
    It wipe-gates the new disk, carves it, and (workers) builds the
    per-disk ext4 mount / (hypervisors) rebuilds the LVM-thin `vms` pool.

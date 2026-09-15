@@ -1,0 +1,12 @@
+---
+- name: Check if node_exporter unit exists
+  ansible.builtin.stat:
+    path: /etc/systemd/system/node_exporter.service
+  register: node_exporter_unit
+
+- name: Stop and disable node_exporter
+  ansible.builtin.systemd_service:
+    name: node_exporter
+    state: stopped
+    enabled: false
+  when: node_exporter_unit.stat.exists

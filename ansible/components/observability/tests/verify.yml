@@ -1,0 +1,26 @@
+---
+# Assert-only smoke test for the observability component. Mutates
+# nothing; safe to run any time against a live host.
+#
+#   ansible-playbook --vault-password-file ../../../secrets/ansible-pass \
+#     components/observability/tests/verify.yml
+
+- name: Verify observability
+  hosts: "{{ observability_hosts | default('physical') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check node_exporter unit state
+      ansible.builtin.systemd_service:
+        name: node_exporter
+      register: observability_verify_node_exporter
+      check_mode: true
+      when: node_exporter_enabled | default(true)
+
+    - name: node_exporter is active when enabled
+      ansible.builtin.assert:
+        that:
+          - observability_verify_node_exporter.status.ActiveState == 'active'
+        fail_msg: "node_exporter not active — run `just observability`."
+        quiet: true
+      when: node_exporter_enabled | default(true)

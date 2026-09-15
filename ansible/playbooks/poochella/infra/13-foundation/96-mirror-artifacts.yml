@@ -17,8 +17,9 @@
 #
 # Ordering: runs AFTER 90-bootserv.yml (bootserv01 up, Caddy serving,
 # bootserv_static_dirs incl. /srv/http/artifacts created) and relies on the
-# build-artifacts NFS share being mounted on the foundation node
-# (17-host/16-nfs-mounts.yml; hypervisors inherit it from `physical`).
+# build-artifacts NFS share being mounted on the foundation node (the
+# shared nfs-mounts role, applied from 15-host-hardware.yml; hypervisors
+# inherit it from `physical`).
 #
 # Idempotency: the NAS download is force:false (re-pulls only when a version
 # bump changes the path), and the publish is gated on a per-artifact
@@ -62,7 +63,7 @@
         fail_msg: >-
           {{ nas_mirror_root | dirname }} is not a mountpoint on
           {{ inventory_hostname }}. The build-artifacts NFS share must be
-          mounted (17-host/16-nfs-mounts.yml) before mirroring.
+          mounted (the shared nfs-mounts role) before mirroring.
 
     - name: Ensure the NAS mirror root exists
       ansible.builtin.file:

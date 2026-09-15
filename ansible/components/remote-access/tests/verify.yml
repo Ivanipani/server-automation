@@ -1,0 +1,26 @@
+---
+# Assert-only smoke test for the remote-access component. Mutates
+# nothing; safe to run any time against a live host.
+#
+#   ansible-playbook --vault-password-file ../../../secrets/ansible-pass \
+#     components/remote-access/tests/verify.yml
+
+- name: Verify remote-access
+  hosts: "{{ remote_access_hosts | default('physical') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check tailscaled unit state
+      ansible.builtin.systemd_service:
+        name: tailscaled
+      register: remote_access_verify_tailscaled
+      check_mode: true
+      when: tailscale_enabled | default(true)
+
+    - name: tailscaled is active when enabled
+      ansible.builtin.assert:
+        that:
+          - remote_access_verify_tailscaled.status.ActiveState == 'active'
+        fail_msg: "tailscaled not active — run `just remote-access`."
+        quiet: true
+      when: tailscale_enabled | default(true)

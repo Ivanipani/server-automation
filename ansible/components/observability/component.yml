@@ -1,0 +1,8 @@
+---
+name: observability
+layer: 2
+description: >-
+  Prometheus node_exporter, giving every host a scrape target.
+depends_on: [control-node, os-baseline]
+target_default: physical
+target_var: observability_hosts

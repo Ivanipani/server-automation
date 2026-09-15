@@ -118,11 +118,18 @@ Bottom-up, one component per change, legacy tier deleted as it lands:
 1. ~~`control-node`~~ ✅ done — `components/control-node/`
 2. ~~`router`~~ ✅ done — `components/router/`, invoked via the
    deployment wrapper `playbooks/poochella/infra/10-router.yml`
-3. `os-baseline` — the biggest win: `17-host` (physical) and `30-guests`
-   (VMs) today re-declare the same roles against different groups (the
-   shared user-detection step is already pulled out as the
-   `ssh-bootstrap-detect` role)
-4. `host-hardware`, `remote-access`, `observability` — split out of `17-host`
+3. ~~`os-baseline`~~ ✅ done — `components/os-baseline/`, invoked via
+   the deployment wrapper `playbooks/poochella/infra/14-os-baseline.yml`.
+   `firewall-basic` and `motd` stayed shared top-level roles
+   (`ansible/roles/`) rather than moving in — `30-guests`/`40-kube`
+   consume them too.
+4. ~~`host-hardware`, `remote-access`, `observability`~~ ✅ done — split
+   out of the old `17-host` tier into `components/host-hardware/`,
+   `components/remote-access/`, `components/observability/`, invoked
+   via `playbooks/poochella/infra/{15-host-hardware,16-remote-access,
+   17-observability}.yml`. `nfs-mounts` (extracted from the old
+   `17-host/16-nfs-mounts.yml`) became a shared top-level role — the
+   `30-guests` tier mounts NFS onto `kube_control_plane` VMs with it too.
 5. ~~`nas`~~ ✅ done — `components/nas/`, invoked via the deployment
    wrapper `playbooks/poochella/infra/12-nas.yml`
 6. `hypervisor`

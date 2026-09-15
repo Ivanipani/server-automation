@@ -1,0 +1,205 @@
+---
+# Generic baseline for every baremetal Linux host. See meta/main.yml.
+
+# Keep the live hostname == inventory_hostname. Catches drift after an
+# inventory rename (e.g. pve-home-02 → worker-home-02 on 2026-05-23):
+# next time this role runs, the module writes /etc/hostname + updates
+# the kernel hostname so the change persists across reboots.
+- name: Enforce hostname == inventory_hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+# Replace any stale 127.0.1.1 entry pointing at the OLD hostname with
+# one for the current `inventory_hostname`. Debian sets a 127.0.1.1
+# alias to the install-time hostname, so without this `sudo hostname`
+# warns about an "unable to resolve host" mismatch after the rename.
+- name: Ensure /etc/hosts has a 127.0.1.1 line for the current hostname
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s+'
+    line: "127.0.1.1\t{{ inventory_hostname }}"
+    state: present
+
+# Disable automatic apt upgrades + apt-daily lock contention BEFORE the
+# first apt install below. Masking apt-daily also stops it grabbing the
+# dpkg lock mid-play.
+- name: Disable automatic apt upgrades + apt-daily lock contention
+  ansible.builtin.import_role:
+    name: apt-no-auto-upgrades
+
+- name: Install baseline packages (sudo + zsh)
+  # zsh is installed eagerly because pani's shell is /usr/bin/zsh — if a
+  # worker hasn't yet been through the dev tier, useradd would otherwise
+  # fail (or silently fall back to /bin/sh) when create-user runs.
+  ansible.builtin.apt:
+    name:
+      - sudo
+      - zsh
+    state: present
+
+# Baseline zsh config for all users. Debian's /etc/zsh/zshrc is empty and
+# sources no drop-in, so we ship a fully-owned config_path file and append
+# ONE idempotent source hook to the package's system_zshrc. Both halves are
+# duplicated byte-for-byte in files/image-baseline.sh.j2 so this stays
+# no-op on baked hosts. zsh (installed above) owns /etc/zsh.
+- name: Deploy baseline zsh config (all users)
+  ansible.builtin.template:
+    src: zshrc.local.j2
+    dest: "{{ image_baseline_zsh.config_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Source the baseline zsh config from the system-wide zshrc
+  ansible.builtin.lineinfile:
+    path: "{{ image_baseline_zsh.system_zshrc }}"
+    line: "{{ image_baseline_zsh.source_line }}"
+    state: present
+    create: false
+
+- name: Bootstrap host users (ansible, pani, tourmanager)
+  ansible.builtin.import_role:
+    name: create-user
+  vars:
+    users: "{{ host_base_users }}"
+
+# Lock root account. tourmanager is the sole break-glass — root has
+# no password path (locked) and no SSH path (PermitRootLogin=no from
+# ssh-hardening). Matches the pre-bake baseline script's
+# `usermod -L root + rm /root/.ssh/authorized_keys` so this task is a
+# no-op on baked hosts and a one-time CHANGED on hand-built ones that
+# previously had a vault-derived root password.
+- name: Lock root account (break-glass is tourmanager, not root)
+  ansible.builtin.user:
+    name: root
+    password_lock: true
+
+- name: Remove /root/.ssh/authorized_keys (no SSH path to root)
+  ansible.builtin.file:
+    path: /root/.ssh/authorized_keys
+    state: absent
+
+# Register the break-glass account in Proxmox's user DB so it can sign in
+# to the web UI, not just SSH/console. The Linux account already exists
+# (create-user above) and its PAM password works — but PVE rejects web UI
+# logins for any *@pam user that isn't listed in /etc/pve/user.cfg.
+# root@pam is unusable for web UI break-glass because the task above
+# locks the root Linux password, so PAM refuses every input on :8006.
+# Hypervisors only: workers don't have `pveum`.
+- name: Register break-glass user in PVE (web UI break-glass)
+  when:
+    - host_base_pve_host | bool
+    - image_baseline_sshd.password_breakglass_user | length > 0
+  vars:
+    _pve_breakglass: "{{ image_baseline_sshd.password_breakglass_user }}@pam"
+  block:
+    - name: List existing PVE users
+      ansible.builtin.command:
+        cmd: pveum user list --output-format json
+      register: _pveum_users
+      changed_when: false
+
+    - name: Add break-glass user to PVE
+      ansible.builtin.command:
+        cmd: pveum user add {{ _pve_breakglass }} --comment "Break-glass (Linux PAM, host-base)"
+      when: >-
+        _pveum_users.stdout | from_json
+        | selectattr('userid', 'equalto', _pve_breakglass)
+        | list | length == 0
+
+    - name: List existing PVE ACLs
+      ansible.builtin.command:
+        cmd: pveum acl list --output-format json
+      register: _pveum_acls
+      changed_when: false
+
+    - name: Grant break-glass user Administrator at /
+      ansible.builtin.command:
+        cmd: pveum acl modify / -user {{ _pve_breakglass }} -role Administrator
+      when: >-
+        _pveum_acls.stdout | from_json
+        | selectattr('ugid', 'equalto', _pve_breakglass)
+        | selectattr('roleid', 'equalto', 'Administrator')
+        | selectattr('path', 'equalto', '/')
+        | list | length == 0
+
+
+- name: Clean up Proxmox dpkg repos
+  when: host_base_pve_host | bool
+  block:
+    - name: Remove Proxmox enterprise PVE repo
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/pve-enterprise.list
+        - /etc/apt/sources.list.d/pve-enterprise.sources
+
+    - name: Remove Proxmox enterprise Ceph repo
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/ceph.list
+        - /etc/apt/sources.list.d/ceph.sources
+        - /etc/apt/sources.list.d/ceph-squid.list
+        - /etc/apt/sources.list.d/ceph-squid-enterprise.list
+        - /etc/apt/sources.list.d/ceph-squid-enterprise.sources
+
+    - name: Add Proxmox no-subscription PVE repo
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/pve-no-subscription.list
+        content: "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription\n"
+        mode: "0644"
+
+    - name: Add Proxmox no-subscription Ceph repo
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/ceph-no-subscription.list
+        content: "deb http://download.proxmox.com/debian/ceph-squid trixie no-subscription\n"
+        mode: "0644"
+
+# proxmox-auto-install-assistant is a small utility from the PVE repo
+# that prepares unattended-install ISOs (img/proxmox/). We want it on
+# every physical host so any of them can rebuild a fresh-install ISO.
+#
+# Hypervisors already trust the Proxmox key and get the pve-no-subscription
+# repo from the `hypervisor` role (20-hypervisor/10-bootstrap.yml) — and
+# crucially the pin below would BLOCK PVE itself from upgrading. So on
+# hypervisors we skip the repo/key/pin and just install the package.
+- name: Trust Proxmox release GPG key (Debian workers only — PVE hosts already trust it)
+  ansible.builtin.get_url:
+    url: https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg
+    dest: /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg
+    mode: "0644"
+  when: not (host_base_pve_host | bool)
+
+- name: Add pve-no-subscription repo (Debian workers only — hypervisors get it from the hypervisor role)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/pve-no-subscription.list
+    content: "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription\n"
+    mode: "0644"
+  when: not (host_base_pve_host | bool)
+
+# Pin: deny everything from download.proxmox.com EXCEPT the two packages
+# we actually want. Without this, a future `apt upgrade` on a Debian
+# worker could pull in pve-kernel / libpve-* / etc. on the back of this
+# repo. Skipped on hypervisors because PVE needs the repo unconstrained.
+- name: Pin Proxmox origin on Debian workers (allow only proxmox-auto-install-assistant + proxmox-first-boot)
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/proxmox-assistant.pref
+    content: |
+      Package: *
+      Pin: origin download.proxmox.com
+      Pin-Priority: -1
+
+      Package: proxmox-auto-install-assistant proxmox-first-boot
+      Pin: origin download.proxmox.com
+      Pin-Priority: 500
+    mode: "0644"
+  when: not (host_base_pve_host | bool)
+
+- name: Install proxmox-auto-install-assistant + xorriso
+  ansible.builtin.apt:
+    name:
+      - proxmox-auto-install-assistant
+      - xorriso

@@ -2,10 +2,11 @@
 # Tier H — Proxmox hypervisor fabric (PVE-only).
 #
 # Generic baremetal setup (users, sudo/zsh, SSH hardening, firewall,
-# tailscale, node-exporter) and the LVM substrate (disk carve + LVM-thin
-# pools + NFS mounts) live in the 17-host tier and run against the wider
-# `physical` group. This tier shrinks to the PVE-only steps and targets
-# `hypervisors`.
+# motd) lives in the os-baseline component; Tailscale/node_exporter in
+# the remote-access/observability components; the LVM substrate (disk
+# carve + LVM-thin pools + NFS mounts, NIC-offload, firmware) in the
+# host-hardware component. All run against the wider `physical` group.
+# This tier shrinks to the PVE-only steps and targets `hypervisors`.
 #
 # The customize work (virt-customize + sysprep + LXC pct exec + vzdump
 # publish) runs ONCE on the foundation hypervisor via
@@ -23,9 +24,10 @@
 # creates the account — the provider still uses the root@pam!tofu-lan
 # token for now.
 # PVE lvmthin storage registration is no longer a step here: it was folded
-# into the host-disks role (17-host/15-storage.yml), which auto-publishes
-# `vms` in overwrite mode. A fresh hypervisor is carved + pooled + PVE-
-# registered in one shot by the 17-host tier before this tier runs.
+# into the host-disks role (components/host-hardware/roles/host-disks),
+# which auto-publishes `vms` in overwrite mode. A fresh hypervisor is
+# carved + pooled + PVE-registered in one shot by the host-hardware
+# component before this tier runs.
 - import_playbook: 15-tofu-service-account.yml
 - import_playbook: 20-cluster.yml
 - import_playbook: 30-mgmt-network.yml

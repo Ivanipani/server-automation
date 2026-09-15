@@ -1,0 +1,12 @@
+---
+# Desired NFS mounts for this host — a list of {share, path, options}.
+# Set on a group's `vars:` block (physical.vars for the fleet-wide
+# mounts; hypervisors.vars/kube_control_plane.vars add more) or
+# directly on a host in inventory.yaml. Empty list = no mounts (the
+# role is then a clean no-op on both plays).
+nfs_mounts: []
+
+# nas01's address. A role never reads another host's hostvars directly
+# (see docs/ansible-layout.md) — the caller resolves
+# hostvars['nas01'].ansible_host and passes it in via set_fact.
+nfs_mounts_server: ""

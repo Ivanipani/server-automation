@@ -1,0 +1,43 @@
+---
+argument_specs:
+  main:
+    short_description: Install, authenticate, and manage the Tailscale client
+    author:
+      - Ivan Perdomo
+    options:
+      tailscale_enabled:
+        type: bool
+        default: true
+        description: "False stops + disables tailscaled (runs uninstall.yml) instead of installing/authenticating."
+      tailscale_version:
+        type: str
+        default: "1.96.4"
+        description: Pinned upstream release version to install.
+      tailscale_arch:
+        type: str
+        default: amd64
+        description: Release tarball architecture suffix.
+      tailscale_url:
+        type: str
+        description: Release tarball download URL. Derived from version + arch by default.
+      tailscale_install_dir:
+        type: str
+        default: /opt/tailscale
+        description: Where the release tarball is unpacked.
+      tailscale_bin:
+        type: str
+        description: Path to the tailscale CLI binary. Derived from tailscale_install_dir by default.
+      tailscaled_bin:
+        type: str
+        description: Path to the tailscaled daemon binary. Derived from tailscale_install_dir by default.
+      tailscale_state_dir:
+        type: str
+        default: /var/lib/tailscale
+        description: tailscaled state directory.
+      tailscale_up_args:
+        type: str
+        default: ""
+        description: Extra arguments appended to `tailscale up` (e.g. --advertise-routes).
+      tailscale_auth_key:
+        type: str
+        description: "REQUIRED when tailscale_enabled — the auth key used to bring the node up (no_log'd)."

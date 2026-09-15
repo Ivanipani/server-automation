@@ -1,0 +1,28 @@
+---
+argument_specs:
+  main:
+    short_description: Disable (or restore) NIC TX offloads on driver-matched NICs
+    author:
+      - Ivan Perdomo
+    options:
+      nic_offload_tuning_enabled:
+        type: bool
+        default: true
+        description: "False restores default offloads/EEE and removes the udev rule + oneshot unit + helper script (runs uninstall.yml) instead of applying the workaround (install.yml)."
+      nic_offload_drivers:
+        type: list
+        elements: str
+        default: [e1000e]
+        description: NIC driver names the workaround targets; other drivers are a no-op.
+      nic_offload_features_off:
+        type: str
+        default: "tso off gso off sg off tx off rx off"
+        description: "`ethtool -K` flags applied to matching NICs when enabled."
+      nic_offload_features_on:
+        type: str
+        default: "tso on gso on sg on tx on rx on"
+        description: "`ethtool -K` flags applied to matching NICs when reverting (inverse of nic_offload_features_off)."
+      nic_offload_disable_eee:
+        type: bool
+        default: true
+        description: "Whether the helper script also disables Energy Efficient Ethernet (a second, independent hang trigger on I219)."

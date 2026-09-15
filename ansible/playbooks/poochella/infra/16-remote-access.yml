@@ -1,0 +1,9 @@
+---
+# Layer-2 component: remote-access (Tailscale) on every baremetal
+# Linux host (`physical` = hypervisors + workers). No inventory-derived
+# facts needed — `tailscale_enabled` / `tailscale_auth_key` are plain
+# group/host vars — so this wrapper is a straight pass-through.
+
+- import_playbook: ../../../components/remote-access/site.yml
+  vars:
+    remote_access_hosts: "{{ target_hosts | default('physical') }}"

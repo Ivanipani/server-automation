@@ -1,0 +1,16 @@
+---
+# Component: remote-access (layer 2) — see component.yml / README.md.
+#
+# Apply:  just remote-access
+#
+# Day-2 service, not a bootstrap prerequisite: Ansible reaches every
+# host over the LAN (`ansible_host`), never over the tailnet, so this
+# is safe to re-run in isolation for piecemeal dev (key rotation,
+# re-auth, adding a node) without touching os-baseline/host-hardware.
+
+- name: Install Tailscale
+  hosts: "{{ remote_access_hosts | default('physical') }}"
+  become: true
+  roles:
+    - role: tailscale
+      tags: [tailscale]

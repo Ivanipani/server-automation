@@ -1,0 +1,6 @@
+---
+- import_tasks: install.yml
+  when: nic_offload_tuning_enabled | bool
+
+- import_tasks: uninstall.yml
+  when: not (nic_offload_tuning_enabled | bool)

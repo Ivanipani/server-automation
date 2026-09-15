@@ -3,7 +3,8 @@
 #
 # Sits between 10-router (which gives nas01 its DNS+DHCP reservation)
 # and the rest of the fleet — must come before any tier that mounts a
-# NAS share (17-host/16-nfs-mounts.yml).
+# NAS share (the shared nfs-mounts role, applied from
+# 15-host-hardware.yml and 30-guests/site.yml).
 #
 # This file is the deployment layer: it builds poochella-specific
 # desired state — the storage.vol_path/storage.shares computed from

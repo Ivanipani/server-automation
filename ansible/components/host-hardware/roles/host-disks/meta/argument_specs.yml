@@ -1,0 +1,88 @@
+---
+argument_specs:
+  main:
+    short_description: Realise node-local disks into LVM-thin pools and/or PVE storage/ext4 mounts
+    description:
+      - "See defaults/main.yml for the full storage.disks schema (selectors,
+        partitions, pve_storage vs mount vs bare-pool-member) and design
+        rationale — too large to usefully restate as option descriptions."
+    author:
+      - Ivan Perdomo
+    options:
+      host_disks_action:
+        type: str
+        default: info
+        choices: [info, overwrite, skip]
+        description: "info (read-only report), overwrite (DESTRUCTIVE carve + pool build), or skip (silent no-op)."
+      host_disks_force_wipe:
+        type: bool
+        default: false
+        description: "EMERGENCY fleet-wide override: force wipe: force semantics on every resolved non-boot disk for one run. Prefer the per-disk `wipe:` field in inventory."
+      host_disks_register_pve:
+        type: bool
+        default: false
+        description: "Opt-in: also publish each pve_storage thin pool to PVE during an info-mode run (hypervisors only). Always registers in overwrite mode regardless."
+      host_disks_is_hypervisor:
+        type: bool
+        default: false
+        description: "Whether this host is a PVE hypervisor. Gates the PVE-only preflight guest-cleanup checks and the pvesm registration pass. Computed by the deployment layer from group membership — this role never reads groups[] itself."
+      storage:
+        type: dict
+        required: false
+        description: "Declared disk layout for this host (no default — hosts without it are skipped by the caller's `when:` guard). See defaults/main.yml header for the full schema."
+        options:
+          disks:
+            type: list
+            elements: dict
+            description: "One entry per physical disk to manage."
+            options:
+              select:
+                type: raw
+                description: "'boot' (the auto-detected boot disk) OR a dict selector: {model, serial} for one exact drive, or {min_size_gib|size_gib, rotational} for an attribute match."
+              wipe:
+                type: str
+                choices: [refuse, force]
+                default: refuse
+                description: "'force' allows wiping a disk that holds foreign signatures (and none of our partlabels yet). Never applies to the boot disk."
+              partitions:
+                type: list
+                elements: dict
+                description: "Ordered partitions to carve on this disk. Each declares at most one of pve_storage or mount."
+                options:
+                  label:
+                    type: str
+                    required: true
+                    description: GPT partlabel — the idempotency key for this partition.
+                  vg:
+                    type: str
+                    description: LVM volume group name (omit for a DIRECT plain-ext4 mount).
+                  thinpool:
+                    type: str
+                    description: LVM thin pool name (omit for a DIRECT plain-ext4 mount).
+                  size:
+                    type: str
+                    description: "sgdisk +SIZE for this partition; \"0\" fills the remainder of the disk."
+                  pve_storage:
+                    type: str
+                    description: "PVE storage id to register this partition's thin pool as (pvesm add lvmthin). Mutually exclusive with mount."
+                  content:
+                    type: str
+                    description: "pvesm --content value (e.g. images,rootdir). Used with pve_storage."
+                  mount:
+                    type: dict
+                    description: "ext4 mount for this partition (on a thin LV if vg/thinpool set, else DIRECT on the bare partition). Mutually exclusive with pve_storage."
+                    options:
+                      path:
+                        type: str
+                        required: true
+                        description: Mount point.
+                      fstype:
+                        type: str
+                        default: ext4
+                      lv_name:
+                        type: str
+                        description: "Thin LV name (only when vg/thinpool set). Defaults to `<thinpool>-data`."
+                      lv_size:
+                        type: str
+                        default: 100%FREE
+                        description: "lvcreate --virtualsize value, or the sentinel 100%FREE (resolved to the thin pool's data size, 1:1)."

@@ -126,13 +126,13 @@ The re-imaged host has new host keys. Without this step every subsequent `ansibl
 just ssh-refresh
 ```
 
-### 7. Re-run the 17-host tier (users, ssh-hardening, firewall, tailscale, node-exporter)
+### 7. Re-apply the os-baseline / host-hardware / remote-access / observability components (users, ssh-hardening, firewall, motd, storage, NFS mounts, tailscale, node-exporter)
 
 ```bash
 just do-host-init
 ```
 
-This is safe to run cluster-wide; idempotent on every other host. The recipe runs `playbooks/poochella/infra/17-host/site.yml`, which also includes `15-storage.yml` — i.e. the host-disks role gets applied here too. Since the role defaults to `host_disks_action: info`, the per-disk ext4 mounts are left alone if they already exist.
+This is safe to run cluster-wide; idempotent on every other host. The recipe runs `playbooks/poochella/infra/14-os-baseline.yml`, `15-host-hardware.yml`, `16-remote-access.yml`, and `17-observability.yml` — `15-host-hardware.yml` includes the `host-disks` role, so storage gets applied here too. Since the role defaults to `host_disks_action: info`, the per-disk ext4 mounts are left alone if they already exist.
 
 ### 8. Verify the per-disk Longhorn mounts survived
 
@@ -210,8 +210,8 @@ You land here when step 8 reported MISSING for the `longhorndata` VG (a disk was
    cd ansible
    ansible-playbook --vault-password-file ../secrets/ansible-pass \
      --limit worker-home-02 \
-     -e host_disks_action=overwrite \
-     playbooks/poochella/infra/17-host/15-storage.yml
+     --tags storage -e host_disks_action=overwrite \
+     playbooks/poochella/infra/15-host-hardware.yml
    ```
    Only proceed if you have confirmed pre-condition 2 above (backups exist). This step does not consult Longhorn — it carves disks immediately.
 

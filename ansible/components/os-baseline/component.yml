@@ -1,0 +1,11 @@
+---
+name: os-baseline
+layer: 1
+description: >-
+  Baseline for any Linux host: bootstrap the ansible/pani/tourmanager
+  users, lock root, SSH-harden sshd to key-only (with a password
+  break-glass), a default-deny firewall, and the dynamic poochella
+  MOTD.
+depends_on: [control-node]
+target_default: physical
+target_var: os_baseline_hosts

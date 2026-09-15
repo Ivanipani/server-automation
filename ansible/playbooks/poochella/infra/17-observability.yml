@@ -1,0 +1,9 @@
+---
+# Layer-2 component: observability (node_exporter) on every baremetal
+# Linux host (`physical` = hypervisors + workers). No inventory-derived
+# facts needed — `node_exporter_enabled` is a plain group/host var —
+# so this wrapper is a straight pass-through.
+
+- import_playbook: ../../../components/observability/site.yml
+  vars:
+    observability_hosts: "{{ target_hosts | default('physical') }}"

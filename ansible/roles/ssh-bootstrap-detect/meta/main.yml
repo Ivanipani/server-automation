@@ -8,9 +8,9 @@
 # `remote_user` / `ansible_password` off of.
 #
 # Shared by every "create the ansible user for the first time" flow —
-# today the 17-host tier (Linux baremetal) and the router component
-# (OPNsense). Deliberately connection-local and dependency-free so it
-# runs before the target host has Python.
+# today the os-baseline component (Linux baremetal) and the router
+# component (OPNsense). Deliberately connection-local and
+# dependency-free so it runs before the target host has Python.
 dependencies: []
 
 galaxy_info:

@@ -1,7 +1,7 @@
 ---
 # Dynamic "poochella" message-of-the-day. Day-2 service, default-on
-# everywhere the role is applied (17-host + 30-guests tiers). Disable
-# per-host/group with `motd_enabled: false`.
+# everywhere the role is applied (the os-baseline component + the
+# 30-guests tier). Disable per-host/group with `motd_enabled: false`.
 motd_enabled: true
 
 # Suppress everything stock so only our banner renders. Strips the exec

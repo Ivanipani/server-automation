@@ -1,0 +1,29 @@
+---
+# Layer-1 component: os-baseline (users, ssh-hardening, firewall, motd)
+# on every baremetal Linux host (`physical` = hypervisors + workers).
+#
+# This file is the deployment layer: it computes the one
+# inventory-derived fact the component's roles need
+# (`host_base_pve_host`, since a role never reads group membership —
+# see docs/ansible-layout.md) and hands it to the os-baseline component
+# as a plain var, then imports the component.
+#
+# Numbered 14- (not the gap-10 convention) to sit between 13-foundation
+# and 20-hypervisor without renumbering either — same pragmatism as
+# 12-nas's gap-5 break (see that file's header).
+
+- name: Compute os-baseline desired state from inventory group membership
+  hosts: "{{ target_hosts | default('physical') }}"
+  gather_facts: false
+  connection: local
+  tasks:
+    # set_fact (not a play `vars:` block) so this persists as a host
+    # fact into the os-baseline/site.yml plays imported below — see
+    # docs/ansible-layout.md.
+    - name: Compute whether this host is a PVE hypervisor
+      ansible.builtin.set_fact:
+        host_base_pve_host: "{{ inventory_hostname in groups.get('hypervisors', []) }}"
+
+- import_playbook: ../../../components/os-baseline/site.yml
+  vars:
+    os_baseline_hosts: "{{ target_hosts | default('physical') }}"

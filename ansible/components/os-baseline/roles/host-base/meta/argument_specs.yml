@@ -1,0 +1,19 @@
+---
+argument_specs:
+  main:
+    short_description: Baseline setup for every baremetal Linux host (users, sudo, zsh, PVE repos)
+    author:
+      - Ivan Perdomo
+    options:
+      host_base_pve_host:
+        type: bool
+        default: false
+        description: "Whether this host is a PVE hypervisor. Gates PVE-only steps (web-UI break-glass registration, enterprise-repo cleanup) vs. Debian-worker-only steps (trust the Proxmox key, pin the no-subscription repo). Computed by the deployment layer from group membership."
+      host_base_extra_users:
+        type: list
+        elements: dict
+        description: "Operator-only accounts that should exist ONLY on physical hosts, added on top of image_baseline_users. See create-user role for the per-user dict schema."
+      host_base_users:
+        type: list
+        elements: dict
+        description: "Full user policy applied to the host: image_baseline_users + host_base_extra_users. Passed straight through to the create-user role."

@@ -1,0 +1,6 @@
+---
+- import_tasks: install.yml
+  when: node_exporter_enabled
+
+- import_tasks: uninstall.yml
+  when: not node_exporter_enabled

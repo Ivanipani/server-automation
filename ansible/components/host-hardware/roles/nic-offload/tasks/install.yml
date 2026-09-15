@@ -1,0 +1,44 @@
+---
+- name: Ensure ethtool is installed
+  ansible.builtin.apt:
+    name: ethtool
+    state: present
+    update_cache: false
+
+- name: Install offload-tuning helper script
+  ansible.builtin.template:
+    src: nic-offload-tune.sh.j2
+    dest: /usr/local/sbin/nic-offload-tune
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install per-NIC oneshot service
+  ansible.builtin.template:
+    src: nic-offload@.service.j2
+    dest: /etc/systemd/system/nic-offload@.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: Install udev rule (applies on boot / NIC hotplug)
+  ansible.builtin.template:
+    src: 90-nic-offload.rules.j2
+    dest: /etc/udev/rules.d/90-nic-offload.rules
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload udev rules
+
+- name: Apply offload tuning now to currently-present matching NICs
+  ansible.builtin.shell: |
+    set -eu
+    for nd in /sys/class/net/*; do
+      ifn=$(basename "$nd")
+      drv=$(basename "$(readlink -f "$nd/device/driver" 2>/dev/null || true)")
+      case " {{ nic_offload_drivers | join(' ') }} " in
+        *" $drv "*) /usr/local/sbin/nic-offload-tune "$ifn" ;;
+      esac
+    done
+  changed_when: false
