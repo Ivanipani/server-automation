@@ -3,7 +3,7 @@
 # Per-host iPXE script: kernel + initrd + preseed URL for {{ item }}.
 # Chainloaded from boot.ipxe based on MAC dispatch.
 
-set base http://bootserv01.lan
+set base http://bootserv01.lan:{{ bootserv_port }}
 set host {{ item }}
 set domain {{ hostvars[item].domain | default(domain | default('lan')) }}
 

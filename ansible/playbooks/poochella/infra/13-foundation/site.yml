@@ -4,12 +4,12 @@
 #
 # Why this tier exists separately. Every non-foundation physical host
 # (workers, future hypervisors) is installed via iPXE/preseed netboot,
-# which depends on bootserv01.lan. bootserv01 is an LXC pinned to a
-# hypervisor in the `foundation` inventory group (today: pve-home-01).
-# So that hypervisor's full host-base + 20-hypervisor stack, plus the
-# bootserv01 LXC, plus the bootserv role, must be reconciled BEFORE
-# host-base runs against the wider `physical` group — otherwise a
-# fresh worker would have no netboot target.
+# which depends on bootserv01.lan — now a plain baremetal role (see
+# ../15-bootserv.yml), no longer tied to any hypervisor. What THIS tier
+# still gates is Proxmox-specific: the foundation hypervisor's full
+# host-base + 20-hypervisor stack must be reconciled before host-base
+# runs against the wider `physical` group, so that hypervisor-specific
+# day-2 steps (PVE storage register, etc.) land early.
 #
 # How it's implemented. This tier reuses the host-base / 20-hypervisor
 # deployment wrappers via import_playbook with `target_hosts:
@@ -31,13 +31,12 @@
 #                                    because Tofu needs the template to
 #                                    exist. No bootserv01 = no publish
 #                                    yet, so this pass is local-only.
-#   80-tofu-infra-lxcs.yml         — targeted `tofu apply` that creates
-#                                    bootserv01 from the local template.
-#   90-bootserv.yml                — configures bootserv01 (Caddy +
-#                                    dnsmasq + iPXE/preseed + docroot
-#                                    dirs incl. /srv/http/cloud-images/
-#                                    + /srv/http/lxc-templates/).
-#   95-bake-publish-images.yml     — full PRODUCER. Bakes the Debian VM
+#   80-tofu-infra-lxcs.yml         — targeted `tofu apply` for infra LXCs.
+#                                    A no-op today: bootserv01 was the
+#                                    only `infra`-tagged LXC and it no
+#                                    longer exists (see ../15-bootserv.yml).
+#   95-bake-publish-images.yml     — full PRODUCER (DISABLED, see below).
+#                                    Bakes the Debian VM
 #                                    qcow2 (virt-customize + sysprep)
 #                                    and snapshots the LXC template
 #                                    built at step 50; publishes both
@@ -100,20 +99,22 @@
 # ── Targeted Tofu apply: just the infra LXCs (bootserv01 today) ─────────
 - import_playbook: 80-tofu-infra-lxcs.yml
 
-# ── Configure the bootserv01 LXC (iPXE + preseed + netboot HTTP root) ───
-- import_playbook: 90-bootserv.yml
-
-# ── Full PRODUCER: bake VM qcow2 + snapshot LXC template, publish to ─────
-# ── bootserv01. Every hypervisor consumes via 20-hypervisor/40-templates ─
-- import_playbook: 95-bake-publish-images.yml
-
-# ── Mirror pinned static artifacts (dev-tools binaries, Go, uv) to the ───
-# ── NAS + bootserv01. Consumed by dev/python/golang roles via the LAN ────
-# ── mirror with upstream fallback. No-op when already mirrored. ──────────
-- import_playbook: 96-mirror-artifacts.yml
-
-# ── PRODUCER: prepare Proxmox VE auto-install PXE artifacts (vmlinuz + ───
-# ── initrd.img + stripped iso) and publish to bootserv01:/proxmox-pxe/. ──
-# ── Lets hypervisors iPXE-boot the PVE auto-installer like workers do ────
-# ── Debian. No-op when already published (`pct exec test -f` guard). ─────
-- import_playbook: 97-bake-publish-pve-pxe.yml
+# bootserv itself has moved off Proxmox entirely — see ../15-bootserv.yml
+# and inventory.yaml's `bootserv` group (today: metal-home-02). It no
+# longer needs a foundation hypervisor to exist, so its play was pulled
+# out of this tier.
+#
+# 95/96/97 below PUBLISH into bootserv01 via `pct push` — only valid
+# when bootserv is co-located (same PVE kernel) with the node doing the
+# baking. That stopped being true the moment bootserv left Proxmox, so
+# these are DISABLED (commented out) rather than rewired to a network
+# push (rsync/scp to metal-home-02) — deferred until actually needed:
+# no new VM/LXC templates are planned, the PVE-PXE reinstall path is
+# only for a not-yet-converted hypervisor, and the dev-tool mirror is a
+# convenience, not a hard dependency. Re-enable by uncommenting once
+# rewired, or drop entirely once every hypervisor is converted (Phase 2
+# of the baremetal migration removes this machinery for good).
+#
+# - import_playbook: 95-bake-publish-images.yml
+# - import_playbook: 96-mirror-artifacts.yml
+# - import_playbook: 97-bake-publish-pve-pxe.yml

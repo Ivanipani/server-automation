@@ -132,5 +132,5 @@ firmware-plan:
     cd ansible && ansible-playbook --vault-password-file {{vault_pass}} playbooks/poochella/infra/firmware-plan.yml
 
 sync-preseed-templates:
-    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} playbooks/poochella/infra/13-foundation/90-bootserv.yml --start-at-task "Copy iPXE chainload binaries into TFTP root"
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} playbooks/poochella/infra/15-bootserv.yml --start-at-task "Copy iPXE chainload binaries into TFTP root"
 

@@ -32,4 +32,9 @@ nas_ssh_target:      "{{ hostvars['nas01'].nas.rsync_user }}@{{ hostvars['nas01'
 synology_dsm_password: "{{ vault_synology_dsm_password }}"
 synology_dsm_username: pani
 
-artifact_mirror_base: "http://bootserv01.lan/artifacts"
+# bootserv now runs on a k3s node (metal-home-02) whose svclb-traefik
+# DaemonSet claims port 80/443 cluster-wide via iptables — every future
+# bootserv host will hit the same conflict once k8s is the fleet's sole
+# compute platform, so bootserv listens on a non-80 port for good.
+bootserv_port: 8080
+artifact_mirror_base: "http://bootserv01.lan:{{ bootserv_port }}/artifacts"

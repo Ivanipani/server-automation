@@ -31,7 +31,7 @@ apt-get install -y --no-install-recommends sudo zsh wget
 
 echo "pve-first-boot: running canonical image-baseline.sh…"
 baseline="$(mktemp)"
-wget -qO "$baseline" "http://bootserv01.{{ domain | default('lan') }}/scripts/image-baseline.sh"
+wget -qO "$baseline" "http://bootserv01.{{ domain | default('lan') }}:{{ bootserv_port }}/scripts/image-baseline.sh"
 bash "$baseline"
 rm -f "$baseline"
 echo "pve-first-boot: done."

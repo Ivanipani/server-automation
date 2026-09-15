@@ -11,7 +11,7 @@
 # initrd.img is NOT self-contained: the stripped ISO is overlaid as a
 # second initrd named proxmox.iso (the full installer rootfs).
 
-set base http://bootserv01.lan/proxmox-pxe
+set base http://bootserv01.lan:{{ bootserv_port }}/proxmox-pxe
 
 echo
 echo Loading Proxmox VE auto-installer (ipxe ${version}) on ${net0/mac}

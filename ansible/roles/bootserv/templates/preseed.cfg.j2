@@ -34,7 +34,7 @@ d-i keyboard-configuration/xkb-keymap select us
 ### own NetworkManager/ifupdown configuration.
 d-i preseed/early_command string \
     set -e; \
-    URL=http://bootserv01.lan/scripts/resolve-install-iface.sh; \
+    URL=http://bootserv01.lan:{{ bootserv_port }}/scripts/resolve-install-iface.sh; \
     SCRIPT=/tmp/resolve-install-iface.sh; \
     if ! wget -q -O "$SCRIPT" "$URL"; then \
         echo "WARN: could not fetch $URL — falling back to netcfg auto" >/dev/tty4; \
@@ -117,7 +117,7 @@ d-i clock-setup/ntp boolean true
 ### touched.
 d-i partman/early_command string \
     set -e; \
-    URL=http://bootserv01.lan/scripts/{{ item }}-resolve-install-disk.sh; \
+    URL=http://bootserv01.lan:{{ bootserv_port }}/scripts/{{ item }}-resolve-install-disk.sh; \
     SCRIPT=/tmp/resolve-install-disk.sh; \
     if ! wget -q -O "$SCRIPT" "$URL"; then \
         echo "FATAL: could not fetch $URL" >/dev/tty4; \
@@ -249,6 +249,6 @@ d-i finish-install/reboot_in_progress note
 ### host.
 d-i preseed/late_command string \
     set -e ; \
-    in-target wget -qO /var/tmp/image-baseline.sh http://bootserv01.lan/scripts/image-baseline.sh ; \
+    in-target wget -qO /var/tmp/image-baseline.sh http://bootserv01.lan:{{ bootserv_port }}/scripts/image-baseline.sh ; \
     in-target bash /var/tmp/image-baseline.sh ; \
     in-target rm /var/tmp/image-baseline.sh

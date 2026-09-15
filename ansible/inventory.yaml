@@ -65,7 +65,7 @@
 #     (Debian 13 LXC; same ID on every standalone node). The `tags` list is significant beyond
 #     labelling: tag **`infra`** lifts the LXC into a per-node
 #     `infra_lxcs` Tofu module that VM modules `depends_on`, so infra
-#     LXCs (today: bootserv01) come up before any VM in the same
+#     LXCs come up before any VM in the same
 #     `tofu apply` — the ground-up bootstrap invariant. Storage is
 #     `vms` (the only pve_storage with `rootdir` content).
 #   - "Is this host bootserv-netbootable?" is derived, not declared:
@@ -361,6 +361,27 @@ workers:
         - "38:05:25:3a:1f:08" # SFP28
         - "38:05:25:3a:1f:09" # SFP28
         - "38:05:25:3a:16:b2"
+      # Hosts the bootserv role (relocated off the old bootserv01 LXC —
+      # see playbooks/poochella/infra/15-bootserv.yml). `bootserv01.lan`
+      # keeps resolving here via a static Unbound host-override
+      # (10-router.yml) so every hardcoded bootserv01.lan reference in
+      # roles/bootserv/templates/*.j2 needs no change. Flip to `false`
+      # to unapply (stops/disables dnsmasq-TFTP, the answer responder,
+      # and the Caddy site — see roles/bootserv/tasks/main.yml).
+      bootserv_enabled: true
+      # Overrides (not merges with) the kube_workers-group list above —
+      # Ansible hostvars resolve one firewall_inbound_allow per host, so
+      # this re-states the kubelet/flannel/node-exporter rules and adds
+      # bootserv's HTTP + TFTP.
+      firewall_inbound_allow:
+        - { port: 10250, proto: tcp, comment: "kubelet API" }
+        - { port: 8472, proto: udp, comment: "flannel VXLAN" }
+        - { port: 9100, proto: tcp, comment: "node-exporter" }
+        # NOT 80: k3s's svclb-traefik DaemonSet already claims 80/443
+        # cluster-wide via iptables (see group_vars/all/vars.yml's
+        # bootserv_port).
+        - { port: 8080, proto: tcp, comment: "bootserv http" }
+        - { port: 69, proto: udp, comment: "bootserv tftp" }
       storage:
         # Per-disk plain-ext4 = per-disk Longhorn disk (see metal-home-01
         # for the rationale). NO LVM, no spanning pool.
@@ -544,22 +565,10 @@ kubernetes:
         metal-home-01:
         metal-home-02:
 
-containers:
-  children:
-    bootserv:
-      hosts:
-        bootserv01:
-          ansible_host: bootserv01.lan
-          lxc:
-            proxmox_node: pve-home-01
-            cores: 1
-            memory: 512
-            disk_size: 30
-            unprivileged: true
-            features:
-              nesting: true
-            tags: [infra, bootserv]
-          firewall_inbound_allow:
-            - { proto: tcp, port: 22, comment: "ssh" }
-            - { proto: tcp, port: 80, comment: "http" }
-            - { proto: tcp, port: 443, comment: "https" }
+# Deployment target for the bootserv role (see playbooks/poochella/infra/
+# 15-bootserv.yml). Membership picks WHO runs it; the host's own
+# `bootserv_enabled` flag (set on metal-home-02 above) is the reversible
+# on/off switch the role itself checks.
+bootserv:
+  hosts:
+    metal-home-02:

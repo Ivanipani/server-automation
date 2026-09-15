@@ -1,0 +1,51 @@
+---
+# Reverses install.yml: stops/disables the services this role owns and
+# removes the config it dropped. Deliberately leaves the rendered
+# docroot/TFTP content in place (cloud-images, artifacts, etc. are
+# harmless at rest and expensive to re-fetch) — only the "is this host
+# actively serving netboot/PXE" state gets torn down.
+
+- name: Check if proxmox-answer-responder unit exists
+  ansible.builtin.stat:
+    path: /etc/systemd/system/proxmox-answer-responder.service
+  register: bootserv_pve_responder_unit
+
+- name: Stop and disable proxmox-answer-responder
+  ansible.builtin.systemd:
+    name: proxmox-answer-responder
+    state: stopped
+    enabled: false
+  when: bootserv_pve_responder_unit.stat.exists
+
+- name: Remove proxmox-answer-responder unit + script
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/proxmox-answer-responder.service
+    - /usr/local/bin/proxmox-answer-responder
+  register: bootserv_pve_responder_removed
+
+- name: Reload systemd after removing proxmox-answer-responder unit
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: bootserv_pve_responder_removed.changed
+
+- name: Remove bootserv Caddy site config
+  ansible.builtin.file:
+    path: /etc/caddy/sites-enabled/bootserv.caddy
+    state: absent
+  notify: "reload caddy"
+
+- name: Remove dnsmasq TFTP config
+  ansible.builtin.file:
+    path: /etc/dnsmasq.d/bootserv.conf
+    state: absent
+  register: bootserv_dnsmasq_removed
+
+- name: Stop and disable dnsmasq
+  ansible.builtin.systemd:
+    name: dnsmasq
+    state: stopped
+    enabled: false
+  when: bootserv_dnsmasq_removed.changed

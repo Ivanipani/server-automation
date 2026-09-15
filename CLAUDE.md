@@ -40,11 +40,11 @@ Groups define topology:
     - `pve_standalone` → every PVE host lives here (today: `pve-home-01` only). No corosync, no shared storage.
     - `pve_cluster` → **gated off**: empty group kept as deprecated scaffolding only. `20-hypervisor/20-cluster.yml` asserts this group is empty and fails the play otherwise.
   - `workers` → plain Linux baremetal (no PVE). k3s baremetal workers, app hosts, etc. Currently: `worker-home-02` (also listed in `kube_workers`). Workers have no `vm:`/`lxc:` block and are not in the `hypervisors` group, so Tofu does not see them.
-- `foundation` → top-level group containing the hypervisor(s) that must be all-the-way-up (full stack + bootserv01 LXC + bootserv role) before any other baremetal can come into being. Targeted by the 13-foundation tier via `target_hosts: foundation`. Today: just `pve-home-01`. Members MUST also appear under `hypervisors`.
+- `foundation` → top-level group containing the hypervisor(s) that must be all-the-way-up before any other baremetal can come into being. Targeted by the 13-foundation tier via `target_hosts: foundation`. Today: just `pve-home-01`. Members MUST also appear under `hypervisors`. (bootserv — the actual netboot dependency — no longer lives here; see `bootserv` group below.)
 - `switches` → managed network gear that wants a static lease
 - `virtual-machines` → has children `databases` and `kubernetes`
 - `kubernetes` → children `kube_control_plane` (kube-ctl-01..03) and `kube_workers` (kube-worker-01; -02/-03 commented out). All VM-based kube nodes are pinned to `pve-home-01` while it is the only hypervisor.
-- `containers` → `bootserv` (bootserv01 LXC on pve-home-01) + `webservers` placeholder
+- `bootserv` → deployment target for the bootserv role (iPXE/preseed netboot + PXE, dev-tool LAN mirror). Today: `metal-home-02`, a plain baremetal k3s worker — no longer a Proxmox LXC. `bootserv01.lan` is a static Unbound DNS override (10-router.yml) pointing at whichever host is in this group, on port `bootserv_port` (group_vars/all/vars.yml — NOT 80, since k3s's svclb-traefik DaemonSet already claims 80/443 cluster-wide via iptables on every node).
 
 ### Flux / GitOps (`k8s/`) — public/private split
 
@@ -70,7 +70,7 @@ Plays/roles that install a service should have a boolean enable/disable flag cap
 ## Collaboration rules (for Claude)
 
 - **Use comments SPARSELY. Avoid over-explaining decisions.**
-- **Diagnose by running read-only ansible ad-hoc commands directly**, e.g. `ansible pve-home-01 -m shell -a 'pveam list local' --become`, `ansible bootserv01 -m shell -a 'systemctl is-active dnsmasq nginx' --become`. Do not ask the user to copy/paste terminal output when an ad-hoc command can fetch the same information. The `ansible` user + `~/.ssh/ansible` key already trusts every fleet host.
+- **Diagnose by running read-only ansible ad-hoc commands directly**, e.g. `ansible pve-home-01 -m shell -a 'pveam list local' --become`, `ansible metal-home-02 -m shell -a 'systemctl is-active dnsmasq caddy proxmox-answer-responder' --become`. `bootserv01` is a DNS name, not an inventory host — target whichever host is in the `bootserv` group. Do not ask the user to copy/paste terminal output when an ad-hoc command can fetch the same information. The `ansible` user + `~/.ssh/ansible` key already trusts every fleet host.
 - **Never run a destructive command on the fleet without explicit per-command user permission.** "Destructive" = anything that mutates state on the host (`pct destroy`, `pveam remove`, `pvesm remove`, `rm`, `systemctl stop/disable`, `apt remove`, `qm destroy`, partitioning / disk wipes, killing processes, writing files outside `/tmp`, etc.). Reading config, listing resources, dumping logs, and `--check`/`--diff` dry-runs are fine. The same rule applies to OpenTofu (`tofu apply` against existing resources is destructive in principle) and to anything that touches OPNsense state.
 - **Use the NATO alphabet when naming cluster entities. Always start at Alpha and move up.**
 - **Never use git commands to probe the commit history. Use jujutsu instead.**

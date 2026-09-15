@@ -39,11 +39,11 @@ bootserv_lan_cidr: "10.1.1.0/24"
 bootserv_debian_release_url: "http://ftp.debian.org/debian/dists/trixie/main/installer-amd64/current/images"
 bootserv_debian_netboot_subdir: "netboot/debian-installer/amd64"
 
-# Caddy listen socket on the LXC. Port 80 by convention; the OPNsense
-# DNS reservation for `bootserv01.lan` resolves to the LXC's IP. Caddy
-# Caddyfile syntax: `:80` binds all interfaces; use e.g. `10.1.1.5:80`
-# to bind a single address.
-bootserv_http_listen: ":80"
+# Caddy listen socket. NOT port 80: bootserv now runs on a k3s node,
+# and k3s's svclb-traefik DaemonSet claims 80/443 cluster-wide via
+# iptables NAT (see group_vars/all/vars.yml's bootserv_port). `:PORT`
+# binds all interfaces; use e.g. `10.1.1.5:8080` to bind one address.
+bootserv_http_listen: ":{{ bootserv_port | default(8080) }}"
 
 # OS user that owns the document roots. Caddy runs as `caddy:caddy` so
 # the doc-root tree is owned by that user. dnsmasq's TFTP runs as

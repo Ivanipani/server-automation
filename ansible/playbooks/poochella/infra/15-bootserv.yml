@@ -1,0 +1,23 @@
+---
+# Deployment layer for the `bootserv` role (iPXE + Debian netboot boot
+# server) — targets the `bootserv` inventory group (today: just
+# metal-home-02; group membership is the deployment target,
+# `bootserv_enabled` on the host itself is the reversible on/off switch
+# the role checks — see roles/bootserv/tasks/main.yml).
+#
+# Relocated off the old bootserv01 LXC (which lived on pve-home-01) so
+# the fleet's netboot capability no longer depends on any Proxmox
+# hypervisor being up. `bootserv01.lan` keeps resolving to whichever
+# host is in the `bootserv` group via a static Unbound host-override
+# (10-router.yml) — every hardcoded bootserv01.lan reference in
+# roles/bootserv/templates/*.j2 needed no change.
+#
+# Must run AFTER 14-host-base.yml (needs the ansible user, ssh-hardening
+# and firewall baseline already in place) and BEFORE anything that
+# PXE-installs from bootserv01.lan.
+- name: Configure the bootserv role
+  hosts: "{{ bootserv_hosts | default('bootserv') }}"
+  become: true
+  gather_facts: true
+  roles:
+    - role: bootserv

@@ -63,5 +63,5 @@ ID_SERIAL_SHORT = "*{{ _boot.hw.serial }}*"
 # wrapper needs DNS + apt to install the prerequisites.
 [first-boot]
 source = "from-url"
-url = "http://bootserv01.lan/scripts/pve-first-boot.sh"
+url = "http://bootserv01.lan:{{ bootserv_port }}/scripts/pve-first-boot.sh"
 ordering = "network-online"

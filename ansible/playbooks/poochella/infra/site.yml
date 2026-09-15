@@ -47,6 +47,11 @@
 #                    against the wider `physical` group — pve-home-01
 #                    sees a no-op second pass (13-foundation already
 #                    did it).
+#   15-bootserv    → bootserv role on the `bootserv` group (today:
+#                    metal-home-02 — see inventory.yaml). No longer
+#                    Proxmox-coupled: runs on an already-provisioned
+#                    baremetal worker, so it just needs 14-host-base's
+#                    baseline (ansible user, firewall) ahead of it.
 #   20-hypervisor  → Proxmox-only fabric (repo flip, cluster, LVM-thin
 #                    register, template consume from bootserv01).
 #                    Depends on 14-host-base having created the ansible
@@ -69,6 +74,7 @@
 - import_playbook: 12-nas.yml
 - import_playbook: 13-foundation/site.yml
 - import_playbook: 14-host-base.yml
+- import_playbook: 15-bootserv.yml
 - import_playbook: 20-hypervisor/site.yml
 - import_playbook: 30-guests/site.yml
 - import_playbook: 40-kube/site.yml

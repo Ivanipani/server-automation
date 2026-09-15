@@ -18,7 +18,9 @@
 #   Per-group `vars.firewall_inbound_allow` blocks live on (today):
 #     dev, kube_control_plane, kube_workers (and commented scaffolds
 #     for `databases` and `dns`).
-#   Per-host overrides today: bootserv01 (SSH + HTTP).
+#   Per-host overrides today: none (bootserv moved to a baremetal
+#   worker — see ../15-bootserv.yml — so its firewall rules live on
+#   metal-home-02 in inventory.yaml instead of here).
 #
 # Precedence is standard Ansible: HOST > most-specific GROUP > parent.
 # There is NO list merge — the deepest level that defines the var

@@ -21,7 +21,10 @@
     # Only used below to compute dnsmasq_pxe_tftp_servername /
     # dnsmasq_pxe_script_url within THIS play — not consumed by the
     # router component itself, so a plain play var is fine here.
-    bootserv_fqdn: "{{ hostvars['bootserv01'].ansible_host | default('bootserv01.lan') }}"
+    # `bootserv01` is a floating DNS identity (Unbound host-override
+    # below), not an inventory host — it isn't tied to whichever
+    # physical box currently runs the bootserv role.
+    bootserv_fqdn: "bootserv01.lan"
   tasks:
     # Everything the router component's roles consume MUST be set via
     # set_fact (not plain `vars:`): a play's `vars:` block is local to
@@ -29,27 +32,31 @@
     # this ansible-playbook run — including the plays imported from
     # components/router/site.yml below.
 
-    # PXE flow: turn it on once bootserv01 is in the inventory. The
+    # PXE flow: turn it on once some host has bootserv_enabled: true. The
     # dnsmasq role guards every PXE task with `dnsmasq_pxe_enabled`, so
     # this is the on/off switch for the whole chainload mechanism. The
-    # TFTP server is advertised by RESOLVED IP (not hostname): the LXC
-    # has no static MAC/IP — its address is whatever dnsmasq's dynamic
-    # DNS assigned — and we resolve it once per playbook run via
-    # OPNsense's own DNS so old PXE ROMs that don't do DNS for option 66
-    # (e.g. some Mellanox FlexBoot revisions) still work. If the LXC
-    # ever takes a new lease, re-running the playbook refreshes this
-    # value. script_url stays as a hostname URL — iPXE itself does DNS
-    # resolution natively.
+    # TFTP server is advertised by RESOLVED IP (not hostname): bootserv's
+    # host has a static reservation, but we still resolve bootserv_fqdn
+    # via OPNsense's own DNS (rather than reading ip_address directly)
+    # so old PXE ROMs that don't do DNS for option 66 (e.g. some
+    # Mellanox FlexBoot revisions) still work, and a future bootserv
+    # relocation only needs the Unbound override updated. script_url
+    # stays as a hostname URL — iPXE itself does DNS resolution natively.
     - name: Compute PXE desired state
       ansible.builtin.set_fact:
-        dnsmasq_pxe_enabled: "{{ 'bootserv01' in groups['all'] }}"
+        dnsmasq_pxe_enabled: >-
+          {{ groups['all']
+             | map('extract', hostvars)
+             | selectattr('bootserv_enabled', 'defined')
+             | selectattr('bootserv_enabled')
+             | list | length > 0 }}
         # Resolved on the controller via `dig +short` against OPNsense
         # (DNS resolver on the LAN). `pipe` lookup avoids the dnspython
         # dependency that the community.general.dig lookup needs.
         dnsmasq_pxe_tftp_servername: >-
           {{ lookup('pipe', 'dig +short ' + bootserv_fqdn + ' @' + (hostvars['opnsense01'].ansible_host | default('10.1.1.1')))
              | trim | split('\n') | first }}
-        dnsmasq_pxe_script_url: "http://{{ bootserv_fqdn }}/boot.ipxe"
+        dnsmasq_pxe_script_url: "http://{{ bootserv_fqdn }}:{{ bootserv_port }}/boot.ipxe"
 
     - name: Compute non-PXE dnsmasq/unbound desired state
       ansible.builtin.set_fact:
@@ -117,6 +124,30 @@
             domain: lan
             record_type: A
             value: 10.1.1.240
+
+    # bootserv01.lan is a floating identity, not an inventory host —
+    # point it at whichever host currently has bootserv_enabled: true
+    # (today: metal-home-02) so every hardcoded bootserv01.lan reference
+    # in roles/bootserv/templates/*.j2 keeps resolving across a future
+    # relocation without further template edits.
+    - name: Append bootserv01.lan -> bootserv host to desired state
+      ansible.builtin.set_fact:
+        unbound_host_overrides: "{{ unbound_host_overrides + [{
+          'description': 'bootserv01',
+          'hostname': 'bootserv01',
+          'domain': domain | default('lan'),
+          'record_type': 'A',
+          'value': hostvars[_bootserv_host].ip_address,
+        }] }}"
+      vars:
+        _bootserv_host: >-
+          {{ groups['all']
+             | map('extract', hostvars)
+             | selectattr('bootserv_enabled', 'defined')
+             | selectattr('bootserv_enabled')
+             | map(attribute='inventory_hostname')
+             | first }}
+      when: dnsmasq_pxe_enabled | bool
 
     # Stable name in front of the k3s apiserver (kube-vip L2 VIP).
     # Lives in the top-level `lan` zone (transparent), NOT under
