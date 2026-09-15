@@ -1,0 +1,36 @@
+#!ipxe
+# Rendered by roles/bootserv from ansible/inventory.yaml — do not edit by hand.
+# Per-host iPXE script: casper kernel + initrd + autoinstall NoCloud seed
+# URL for {{ item }}. Chainloaded from boot.ipxe based on MAC dispatch.
+#
+# UNTESTED against real hardware as of authoring — Ubuntu 24.04 dropped
+# the d-i-shaped netboot tree the Debian path relies on, so this uses
+# the casper/subiquity netboot kernel+initrd (releases.ubuntu.com's
+# noble/netboot/amd64/{linux,initrd}) with `autoinstall
+# ds=nocloud-net;s=<url>` — the documented modern approach, but nothing
+# here has been validated by an actual PXE boot. Watch the first real
+# install closely (serial/HDMI console) and be ready to iterate.
+
+set base http://bootserv01.lan:{{ bootserv_port }}
+set host {{ item }}
+set domain {{ hostvars[item].domain | default(domain | default('lan')) }}
+
+{% set _boot_entry = (hostvars[item].storage.disks | selectattr('select', 'eq', 'boot') | list | first) %}
+echo
+echo Auto-installing Ubuntu 24.04 (Noble) on ${host}.${domain}
+echo  install_disk = subiquity-resolved from inventory hw pin
+echo                 serial='{{ _boot_entry.hw.serial }}'
+echo  autoinstall  = ${base}/ubuntu-autoinstall/${host}/
+echo
+
+# ip=dhcp is a redundant hint alongside casper's own network bring-up —
+# harmless if casper already DHCPs on its own before reaching the
+# NoCloud datasource search. The semicolon in ds= is backslash-escaped
+# per the documented GRUB/netboot convention (untested whether iPXE's
+# argument passing needs this too).
+kernel ${base}/ubuntu-noble/linux \
+  autoinstall ds=nocloud-net\;s=${base}/ubuntu-autoinstall/${host}/ \
+  ip=dhcp \
+  ---
+initrd ${base}/ubuntu-noble/initrd
+boot

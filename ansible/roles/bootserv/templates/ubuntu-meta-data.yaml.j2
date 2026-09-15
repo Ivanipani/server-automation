@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+# NoCloud datasource requires this file to exist at the seed URL
+# (can be minimal — cloud-init just needs SOME instance-id per boot
+# so it doesn't treat every install as the same cached instance).
+instance-id: {{ item }}-{{ ansible_date_time.epoch | default('0') }}
+local-hostname: {{ item }}

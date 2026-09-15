@@ -4,11 +4,13 @@
 # clients whose DHCP user-class is "iPXE", i.e. chainloaded from ipxe.efi /
 # undionly.kpxe). Dispatches on the booting NIC's MAC.
 #
-# Two host classes (both filtered to a `select: boot` disk with an
+# Three host classes (all filtered to a `select: boot` disk with an
 # `hw: {model, serial}` pin — the "installable via this bootserv" marker):
 #   - pve_hosts    (∈ groups['hypervisors'])  → Proxmox VE auto-installer
 #                    (one shared proxmox-install.ipxe; per-host answer is
 #                     selected later by the /proxmox-answer responder on MAC)
+#   - ubuntu_hosts (os: ubuntu-24.04)         → per-host subiquity autoinstall
+#                    (hosts/<host>.ipxe → casper + NoCloud autoinstall)
 #   - debian_hosts (everyone else)            → per-host Debian preseed
 #                    (hosts/<host>.ipxe → d-i + preseed)
 
@@ -21,7 +23,7 @@ echo
 iseq ${net0/mac} {{ m | lower }} && chain proxmox-install.ipxe ||
 {% endfor %}
 {% endfor %}
-{% for name in debian_hosts %}
+{% for name in ubuntu_hosts + debian_hosts %}
 {% for m in hostvars[name].mac_addresses %}
 iseq ${net0/mac} {{ m | lower }} && chain hosts/{{ name }}.ipxe ||
 {% endfor %}
@@ -31,6 +33,9 @@ echo No MAC-based dispatch matched. Falling back to the menu.
 menu Boot menu (unknown MAC ${net0/mac})
 {% for name in pve_hosts %}
 item {{ name }} Install Proxmox VE on {{ name }}
+{% endfor %}
+{% for name in ubuntu_hosts %}
+item {{ name }} Install Ubuntu 24.04 on {{ name }}
 {% endfor %}
 {% for name in debian_hosts %}
 item {{ name }} Install Debian 13 on {{ name }}
@@ -45,7 +50,7 @@ goto ${target}
 :{{ name }}
 chain proxmox-install.ipxe
 {% endfor %}
-{% for name in debian_hosts %}
+{% for name in ubuntu_hosts + debian_hosts %}
 :{{ name }}
 chain hosts/{{ name }}.ipxe
 {% endfor %}

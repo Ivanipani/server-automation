@@ -286,26 +286,6 @@ hypervisors:
                     pve_storage: vms
                     content: images,rootdir,iso,vztmpl,snippets
                     size: "0"          # fill the boot tail
-        pve-home-03:
-          ansible_host: pve-home-03.lan
-          ip_address: 10.1.1.109
-          mac_addresses:
-            - "f8:b4:6a:b8:55:af"
-          # e1000e "Detected Hardware Unit Hang" — run roles/nic-offload here.
-          disable_nic_offloads: true
-          storage:
-            disks:
-              - select: boot
-                hw:
-                  model: "KXG50ZNV1T02 TOSHIBA"
-                  serial: "69FS10VXTP9T"
-                partitions:
-                  - label: vm-storage
-                    vg: vmdata
-                    thinpool: vmthin
-                    pve_storage: vms
-                    content: images,rootdir,iso,vztmpl,snippets
-                    size: "0"          # fill the boot tail
     pve_cluster:
       children: {}
 
@@ -403,6 +383,40 @@ workers:
                 size: "0"
                 mount:
                   path: /var/lib/longhorn-disks/part-beta
+                  fstype: ext4
+    # First node converted from Proxmox to baremetal — see CLAUDE.md's
+    # "Servers" section and the migration plan. Same physical box as the
+    # old pve-home-03 (same MAC/disk), reimaged straight to Ubuntu 24.04
+    # via bootserv's autoinstall path (os: below) instead of carrying a
+    # kube-ctl-03 VM on top of Proxmox. Also a kube_control_plane member
+    # (see that group's hosts: block) — k3s_node_taints: [] there drops
+    # the default CP-only taint since it's schedulable + Longhorn-capable
+    # like the other workers, per the merge-CP+worker migration decision.
+    kube-master-03:
+      ansible_host: kube-master-03.lan
+      ip_address: 10.1.1.109
+      mac_addresses:
+        - "f8:b4:6a:b8:55:af"
+      # e1000e "Detected Hardware Unit Hang" — run roles/nic-offload here.
+      disable_nic_offloads: true
+      # Drives bootserv's boot.ipxe dispatch (PVE / ubuntu-24.04 / debian).
+      os: ubuntu-24.04
+      storage:
+        # Same physical disk pve-home-03 booted from, repartitioned from
+        # LVM-thin vm-storage to plain ext4 (see metal-home-01/02 for the
+        # per-disk-Longhorn-disk rationale). Longhorn Node CR registration
+        # (k8s/infra/storage/configs/longhorn/nodes.yaml) is a separate,
+        # later step — not yet done as of this host's addition here.
+        disks:
+          - select: boot
+            hw:
+              model: "KXG50ZNV1T02 TOSHIBA"
+              serial: "69FS10VXTP9T"
+            partitions:
+              - label: part-alpha
+                size: "0"          # boot tail — fills the rest
+                mount:
+                  path: /var/lib/longhorn-disks/part-alpha
                   fstype: ext4
 
 
@@ -544,16 +558,27 @@ kubernetes:
             memory: 12288
             disk_size: 30
             tags: [kube, control-plane]
-        kube-ctl-03:
-          ansible_host: kube-ctl-03.lan
-          ip_address: 10.1.1.112
-          mac_address: "02:00:00:00:02:03"
-          vm:
-            proxmox_node: pve-home-03
-            cores: 4
-            memory: 12288
-            disk_size: 30
-            tags: [kube, control-plane]
+        # kube-master-03: baremetal (ex-pve-home-03), no vm: block — full
+        # topology (ip/mac/storage/os) lives under workers.hosts below,
+        # same bare-reference pattern kube_workers uses. Overrides the
+        # group default CP taint since it's schedulable (Longhorn +
+        # ordinary workloads), per the merge-CP+worker migration decision.
+        # firewall_inbound_allow also needs a host-level override (not
+        # just the group's list): unlike the kube-ctl-01/02 VMs, this
+        # host is ALSO in `workers`/`physical`, so host-base installs
+        # node-exporter here and 9100 needs to be open — the group var
+        # resolution doesn't merge kube_control_plane's list with
+        # physical's (see metal-home-02's firewall_inbound_allow for the
+        # same pattern/reasoning).
+        kube-master-03:
+          k3s_node_taints: []
+          firewall_inbound_allow:
+            - { port: 6443, proto: tcp, comment: "kube-apiserver + kube-vip VIP" }
+            - { port: 2379, proto: tcp, comment: "embedded etcd client" }
+            - { port: 2380, proto: tcp, comment: "embedded etcd peer" }
+            - { port: 10250, proto: tcp, comment: "kubelet API" }
+            - { port: 8472, proto: udp, comment: "flannel VXLAN" }
+            - { port: 9100, proto: tcp, comment: "node-exporter" }
     kube_workers:
       vars:
         firewall_inbound_allow:

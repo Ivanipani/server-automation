@@ -96,7 +96,7 @@ spec:
               - targets:
                   - pve-home-01.lan:9100
                   - pve-home-02.lan:9100
-                  - pve-home-03.lan:9100
+                  - kube-master-03.lan:9100
                   - metal-home-01.lan:9100
                   - metal-home-02.lan:9100
                   - heimdall.lan:9100

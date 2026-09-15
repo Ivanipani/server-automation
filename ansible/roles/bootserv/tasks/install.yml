@@ -16,6 +16,9 @@
 #     /boot.ipxe                   the script iPXE clients fetch after chainload
 #     /hosts/<host>.ipxe           per-host dispatch (kernel/initrd/preseed URL)
 #     /debian-13/{linux,initrd.gz} pinned upstream netboot installer
+#     /ubuntu-noble/{linux,initrd} pinned upstream casper netboot kernel
+#     /ubuntu-autoinstall/<host>/  per-host user-data + meta-data (LAN-only,
+#       {user-data,meta-data}      NoCloud datasource dir)
 #     /preseed/<host>.cfg          per-host preseed (LAN-only)
 #     /scripts/image-baseline.sh   canonical pre-bake baseline script
 #                                  (LAN-only — embeds the tourmanager
@@ -76,6 +79,8 @@
       {{ [bootserv_tftp_root,
           bootserv_http_root,
           bootserv_http_root ~ '/debian-13',
+          bootserv_http_root ~ '/ubuntu-noble',
+          bootserv_http_root ~ '/ubuntu-autoinstall',
           bootserv_http_root ~ '/hosts',
           bootserv_http_root ~ '/preseed',
           bootserv_http_root ~ '/scripts',
@@ -157,6 +162,42 @@
     mode: "0644"
     force: false
 
+# --- HTTP: Ubuntu 24.04 (Noble) casper netboot kernel + initrd -------
+# Unlike Debian, Canonical doesn't publish a per-file upstream checksum
+# for the loose netboot/amd64/{linux,initrd} files (only the bundled
+# ISO/tar.gz artifacts get a SHA256SUMS entry) — fetched over HTTPS
+# instead, which is the integrity mechanism here. Only fetched at all
+# when some host actually declares `os: ubuntu-24.04` (a ~100MB pull
+# otherwise skipped on every idempotent re-run).
+- name: Determine whether any host wants Ubuntu 24.04 netboot
+  ansible.builtin.set_fact:
+    bootserv_wants_ubuntu: >-
+      {{ groups['all']
+         | map('extract', hostvars)
+         | selectattr('os', 'defined')
+         | selectattr('os', 'equalto', 'ubuntu-24.04')
+         | list | length > 0 }}
+
+- name: Fetch Ubuntu 24.04 netboot kernel
+  ansible.builtin.get_url:
+    url: "{{ bootserv_ubuntu_release_url }}/{{ bootserv_ubuntu_netboot_subdir }}/linux"
+    dest: "{{ bootserv_http_root }}/ubuntu-noble/linux"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0644"
+    force: false
+  when: bootserv_wants_ubuntu
+
+- name: Fetch Ubuntu 24.04 netboot initrd
+  ansible.builtin.get_url:
+    url: "{{ bootserv_ubuntu_release_url }}/{{ bootserv_ubuntu_netboot_subdir }}/initrd"
+    dest: "{{ bootserv_http_root }}/ubuntu-noble/initrd"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0644"
+    force: false
+  when: bootserv_wants_ubuntu
+
 # --- iPXE dispatcher + per-host scripts ------------------------------
 # The dispatcher matches on the MAC of the booting NIC and chains to
 # the per-host script. A host is "netbootable via this bootserv preseed"
@@ -183,15 +224,30 @@
   loop_control:
     label: "{{ item }}"
 
-# Split the netbootable hosts by role. Hypervisors get the Proxmox VE
+# Split the netbootable hosts by role/OS. Hypervisors get the Proxmox VE
 # auto-installer (one shared proxmox-install.ipxe + a MAC-matched
-# answer.toml); everyone else gets the per-host Debian preseed path.
-# This also corrects a latent mismatch: PVE hosts were previously offered
-# a Debian preseed by the single dispatch list.
-- name: Split netboot hosts into PVE (hypervisors) vs Debian
+# answer.toml); hosts declaring `os: ubuntu-24.04` get the subiquity
+# autoinstall path; everyone else (the historical default — Debian
+# workers) gets the per-host Debian preseed path. This also corrects a
+# latent mismatch: PVE hosts were previously offered a Debian preseed
+# by the single dispatch list.
+- name: Split netboot hosts into PVE / Ubuntu / Debian
   ansible.builtin.set_fact:
     bootserv_pve_hosts: "{{ bootserv_netboot_hosts | intersect(groups.get('hypervisors', [])) | list }}"
-    bootserv_debian_hosts: "{{ bootserv_netboot_hosts | difference(groups.get('hypervisors', [])) | list }}"
+    bootserv_ubuntu_hosts: >-
+      {{ (bootserv_netboot_hosts | difference(groups.get('hypervisors', [])))
+         | map('extract', hostvars)
+         | selectattr('os', 'defined')
+         | selectattr('os', 'equalto', 'ubuntu-24.04')
+         | map(attribute='inventory_hostname')
+         | list }}
+
+- name: Compute Debian netboot hosts (everyone else)
+  ansible.builtin.set_fact:
+    bootserv_debian_hosts: >-
+      {{ bootserv_netboot_hosts
+         | difference(groups.get('hypervisors', []))
+         | difference(bootserv_ubuntu_hosts) }}
 
 - name: Render the iPXE dispatcher (boot.ipxe)
   ansible.builtin.template:
@@ -202,6 +258,7 @@
     mode: "0644"
   vars:
     pve_hosts: "{{ bootserv_pve_hosts }}"
+    ubuntu_hosts: "{{ bootserv_ubuntu_hosts }}"
     debian_hosts: "{{ bootserv_debian_hosts }}"
 
 - name: Render per-host Debian iPXE script
@@ -212,6 +269,52 @@
     group: "{{ bootserv_group }}"
     mode: "0644"
   loop: "{{ bootserv_debian_hosts }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Render per-host Ubuntu iPXE script
+  ansible.builtin.template:
+    src: ubuntu-host.ipxe.j2
+    dest: "{{ bootserv_http_root }}/hosts/{{ item }}.ipxe"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0644"
+  loop: "{{ bootserv_ubuntu_hosts }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Ensure per-host Ubuntu autoinstall directory
+  ansible.builtin.file:
+    path: "{{ bootserv_http_root }}/ubuntu-autoinstall/{{ item }}"
+    state: directory
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0750"
+  loop: "{{ bootserv_ubuntu_hosts }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Render per-host Ubuntu autoinstall user-data
+  ansible.builtin.template:
+    src: ubuntu-user-data.yaml.j2
+    dest: "{{ bootserv_http_root }}/ubuntu-autoinstall/{{ item }}/user-data"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0640"
+  loop: "{{ bootserv_ubuntu_hosts }}"
+  loop_control:
+    label: "{{ item }}"
+  vars:
+    _hw: "{{ (hostvars[item].storage.disks | selectattr('select', 'eq', 'boot') | list | first).hw }}"
+
+- name: Render per-host Ubuntu autoinstall meta-data
+  ansible.builtin.template:
+    src: ubuntu-meta-data.yaml.j2
+    dest: "{{ bootserv_http_root }}/ubuntu-autoinstall/{{ item }}/meta-data"
+    owner: "{{ bootserv_owner }}"
+    group: "{{ bootserv_group }}"
+    mode: "0640"
+  loop: "{{ bootserv_ubuntu_hosts }}"
   loop_control:
     label: "{{ item }}"
 

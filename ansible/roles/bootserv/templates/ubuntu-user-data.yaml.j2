@@ -1,0 +1,144 @@
+#cloud-config
+# {{ ansible_managed }}
+# Ubuntu 24.04 (Noble) autoinstall for {{ item }}. Served at
+# {{ bootserv_http_root }}/ubuntu-autoinstall/{{ item }}/user-data (LAN-only,
+# same @sensitive ACL as Debian's /preseed/ and /scripts/) and loaded by
+# subiquity via the NoCloud datasource (ds=nocloud-net;s=<dir url> — see
+# ubuntu-host.ipxe.j2).
+#
+# UNTESTED against real hardware — see the warning in ubuntu-host.ipxe.j2.
+# The storage section in particular wipes a disk; validate this config
+# (subiquity's own dry-run, or a scratch VM) before trusting it against
+# real hardware you care about.
+#
+# Design mirrors the Debian preseed's philosophy exactly: do the
+# ABSOLUTE MINIMUM here to get a bootable, network-reachable box, then
+# hand off to the canonical image-baseline.sh (late-commands, below) for
+# every real account/hardening decision — single source of truth shared
+# with the VM bake, LXC bake, and PVE first-boot paths. See
+# group_vars/all/image-baseline.yml.
+autoinstall:
+  version: 1
+
+  # Fully unattended — without this, subiquity pauses for operator
+  # confirmation on several sections even when booted with the
+  # `autoinstall` kernel param (a safety valve for interactive-console
+  # use that doesn't apply to a headless netboot fleet).
+  interactive-sections: []
+
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+
+  # subiquity requires an identity block even though the real accounts
+  # (ansible key-only + tourmanager password break-glass) are created by
+  # image-baseline.sh in late-commands. Throwaway, immediately superseded
+  # — same rationale as the Debian preseed's throwaway root password
+  # (see preseed.cfg.j2's Accounts section comment).
+  identity:
+    hostname: {{ item }}
+    username: install-temp
+    password: "{{ 'install-temp-locked-by-late-command' | password_hash('sha512') }}"
+
+  ssh:
+    install-server: true
+    allow-pw: false
+
+  # Disk resolution: subiquity's `match.serial` on the disk action scopes
+  # every destructive action to the exact pinned disk — no separate
+  # dd-wipe resolver script needed like the Debian path (curtin only
+  # ever touches the disk(s) named in this config; siblings are
+  # untouched by construction, not by a hand-rolled safety check).
+  #
+  # Layout mirrors the Debian preseed's 4-partition scheme for parity
+  # across the fleet: ESP + swap + 100G root + an unmounted remainder
+  # that host-disks repurposes post-install via the inventory's
+  # storage.disks[?select == 'boot'].partitions block.
+  #
+  # ASSUMPTION (unverified): `size: -1` for "consume the rest of the
+  # disk" on the last partition. If subiquity rejects this, the fix is
+  # to omit `size` entirely on the final partition instead.
+  storage:
+    config:
+      - type: disk
+        id: disk-boot
+        match:
+          serial: "{{ _hw.serial }}"
+        wipe: superblock-recursive
+        preserve: false
+        ptable: gpt
+        grub_device: true
+      - type: partition
+        id: part-esp
+        device: disk-boot
+        size: 538M
+        flag: boot
+      - type: format
+        id: fmt-esp
+        volume: part-esp
+        fstype: fat32
+      - type: mount
+        id: mount-esp
+        device: fmt-esp
+        path: /boot/efi
+      - type: partition
+        id: part-swap
+        device: disk-boot
+        size: 4096M
+      - type: format
+        id: fmt-swap
+        volume: part-swap
+        fstype: swap
+      - type: partition
+        id: part-root
+        device: disk-boot
+        size: 100G
+      - type: format
+        id: fmt-root
+        volume: part-root
+        fstype: ext4
+      - type: mount
+        id: mount-root
+        device: fmt-root
+        path: /
+      - type: partition
+        id: part-data
+        device: disk-boot
+        size: -1
+      - type: format
+        id: fmt-data
+        volume: part-data
+        fstype: ext4
+        # Deliberately no mount action — same "unmounted placeholder"
+        # design as the Debian preseed's p4. host-disks claims it
+        # post-install.
+
+  # Explicit swap partition above — don't ALSO let subiquity carve an
+  # automatic swapfile on the root filesystem.
+  swap:
+    size: 0
+
+  timezone: {{ bootserv_timezone }}
+
+  # Minimal base + SSH; the rest is Ansible's job — same philosophy as
+  # the Debian preseed's tasksel/pkgsel.
+  packages:
+    - openssh-server
+    - python3
+    - sudo
+    - zsh
+    - curl
+    - ca-certificates
+    - gnupg
+
+  # Run inside the target chroot automatically (subiquity's equivalent
+  # of the Debian preseed's `in-target` late_command) — wget + bash the
+  # canonical image-baseline.sh, same single source of truth every other
+  # provisioning medium uses. rm'd immediately after: it contains the
+  # vault-derived tourmanager password hash.
+  late-commands:
+    - curl -fsSLo /target/var/tmp/image-baseline.sh "http://bootserv01.lan:{{ bootserv_port }}/scripts/image-baseline.sh"
+    - curtin in-target --target=/target -- bash /var/tmp/image-baseline.sh
+    - curtin in-target --target=/target -- rm /var/tmp/image-baseline.sh
+
+  shutdown: reboot
