@@ -119,14 +119,8 @@ d-i partman/early_command string \
     set -e; \
     URL=http://bootserv01.lan:{{ bootserv_port }}/scripts/{{ item }}-resolve-install-disk.sh; \
     SCRIPT=/tmp/resolve-install-disk.sh; \
-    ok=0; \
-    for i in 1 2 3 4 5; do \
-        wget -q -O "$SCRIPT" "$URL" && { ok=1; break; }; \
-        echo "WARN: fetch attempt $i/5 failed, retrying in 3s: $URL" >/dev/tty4; \
-        sleep 3; \
-    done; \
-    if [ "$ok" != 1 ]; then \
-        echo "FATAL: could not fetch $URL after 5 attempts" >/dev/tty4; \
+    if ! wget -q -O "$SCRIPT" "$URL"; then \
+        echo "FATAL: could not fetch $URL" >/dev/tty4; \
         echo "  debug: Alt+F2 = busybox shell  |  Alt+F4 = d-i syslog  |  Alt+F1 = install screen" >/dev/tty4; \
         exit 1; \
     fi; \
