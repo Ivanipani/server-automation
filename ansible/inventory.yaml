@@ -184,12 +184,13 @@
 #                            asserts this group is empty.
 #   - `workers`        → plain Linux baremetal (no PVE). k3s baremetal
 #                        workers, app hosts, etc. Today: metal-home-01
-#                        (renamed from pve-home-01 after the gaming-PC
-#                        box was de-Proxmoxed to plain Debian; old
-#                        crash-loop unit replaced), pve-home-02 and
-#                        pve-home-03 both retired to baremetal
-#                        (kube-master-02/-03). pve-home-01 is the only
-#                        remaining hypervisor.
+#                        (renamed from the OLD pve-home-01 after the
+#                        gaming-PC box was de-Proxmoxed to plain Debian;
+#                        old crash-loop unit replaced), and pve-home-01/
+#                        -02/-03 all retired to baremetal
+#                        (kube-master-01/-02/-03). `hypervisors` and
+#                        `foundation` are both empty now — no Proxmox
+#                        hosts remain in the fleet.
 
 all:
   vars:
@@ -234,8 +235,7 @@ physical:
     workers:
 
 foundation:
-  hosts:
-    pve-home-01:
+  hosts: {}
 
 hypervisors:
   vars:
@@ -252,22 +252,7 @@ hypervisors:
         options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
   children:
     pve_standalone:
-      hosts:
-        pve-home-01:
-          ansible_host: pve-home-01.lan
-          ip_address: 10.1.1.105
-          mac_addresses:
-            - "18:60:24:dc:b7:32"
-          storage:
-            disks:
-              - select: boot
-                partitions:
-                  - label: vm-storage
-                    vg: vmdata
-                    thinpool: vmthin
-                    pve_storage: vms
-                    content: images,rootdir,iso,vztmpl,snippets
-                    size: "0"          # fill the boot tail
+      hosts: {}
     pve_cluster:
       children: {}
 
@@ -434,6 +419,41 @@ workers:
                 mount:
                   path: /var/lib/longhorn-disks/part-alpha
                   fstype: ext4
+    # Third node converted from Proxmox to baremetal — same procedure as
+    # kube-master-02/-03 above. Same physical box as the old pve-home-01
+    # (same MAC/disk), reimaged straight to Debian 13 via bootserv's
+    # preseed path (same as metal-home-01/02/kube-master-02/03 — no `os:`
+    # override needed) instead of carrying a kube-ctl-01 VM on top of
+    # Proxmox. pve-home-01 was also the last remaining hypervisor and the
+    # sole `foundation` member — both groups are now empty. Also a
+    # kube_control_plane member (see that group's hosts: block) —
+    # k3s_node_taints: [] there drops the default CP-only taint since
+    # it's schedulable + Longhorn-capable like the other workers, per the
+    # merge-CP+worker migration decision.
+    kube-master-01:
+      ansible_host: kube-master-01.lan
+      ip_address: 10.1.1.105
+      mac_addresses:
+        - "18:60:24:dc:b7:32"
+      # e1000e "Detected Hardware Unit Hang" — run roles/nic-offload here.
+      disable_nic_offloads: true
+      storage:
+        # Same physical disk pve-home-01 booted from, repartitioned from
+        # LVM-thin vm-storage to plain ext4 (see metal-home-01/02 for the
+        # per-disk-Longhorn-disk rationale). Longhorn Node CR registration
+        # (k8s/infra/storage/configs/longhorn/nodes.yaml) is a separate,
+        # later step — not yet done as of this host's addition here.
+        disks:
+          - select: boot
+            hw:
+              model: "Timetec SD09"
+              serial: "TS240918A1T1476"
+            partitions:
+              - label: part-alpha
+                size: "0"          # boot tail — fills the rest
+                mount:
+                  path: /var/lib/longhorn-disks/part-alpha
+                  fstype: ext4
 
 
 switches:
@@ -554,16 +574,6 @@ kubernetes:
             path: /mnt/nas/k3s-snapshots
             options: "rw,vers=4,_netdev,nofail,bg,soft,intr,timeo=30"
       hosts:
-        kube-ctl-01:
-          ansible_host: kube-ctl-01.lan
-          ip_address: 10.1.1.110
-          mac_address: "02:00:00:00:02:01"
-          vm:
-            proxmox_node: pve-home-01
-            cores: 4
-            memory: 12288
-            disk_size: 30
-            tags: [kube, control-plane]
         # kube-master-02: baremetal (ex-pve-home-02), no vm: block — full
         # topology (ip/mac/storage) lives under workers.hosts above, same
         # bare-reference pattern kube_workers uses. Overrides the group
@@ -598,6 +608,28 @@ kubernetes:
         # physical's (see metal-home-02's firewall_inbound_allow for the
         # same pattern/reasoning).
         kube-master-03:
+          k3s_node_taints: []
+          firewall_inbound_allow:
+            - { port: 6443, proto: tcp, comment: "kube-apiserver + kube-vip VIP" }
+            - { port: 2379, proto: tcp, comment: "embedded etcd client" }
+            - { port: 2380, proto: tcp, comment: "embedded etcd peer" }
+            - { port: 10250, proto: tcp, comment: "kubelet API" }
+            - { port: 8472, proto: udp, comment: "flannel VXLAN" }
+            - { port: 9100, proto: tcp, comment: "node-exporter" }
+        # kube-master-01: baremetal (ex-pve-home-01, the last hypervisor),
+        # no vm: block — full topology (ip/mac/storage) lives under
+        # workers.hosts above, same bare-reference pattern kube_workers
+        # uses. Overrides the group default CP taint since it's
+        # schedulable (Longhorn + ordinary workloads), per the
+        # merge-CP+worker migration decision.
+        # firewall_inbound_allow also needs a host-level override (not
+        # just the group's list): unlike the old kube-ctl-01 VM, this
+        # host is ALSO in `workers`/`physical`, so host-base installs
+        # node-exporter here and 9100 needs to be open — the group var
+        # resolution doesn't merge kube_control_plane's list with
+        # physical's (see metal-home-02's firewall_inbound_allow for the
+        # same pattern/reasoning).
+        kube-master-01:
           k3s_node_taints: []
           firewall_inbound_allow:
             - { port: 6443, proto: tcp, comment: "kube-apiserver + kube-vip VIP" }
