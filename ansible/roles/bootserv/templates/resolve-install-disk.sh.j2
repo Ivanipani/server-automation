@@ -11,7 +11,9 @@
 #      neither lsblk nor PKNAME, and sysfs is the canonical kernel
 #      source anyway).
 #   2. Matches one disk against the inventory hw pin (model + serial)
-#      from storage.disks[?select == 'boot'].hw.{model, serial}.
+#      from storage.disks[?select == 'boot'].hw.{model, serial}. An
+#      empty hw.serial matches on model alone — some SATA controllers
+#      never populate device/serial in sysfs at all (unlike NVMe).
 #   3. Wipes the partition table on the resolved disk (dd-zero first
 #      10 MiB + last 64 KiB, then blockdev --rereadpt). The wipe is
 #      deliberately MINIMAL — just enough to kill the primary GPT
@@ -115,8 +117,16 @@ for d in /sys/block/*; do
     s=""
     [ -r "$d/device/serial" ] && s=$(norm < "$d/device/serial")
     say "  candidate: /dev/$bn  model='$m'  serial='$s'"
-    if [ "$m" = "$EXPECTED_MODEL" ] && [ "$s" = "$EXPECTED_SERIAL" ]; then
+    # Some SATA controllers never populate device/serial in sysfs at all
+    # (unlike NVMe, which reliably does) — lsblk/udev can still show a
+    # serial for the same disk via a deeper SG_IO probe d-i's stripped
+    # runtime can't replicate. An inventory hw.serial of "" is the
+    # explicit, documented opt-out for that case: match on model alone.
+    # Non-empty EXPECTED_SERIAL still requires an exact match — this
+    # never loosens the pin for a host where sysfs DOES expose a serial.
+    if [ "$m" = "$EXPECTED_MODEL" ] && { [ -z "$EXPECTED_SERIAL" ] || [ "$s" = "$EXPECTED_SERIAL" ]; }; then
         install_disk="/dev/$bn"
+        [ -z "$EXPECTED_SERIAL" ] && say "  matched on model only (inventory hw.serial is empty)"
         break
     fi
 done

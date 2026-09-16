@@ -447,7 +447,12 @@ workers:
           - select: boot
             hw:
               model: "Timetec SD09"
-              serial: "TS240918A1T1476"
+              # This SATA controller never populates /sys/block/*/device/serial
+              # (lsblk's SERIAL comes from a deeper udev SG_IO probe the d-i
+              # resolver can't replicate) — empty serial matches on model
+              # alone; the only other block device at install time is the
+              # USB installer media itself, so model is unambiguous.
+              serial: ""
             partitions:
               - label: part-alpha
                 size: "0"          # boot tail — fills the rest
