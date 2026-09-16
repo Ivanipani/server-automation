@@ -27,26 +27,28 @@ metadata:
   name: metal-home-01
   namespace: longhorn-system
 spec:
-  allowScheduling: true
+  # Being decommissioned (repurposed as a personal Windows PC) — evicting
+  # all replicas onto kube-master-01/02/03 + metal-home-02 before removal.
+  allowScheduling: false
   disks:
     part-alpha:
       path: /var/lib/longhorn-disks/part-alpha
-      allowScheduling: true
-      evictionRequested: false
+      allowScheduling: false
+      evictionRequested: true
       storageReserved: 0
       tags: ["boot", "nvme"]
       diskType: filesystem
     part-beta:
       path: /var/lib/longhorn-disks/part-bravo
-      allowScheduling: true
-      evictionRequested: false
+      allowScheduling: false
+      evictionRequested: true
       storageReserved: 0
       tags: ["nvme"]
       diskType: filesystem
     part-gamma:                                 # spinning HDD — tag to keep hot data off it
       path: /var/lib/longhorn-disks/part-charlie
-      allowScheduling: true
-      evictionRequested: false
+      allowScheduling: false
+      evictionRequested: true
       storageReserved: 0
       tags: ["hdd"]
       diskType: filesystem
