@@ -249,10 +249,17 @@
   when: _hw_pinned_boot | length > 0
 
 - name: Assert declared boot-disk `hw:` matches the live boot disk
+  # An empty inventory serial is the documented opt-out for controllers
+  # that don't expose one to every tool (some SATA controllers never
+  # populate /sys/block/*/device/serial, unlike NVMe — see
+  # roles/bootserv/templates/resolve-install-disk.sh.j2, which resolves
+  # this same host's boot disk at install time under that exact
+  # limitation) — match on model alone rather than demanding a serial
+  # that isn't consistently available.
   ansible.builtin.assert:
     that:
       - (_boot_model.stdout | trim) == _hw_pinned_boot.model
-      - (_boot_serial.stdout | trim) == _hw_pinned_boot.serial
+      - (_hw_pinned_boot.serial | length == 0) or ((_boot_serial.stdout | trim) == _hw_pinned_boot.serial)
     fail_msg: >-
       {{ inventory_hostname }}: inventory pins the boot disk to
       model='{{ _hw_pinned_boot.model }}' serial='{{ _hw_pinned_boot.serial }}'
