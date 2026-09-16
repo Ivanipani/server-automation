@@ -39,6 +39,17 @@ argument_specs:
               select:
                 type: raw
                 description: "'boot' (the auto-detected boot disk) OR a dict selector: {model, serial} for one exact drive, or {min_size_gib|size_gib, rotational} for an attribute match."
+              hw:
+                type: dict
+                required: false
+                description: "Optional {model, serial} pin on a `select: boot` entry. Unused by this role — it's the marker roles/bootserv reads to resolve the install-disk during netboot (see inventory.yaml's header comment)."
+                options:
+                  model:
+                    type: str
+                    required: true
+                  serial:
+                    type: str
+                    required: true
               wipe:
                 type: str
                 choices: [refuse, force]

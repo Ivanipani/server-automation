@@ -203,3 +203,4 @@
     name:
       - proxmox-auto-install-assistant
       - xorriso
+    update_cache: true
