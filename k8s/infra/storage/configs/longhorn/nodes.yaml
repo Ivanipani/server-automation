@@ -105,4 +105,20 @@ spec:
       storageReserved: 0
       tags: ["boot", "nvme"]
       diskType: filesystem
+---
+apiVersion: longhorn.io/v1beta2
+kind: Node
+metadata:
+  name: kube-master-01
+  namespace: longhorn-system
+spec:
+  allowScheduling: true
+  disks:
+    part-alpha:                                   # boot-SATA-SSD tail (~840 GiB)
+      path: /var/lib/longhorn-disks/part-alpha     # baremetal-converted hypervisor (ex-pve-home-01, last standing)
+      allowScheduling: true
+      evictionRequested: false
+      storageReserved: 0
+      tags: ["boot", "sata"]
+      diskType: filesystem
 
