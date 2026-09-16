@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Declarative homelab automation for **poochella**: a small Proxmox VE fleet running a k3s Kubernetes cluster on node-local LVM-thin-backed VMs, fronted by an OPNsense router. OpenTofu provisions infrastructure on Proxmox; Ansible configures everything else. The control node is the user's laptop.
+Declarative homelab automation for **poochella**: a k3s Kubernetes cluster on baremetal nodes, fronted by an OPNsense router. Ansible configures everything. The control node is the user's laptop.
 
-**Every Proxmox hypervisor is a fully standalone PVE host** — **no corosync, no shared storage, no HA, no live-migration**.
+The fleet has **0 Proxmox hypervisors today** — every former PVE box was converted to baremetal. All OpenTofu + Proxmox-hypervisor-provisioning code (the `tofu/` root, the `hypervisor` role, the `13-foundation`/`20-hypervisor`/`30-guests` tiers, the Proxmox PVE-PXE ISO builder) has been archived, not deleted, at `archive/proxmox-hypervisor/` (see its README.md for the restore procedure) — it stays fully functional if a hypervisor comes back. **Every Proxmox hypervisor is a fully standalone PVE host** — **no corosync, no shared storage, no HA, no live-migration** — that invariant still holds for the archived code.
 
 ## Servers
 

@@ -22,20 +22,6 @@
 #                    independent of host bootstrap; admin'd via DSM,
 #                    not the ansible user/key path the host-base
 #                    component sets up. See docs/ansible-layout.md.
-#   13-foundation  → Foundational subset (the `foundation` group, today
-#                    just pve-home-01): full host-base + 20-hypervisor
-#                    stack PLUS a bootstrap-only LXC template bake PLUS
-#                    a TARGETED Tofu apply that creates ONLY the infra
-#                    LXCs (bootserv01) PLUS the bootserv role PLUS the
-#                    full PRODUCER step that bakes the Debian VM qcow2
-#                    and snapshots the LXC template, publishing both to
-#                    bootserv01 HTTP. Must complete before 14-host-base
-#                    below — fresh baremetals need bootserv01.lan to
-#                    netboot AND fresh hypervisors need the published
-#                    artifacts to consume. The tier re-imports the
-#                    host-base / 20-hypervisor deployment wrappers with
-#                    `target_hosts: foundation` rather than duplicating
-#                    them.
 #   14-host-base   → Layer-1 component (components/host-base), invoked
 #                    via the deployment wrapper 14-host-base.yml: every
 #                    baseline condition a baremetal Linux host needs —
@@ -43,27 +29,26 @@
 #                    firewall, MOTD, node-local disks, NFS mounts,
 #                    NIC-offload workaround, firmware baseline,
 #                    Tailscale, node_exporter — on every host in
-#                    `physical` (hypervisors + workers). Re-applied here
-#                    against the wider `physical` group — pve-home-01
-#                    sees a no-op second pass (13-foundation already
-#                    did it).
+#                    `physical` (today: workers only, see below).
 #   15-bootserv    → bootserv role on the `bootserv` group (today:
 #                    metal-home-02 — see inventory.yaml). No longer
 #                    Proxmox-coupled: runs on an already-provisioned
 #                    baremetal worker, so it just needs 14-host-base's
 #                    baseline (ansible user, firewall) ahead of it.
-#   20-hypervisor  → Proxmox-only fabric (repo flip, cluster, LVM-thin
-#                    register, template consume from bootserv01).
-#                    Depends on 14-host-base having created the ansible
-#                    user and on 13-foundation having published the
-#                    centrally-baked VM/LXC artifacts to bootserv01.
-#                    Also re-applied against the wider `hypervisors`
-#                    group; no-op on foundation hypervisors.
-#   30-guests      → OpenTofu barrier (router + hypervisor converge)
-#                    Runs the UN-TARGETED `tofu apply` — creates VMs
-#                    and reconciles the infra LXCs already created by
-#                    13-foundation.
 #   40-kube        → VM/container config + k3s
+#
+# ARCHIVED: 13-foundation, 20-hypervisor, and 30-guests — the Proxmox
+# hypervisor bootstrap tiers and the OpenTofu VM/LXC provisioning barrier
+# — are not part of this tier list. The fleet has 0 Proxmox hypervisors
+# today (every former PVE box was converted to baremetal), so that
+# machinery was moved out of the hot path to
+# archive/proxmox-hypervisor/ (see its README.md) rather than deleted.
+# To bring a hypervisor back: move
+# archive/proxmox-hypervisor/{tofu,ansible/roles/hypervisor,ansible/playbooks/{13-foundation,20-hypervisor,30-guests}}
+# back to their original paths and re-add
+# `- import_playbook: 13-foundation/site.yml` (before 14-host-base),
+# `- import_playbook: 20-hypervisor/site.yml`, and
+# `- import_playbook: 30-guests/site.yml` (both after 15-bootserv) below.
 #
 # Single-host piecemeal dev: fzf-pick any one tier playbook via
 # `just run --limit <host>`. Each playbook self-bootstraps (via the
@@ -72,9 +57,6 @@
 - import_playbook: ../../../components/control-node/site.yml
 - import_playbook: 10-router.yml
 - import_playbook: 12-nas.yml
-- import_playbook: 13-foundation/site.yml
 - import_playbook: 14-host-base.yml
 - import_playbook: 15-bootserv.yml
-- import_playbook: 20-hypervisor/site.yml
-- import_playbook: 30-guests/site.yml
 - import_playbook: 40-kube/site.yml

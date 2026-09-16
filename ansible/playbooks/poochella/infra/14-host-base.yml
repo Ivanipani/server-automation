@@ -10,9 +10,12 @@
 # and hands them to the host-base component as plain vars, then imports
 # the component.
 #
-# Numbered 14- (not the gap-10 convention) to sit between 13-foundation
-# and 20-hypervisor without renumbering either — same pragmatism as
-# 12-nas's gap-5 break (see that file's header).
+# Numbered 14- (not the gap-10 convention) to leave gaps for
+# 13-foundation and 20-hypervisor without renumbering — same pragmatism
+# as 12-nas's gap-5 break (see that file's header). Both of those tiers
+# are archived today (archive/proxmox-hypervisor/ — 0 Proxmox
+# hypervisors in the fleet); the number gaps are kept in case either is
+# restored.
 
 - name: Compute host-base desired state from inventory
   hosts: "{{ target_hosts | default('physical') }}"
