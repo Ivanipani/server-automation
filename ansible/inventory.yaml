@@ -58,7 +58,7 @@
 #     VM boot disks live on the node-local `vms` PVE storage. NO VM
 #     receives a Longhorn-backed data disk: Longhorn replica state lives
 #     ONLY on baremetal kube_workers, which carve their own data disks
-#     directly via `storage:` (see metal-home-01 below).
+#     directly via `storage:` (see metal-home-02 below).
 #   - `lxc: { proxmox_node, cores, memory, disk_size, unprivileged,
 #     features, tags, ... }` → Tofu creates this LXC on Proxmox
 #     (parallels `vm:`). Cloned from the `template_ct_id_base` anchor
@@ -183,14 +183,14 @@
 #                            scaffolding only; 20-hypervisor/20-cluster.yml
 #                            asserts this group is empty.
 #   - `workers`        → plain Linux baremetal (no PVE). k3s baremetal
-#                        workers, app hosts, etc. Today: metal-home-01
-#                        (renamed from the OLD pve-home-01 after the
-#                        gaming-PC box was de-Proxmoxed to plain Debian;
-#                        old crash-loop unit replaced), and pve-home-01/
-#                        -02/-03 all retired to baremetal
-#                        (kube-master-01/-02/-03). `hypervisors` and
-#                        `foundation` are both empty now — no Proxmox
-#                        hosts remain in the fleet.
+#                        workers, app hosts, etc. Today: metal-home-02
+#                        only — metal-home-01 was decommissioned and
+#                        repurposed as a personal Windows PC (Longhorn
+#                        replicas evicted onto kube-master-01/02/03 +
+#                        metal-home-02 first). pve-home-01/-02/-03 all
+#                        retired to baremetal (kube-master-01/-02/-03).
+#                        `hypervisors` and `foundation` are both empty
+#                        now — no Proxmox hosts remain in the fleet.
 
 all:
   vars:
@@ -258,49 +258,6 @@ hypervisors:
 
 workers:
   hosts:
-    metal-home-01:
-      ansible_host: metal-home-01.lan
-      ip_address: 10.1.1.106
-      mac_addresses:
-        - "3c:7c:3f:1f:96:af"   # onboard 1GbE
-        - "e8:eb:d3:8c:86:bc"   # Mellanox ConnectX-4 Lx port 1 (10GbE)
-        - "e8:eb:d3:8c:86:bd"   # Mellanox ConnectX-4 Lx port 2 (10GbE)
-      storage:
-        # Each physical disk is its own independent plain-ext4 mount =
-        # its own Longhorn disk (per-disk failure isolation; Longhorn
-        # replicates across nodes). NO LVM, no spanning pool. The boot
-        # tail (part-alpha, ~900 GiB) is one of the Longhorn disks; it is
-        # reset on a reimage and rebuilt from the peer. The Flux repo
-        # registers each /var/lib/longhorn-disks/<label> mount as an
-        # explicit Longhorn disk (the default-disk mechanism is OFF — see
-        # group_vars/kube_workers.yml).
-        disks:
-          - select: boot
-            hw:
-              model: "Samsung SSD 980 1TB"
-              serial: "S64ANG0R323366R"
-            partitions:
-              - label: part-alpha
-                size: "0"          # boot tail (p4) — fills the rest
-                mount:
-                  path: /var/lib/longhorn-disks/part-alpha
-                  fstype: ext4
-          - select: { model: "CT2000P310SSD8", serial: "254854AAD28F" }
-            wipe: force            # holds old longhorndata PV signature
-            partitions:
-              - label: part-bravo
-                size: "0"
-                mount:
-                  path: /var/lib/longhorn-disks/part-bravo
-                  fstype: ext4
-          - select: { model: "WDC WD10EZEX-08WN4A0", serial: "WD-WCC6Y1LPLUY3" }
-            wipe: force
-            partitions:
-              - label: part-charlie
-                size: "0"
-                mount:
-                  path: /var/lib/longhorn-disks/part-charlie
-                  fstype: ext4
     metal-home-02:
       ansible_host: metal-home-02.lan
       ip_address: 10.1.1.107
@@ -651,7 +608,6 @@ kubernetes:
           - { port: 9100, proto: tcp, comment: "node-exporter" }
         firewall_outbound_deny: []
       hosts:
-        metal-home-01:
         metal-home-02:
 
 # Deployment target for the bootserv role (see playbooks/poochella/infra/
