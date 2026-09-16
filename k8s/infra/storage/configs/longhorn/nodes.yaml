@@ -73,4 +73,20 @@ spec:
       storageReserved: 0
       tags: ["nvme"]
       diskType: filesystem
+---
+apiVersion: longhorn.io/v1beta2
+kind: Node
+metadata:
+  name: kube-master-03
+  namespace: longhorn-system
+spec:
+  allowScheduling: true
+  disks:
+    part-alpha:                                   # boot-NVMe tail (~797 GiB) — first
+      path: /var/lib/longhorn-disks/part-alpha     # baremetal-converted hypervisor (ex-pve-home-03)
+      allowScheduling: true
+      evictionRequested: false
+      storageReserved: 0
+      tags: ["boot", "nvme"]
+      diskType: filesystem
 
