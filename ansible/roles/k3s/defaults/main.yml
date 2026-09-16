@@ -83,7 +83,7 @@ k3s_kubeconfig_mode: "0644"
 k3s_kube_vip_enabled: false
 k3s_kube_vip_version: "v0.8.7"
 k3s_kube_vip_address: ""                # e.g. "10.1.1.50"
-k3s_kube_vip_interface: ""              # blank → auto-detect via ansible_default_ipv4
+k3s_kube_vip_interface: ""              # blank → kube-vip auto-detects its own default route per-pod (NOT ansible_default_ipv4 of the rendering host — CP NIC names differ across baremetal boxes)
 k3s_kube_vip_rbac_url: "https://kube-vip.io/manifests/rbac.yaml"
 
 # Local destination for the rewritten kubeconfig. Empty → fetch step is a
