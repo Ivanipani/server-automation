@@ -1,0 +1,14 @@
+---
+- name: flux uninstall (removes components, CRDs, flux-system namespace)
+  ansible.builtin.command:
+    argv:
+      - flux
+      - uninstall
+      - --silent
+  register: _flux_uninstall
+  changed_when: "'deleted' in (_flux_uninstall.stderr | default('') + _flux_uninstall.stdout | default(''))"
+- name: Show uninstall result
+  ansible.builtin.debug:
+    msg:
+      - Flux uninstalled from the doghouse cluster.
+      - 'Re-enable with: flux_enabled=true (re-bootstraps from the committed gotk-* manifests).'

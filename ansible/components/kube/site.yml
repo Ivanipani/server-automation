@@ -1,0 +1,92 @@
+---
+- name: Prepare Longhorn consumers
+  hosts: "{{ kube_hosts | default('kubernetes') }}"
+  become: true
+  tags: [longhorn]
+  roles:
+    - role: longhorn-host-prep
+      tags:
+        - longhorn
+- name: Check cluster CA consistency
+  hosts: "{{ kube_hosts | default('kubernetes') }}"
+  become: true
+  gather_facts: false
+  tags: [k3s]
+  roles:
+    - role: k3s
+      vars:
+        k3s_phase: ca_gate
+      tags:
+        - k3s
+      run_once: true
+  any_errors_fatal: true
+- name: Initialize first control plane and API VIP
+  hosts: "{{ kube_hosts | default('kubernetes') }}"
+  become: true
+  gather_facts: true
+  tags: [k3s]
+  roles:
+    - role: k3s
+      vars:
+        k3s_phase: server_init
+      tags:
+        - k3s
+- name: Join remaining control planes
+  hosts: "{{ kube_hosts | default('kubernetes') }}"
+  become: true
+  gather_facts: true
+  tags: [k3s]
+  roles:
+    - role: k3s
+      vars:
+        k3s_phase: server_join
+      tags:
+        - k3s
+  serial: 1
+- name: Join agents
+  hosts: "{{ kube_hosts | default('kubernetes') }}"
+  become: true
+  gather_facts: true
+  tags: [k3s]
+  roles:
+    - role: k3s
+      vars:
+        k3s_phase: agent
+      tags:
+        - k3s
+- name: Reconcile k3s or uninstall
+  hosts: "{{ kube_hosts | default('kubernetes') }}"
+  become: true
+  gather_facts: false
+  tags: [k3s]
+  roles:
+    - role: k3s
+      vars:
+        k3s_phase: reconcile
+      tags:
+        - k3s
+- name: Apply Kubernetes firewall policy explicitly
+  hosts: "{{ kube_hosts | default('kubernetes') }}"
+  become: true
+  gather_facts: false
+  tags:
+    - never
+    - firewall
+  roles:
+    - role: firewall-basic
+      vars:
+        firewall_basic_scope: 40-kube
+        inbound_allow: "{{ firewall_inbound_allow | default([]) }}"
+        outbound_deny: "{{ firewall_outbound_deny | default([{'port': 22, 'proto': 'tcp'}]) }}"
+- name: Bootstrap Flux and GitOps secrets
+  hosts: "{{ kube_flux_hosts | default('localhost') }}"
+  connection: local
+  tags: [flux]
+  gather_facts: false
+  become: false
+  environment:
+    KUBECONFIG: "{{ flux_kubeconfig | ansible.builtin.expanduser | ansible.builtin.realpath }}"
+  roles:
+    - role: flux
+      tags:
+        - flux

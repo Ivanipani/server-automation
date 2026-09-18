@@ -1,0 +1,9 @@
+---
+argument_specs:
+  main:
+    short_description: Configure longhorn-host-prep
+    options:
+      longhorn_host_prep_enabled:
+        type: bool
+        default: true
+        description: Longhorn host prep enabled.

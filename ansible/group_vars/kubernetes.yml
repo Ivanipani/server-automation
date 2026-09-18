@@ -5,7 +5,7 @@
 # indirection). k3s_api_endpoint defaults from the role and resolves to
 # the kube-vip VIP, falling back to the first kube_control_plane host.
 
-# Master switch for the 40-kube/20-k3s.yml playbook:
+# Master switch for the components/kube/site.yml playbook:
 #   - true  → install / reconcile the k3s cluster (the default flow).
 #   - false → UNINSTALL k3s from every kube node (runs the installer-dropped
 #             k3s-uninstall.sh / k3s-agent-uninstall.sh; see the role's
@@ -22,7 +22,7 @@ k3s_kube_vip_enabled: true
 k3s_kube_vip_address: "10.1.1.50"
 
 # Stable DNS name in front of the VIP, resolved by Unbound on OPNsense
-# (host override pushed in playbooks/poochella/infra/10-router/30-unbound.yml,
+# (host override pushed in playbooks/poochella/infra/10-router.yml,
 # which reads this var via hostvars). Consumed by the k3s role for the
 # rewritten kubeconfig `server:` URL, the joiner --server endpoint, and
 # as an extra apiserver TLS SAN — so workflows that touch the cluster
@@ -34,9 +34,8 @@ k3s_api_dns_name: "api.lan"
 # Fetch kubeconfig back to the controller after the cluster is up so you
 # can `export KUBECONFIG=$(pwd)/kubeconfig && kubectl get nodes` from
 # the repo root. Path is relative to the controller (your laptop).
-# playbook_dir is the k3s playbook's own dir (infra/40-guests), so the
-# repo root is four levels up.
-k3s_kubeconfig_local_path: "{{ playbook_dir }}/../../../../kubeconfig"
+# Anchor to the inventory so every component/deployment entrypoint agrees.
+k3s_kubeconfig_local_path: "{{ inventory_dir }}/kubeconfig"
 
 # cluster/context/user identifiers in the local copy are renamed to
 # k3s_cluster_name (k3s hard-codes "default" on the server side).
@@ -63,7 +62,7 @@ k3s_cluster_name: "doghouse"
 # zone per physical box. Consumed by the k3s role's k3s_node_labels →
 # --node-label in server_init / server_join / agent. k3s honours
 # --node-label only at FIRST registration, so the role also reconciles
-# this list onto already-joined nodes each run (roles/k3s/tasks/
+# this list onto already-joined nodes each run (components/kube/roles/k3s/tasks/
 # _node_labels.yml) — editing group_vars is sufficient, no hand relabel.
 k3s_zone_label: "topology.kubernetes.io/zone={{ vm.proxmox_node | default(inventory_hostname) }}"
 k3s_node_labels:

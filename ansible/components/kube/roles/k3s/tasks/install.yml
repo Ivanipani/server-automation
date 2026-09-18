@@ -1,0 +1,67 @@
+---
+- name: Check cluster CA consistency
+  ansible.builtin.import_tasks: ca_gate.yml
+  when: k3s_phase == 'ca_gate'
+
+- name: Initialize first control plane
+  ansible.builtin.import_tasks: server_init.yml
+  when:
+    - k3s_phase == 'server_init'
+    - k3s_node_role == 'server'
+    - inventory_hostname == k3s_first_server
+
+- name: Deploy API VIP
+  ansible.builtin.import_tasks: kube_vip.yml
+  when:
+    - k3s_phase == 'server_init'
+    - k3s_node_role == 'server'
+    - inventory_hostname == k3s_first_server
+    - k3s_kube_vip_enabled | bool
+
+- name: Join additional control planes
+  ansible.builtin.import_tasks: server_join.yml
+  when:
+    - k3s_phase == 'server_join'
+    - k3s_node_role == 'server'
+    - inventory_hostname != k3s_first_server
+
+- name: Reset stale agent cache
+  ansible.builtin.import_tasks: _reset_agent.yml
+  when:
+    - k3s_phase == 'agent'
+    - k3s_node_role == 'agent'
+    - k3s_reset_stale_agents | bool
+    - inventory_hostname in (k3s_stale_hosts | default([]))
+
+- name: Join agents
+  ansible.builtin.import_tasks: agent.yml
+  when:
+    - k3s_phase == 'agent'
+    - k3s_node_role == 'agent'
+
+- name: Reconcile node labels
+  ansible.builtin.import_tasks: _node_labels.yml
+  when:
+    - k3s_phase == 'reconcile'
+    - k3s_reconcile_node_labels | bool
+    - k3s_node_labels | length > 0
+
+- name: Fetch kubeconfig
+  ansible.builtin.import_tasks: fetch_kubeconfig.yml
+  when:
+    - k3s_phase == 'reconcile'
+    - inventory_hostname == k3s_first_server
+    - k3s_node_role == 'server'
+
+- name: Configure snapshot mirror
+  ansible.builtin.import_tasks: _snapshot_sync.yml
+  when:
+    - k3s_phase == 'reconcile'
+    - k3s_node_role == 'server'
+    - k3s_snapshot_sync_enabled | bool
+
+- name: Remove disabled snapshot mirror
+  ansible.builtin.import_tasks: _snapshot_sync_remove.yml
+  when:
+    - k3s_phase == 'reconcile'
+    - not (k3s_snapshot_sync_enabled | bool)

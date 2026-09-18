@@ -1,0 +1,121 @@
+---
+# k3s version to install (passed to the installer via INSTALL_K3S_VERSION).
+k3s_version: "v1.31.4+k3s1"
+
+# Upstream installer. Pinned URL so air-gapped overrides are easy.
+k3s_install_script_url: "https://get.k3s.io"
+k3s_install_script_path: /usr/local/bin/k3s-install.sh
+
+# Stable DNS name in front of the apiserver, resolved out-of-band (e.g.
+# by OPNsense Unbound for poochella; see playbooks/poochella/infra/
+# 10-router.yml). When set it is used as the joiner --server
+# URL, the rewritten kubeconfig `server:` URL, and an extra TLS SAN on
+# the apiserver cert. Empty (default) keeps the role VIP/IP-only.
+k3s_api_dns_name: ""
+
+# Endpoint joiners (CPs and agents) use to reach the cluster. Preference
+# order: DNS name → kube-vip VIP → first CP's ansible_host. Joining via
+# the DNS name keeps joiner configs survivable across VIP renumbers.
+k3s_api_endpoint: >-
+  https://{{ k3s_api_dns_name
+             if k3s_api_dns_name
+             else (k3s_kube_vip_address
+                   if (k3s_kube_vip_enabled and k3s_kube_vip_address)
+                   else k3s_first_server_address) }}:6443
+
+
+# Shared cluster join token. MUST be overridden via group_vars + vault.
+k3s_cluster_token: ""
+
+# Extra TLS SANs to add to the server cert. The node's own inventory name
+# and ansible_host are appended automatically at run time. The kube-vip
+# address and the API DNS name are also appended automatically when set.
+k3s_tls_sans: []
+
+# Bundled components to disable (e.g. ['traefik', 'servicelb']). Empty
+# default keeps the k3s defaults (Traefik enabled).
+k3s_disable_components: []
+
+# Extra `--node-label key=value` entries stamped onto the kubelet at
+# registration. The role is generic; poochella drives this from
+# inventory in group_vars/{kubernetes,kube_workers}.yml to map each k8s
+# node onto its PHYSICAL Proxmox node (topology.kubernetes.io/zone =
+# vm.proxmox_node) so Longhorn replica anti-affinity tracks the real
+# failure domain, not the VM. Also selects the KubeVirt VM-host tier
+# (poochella.club/virt-host, group_vars/kube_workers.yml).
+#
+# k3s itself applies --node-label only at FIRST registration, so these
+# flags alone would never relabel an already-joined node. _node_labels.yml
+# closes that gap by reconciling this list onto the live Node objects on
+# every run — editing this list is enough, no manual kubectl. Additive:
+# a label removed from the list is not removed from the node.
+#
+# `node-role.kubernetes.io/<role>=` entries are legal here and are what
+# populates the ROLES column of `kubectl get nodes`, but they reach the node
+# via the reconcile pass ONLY — see vars/main.yml for why they must not be
+# handed to the kubelet.
+k3s_node_labels: []
+
+# Reconcile k3s_node_labels onto already-registered nodes (_node_labels.yml).
+# Off = registration-time --node-label only, i.e. hand-managed labels on
+# existing nodes.
+k3s_reconcile_node_labels: true
+
+# Extra `--node-taint key=value:effect` entries (one per list item)
+# stamped onto the kubelet at registration, alongside --node-label. The
+# role is generic; poochella drives this from group_vars/kube_control
+# _plane.yml to pin the well-known
+#   node-role.kubernetes.io/control-plane=:NoSchedule
+# taint so workloads land on workers by default. Applied only at FIRST
+# registration, and UNLIKE --node-label there is no reconcile pass (a
+# taint flipping under a running node changes scheduling; that is not a
+# routine-converge action). To re-taint an already-joined node, by hand:
+#   kubectl taint node <n> <key>=<value>:<effect> --overwrite
+k3s_node_taints: []
+
+# kubeconfig file mode on control planes. 0644 makes it readable by the
+# `ansible` user without sudo, which is convenient for fetch-back patterns.
+k3s_kubeconfig_mode: "0644"
+
+# kube-vip — a floating L2 (ARP) VIP across the control planes, used as a
+# stable apiserver endpoint for `kubectl` and for joiners. Disabled by
+# default; flip on in group_vars/kubernetes.yml and set the address.
+k3s_kube_vip_enabled: false
+k3s_kube_vip_version: "v0.8.7"
+k3s_kube_vip_address: ""                # e.g. "10.1.1.50"
+k3s_kube_vip_interface: ""              # blank → kube-vip auto-detects its own default route per-pod (NOT ansible_default_ipv4 of the rendering host — CP NIC names differ across baremetal boxes)
+k3s_kube_vip_rbac_url: "https://kube-vip.io/manifests/rbac.yaml"
+
+# Local destination for the rewritten kubeconfig. Empty → fetch step is a
+# no-op. Set an absolute controller path to enable.
+k3s_kubeconfig_local_path: ""
+
+# Identifier used for cluster/context/user names in the rewritten kubeconfig
+# fetched to the controller. k3s itself hard-codes "default" in the on-server
+# /etc/rancher/k3s/k3s.yaml; this only affects the local copy written to
+# k3s_kubeconfig_local_path.
+k3s_cluster_name: "default"
+
+# DESTRUCTIVE OPT-IN: when the cluster-CA gate at the top of
+# components/kube/site.yml detects an agent whose cached server-ca.crt fingerprint
+# does NOT match the first CP's current server CA (typical cause: the CP
+# was --cluster-init'd again while the agent kept its old cache), the
+# default behaviour is FAIL-FAST with a remediation hint. Pass
+# `-e k3s_reset_stale_agents=true` at run time to instead wipe each stale
+# agent's /var/lib/rancher/k3s/agent + /var/lib/kubelet/pki and restart
+# k3s-agent — which forces token-pinned re-bootstrap against the current
+# CA. Mirrors the `host_disks_action: overwrite` opt-in pattern: the flag
+# IS the consent. Per-host: only hosts the probe flagged as stale are
+# touched; healthy agents are left alone.
+k3s_reset_stale_agents: false
+
+# k3s_enable remains a compatibility alias for existing deployments.
+k3s_enabled: "{{ k3s_enable | default(true) }}"
+k3s_phase: reconcile
+k3s_node_role: server
+k3s_first_server: ""
+k3s_first_server_address: ""
+k3s_control_planes: "{{ [k3s_first_server] }}"
+k3s_ca_nodes: []
+k3s_snapshot_sync_enabled: false
+k3s_snapshot_sync_path: /mnt/nas/k3s-snapshots

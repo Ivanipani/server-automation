@@ -1,0 +1,17 @@
+---
+- name: Install Longhorn host prerequisites
+  ansible.builtin.apt:
+    name:
+      - open-iscsi
+      - nfs-common
+    state: present
+- name: Ensure the iscsi_tcp module is loaded now and on boot
+  community.general.modprobe:
+    name: iscsi_tcp
+    state: present
+    persistent: present
+- name: Ensure iscsid is enabled and running
+  ansible.builtin.systemd:
+    name: iscsid
+    enabled: true
+    state: started

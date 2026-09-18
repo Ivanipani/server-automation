@@ -1,0 +1,74 @@
+---
+- name: Verify Kubernetes node services
+  hosts: "{{ kube_hosts | default('kubernetes') }}"
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Read service state
+      ansible.builtin.service_facts:
+
+    - name: Require a running k3s server or agent
+      ansible.builtin.assert:
+        that:
+          - >-
+            ansible_facts.services.get('k3s.service', {}).get('state') == 'running'
+            or ansible_facts.services.get('k3s-agent.service', {}).get('state') == 'running'
+        quiet: true
+      when: k3s_enabled | default(k3s_enable | default(true)) | bool
+
+    - name: Require iSCSI for Longhorn consumers
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services.get('iscsid.service', {}).get('state') == 'running'
+        quiet: true
+      when: longhorn_host_prep_enabled | default(true) | bool
+
+    - name: Check loaded iSCSI module
+      ansible.builtin.stat:
+        path: /sys/module/iscsi_tcp
+      register: kube_verify_iscsi
+      when: longhorn_host_prep_enabled | default(true) | bool
+
+    - name: Require loaded iSCSI module
+      ansible.builtin.assert:
+        that: kube_verify_iscsi.stat.exists
+        quiet: true
+      when: longhorn_host_prep_enabled | default(true) | bool
+
+    - name: Check server API readiness
+      ansible.builtin.command: k3s kubectl get --raw=/readyz
+      changed_when: false
+      check_mode: false
+      when:
+        - k3s_enabled | default(k3s_enable | default(true)) | bool
+        - "'k3s.service' in ansible_facts.services"
+
+- name: Verify Flux controllers
+  hosts: "{{ kube_flux_hosts | default('localhost') }}"
+  connection: local
+  gather_facts: false
+  become: false
+  environment:
+    KUBECONFIG: "{{ flux_kubeconfig | default(playbook_dir ~ '/../../../kubeconfig') | ansible.builtin.expanduser | ansible.builtin.realpath }}"
+  tasks:
+    - name: Read Flux deployments
+      ansible.builtin.command: kubectl -n flux-system get deployments -o json
+      register: kube_verify_flux
+      changed_when: false
+      check_mode: false
+      when: flux_enabled | default(true) | bool
+
+    - name: Require available Flux controllers
+      ansible.builtin.assert:
+        that:
+          - >-
+            ['source-controller', 'kustomize-controller', 'helm-controller', 'notification-controller']
+            | difference((kube_verify_flux.stdout | from_json)['items'] | map(attribute='metadata.name') | list)
+            | length == 0
+          - >-
+            (kube_verify_flux.stdout | from_json)['items']
+            | selectattr('status.availableReplicas', 'defined')
+            | selectattr('status.availableReplicas', 'gt', 0) | list | length
+            == (kube_verify_flux.stdout | from_json)['items'] | length
+        quiet: true
+      when: flux_enabled | default(true) | bool

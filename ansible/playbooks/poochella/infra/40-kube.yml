@@ -1,0 +1,45 @@
+---
+- name: Resolve poochella Kubernetes topology
+  hosts: "{{ kube_hosts | default('kubernetes') }}"
+  connection: local
+  gather_facts: false
+  become: false
+  tags: [k3s]
+  tasks:
+    - name: Require a declared control plane
+      ansible.builtin.assert:
+        that: groups.get('kube_control_plane', []) | length > 0
+
+    - name: Pass stable cluster topology to k3s
+      ansible.builtin.set_fact:
+        k3s_first_server: "{{ groups['kube_control_plane'][0] }}"
+        k3s_first_server_address: "{{ hostvars[groups['kube_control_plane'][0]].ansible_host }}"
+        k3s_control_planes: "{{ groups['kube_control_plane'] }}"
+        k3s_ca_nodes: "{{ groups['kubernetes'] }}"
+        k3s_node_role: "{{ 'server' if inventory_hostname in groups['kube_control_plane'] else 'agent' }}"
+        k3s_snapshot_sync_enabled: "{{ inventory_hostname in groups['kube_control_plane'] }}"
+
+- name: Resolve poochella Flux configuration
+  hosts: "{{ kube_flux_hosts | default('localhost') }}"
+  connection: local
+  gather_facts: false
+  become: false
+  tags: [flux]
+  vars_files:
+    - ../../../group_vars/all/vars.yml
+    - ../../../group_vars/all/vault.yml
+  tasks:
+    - name: Pass repository and secret configuration to Flux
+      ansible.builtin.set_fact:
+        flux_git_url: ssh://git@github.com/Ivanipani/server-automation
+        flux_git_branch: main
+        flux_path: k8s/clusters/doghouse
+        flux_ssh_private_key: "{{ github_server_automation_deploy_key }}"
+        flux_kubeconfig: "{{ playbook_dir }}/../../../kubeconfig"
+        flux_apps_repo_url: ssh://git@github.com/Ivanipani/doghouse
+        flux_apps_deploy_key: "{{ github_doghouse_apps_deploy_key | default('') }}"
+        flux_apps_secret_name: doghouse-apps-key
+        flux_sops_age_key: "{{ sops_age_key | default('') }}"
+      no_log: true
+
+- import_playbook: ../../../components/kube/site.yml

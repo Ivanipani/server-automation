@@ -1,0 +1,143 @@
+---
+argument_specs:
+  main:
+    short_description: Configure k3s
+    options:
+      k3s_version:
+        type: str
+        default: v1.31.4+k3s1
+        description: K3s version.
+      k3s_install_script_url:
+        type: str
+        default: https://get.k3s.io
+        description: K3s install script url.
+      k3s_install_script_path:
+        type: str
+        default: /usr/local/bin/k3s-install.sh
+        description: K3s install script path.
+      k3s_api_dns_name:
+        type: str
+        default: ''
+        description: K3s api dns name.
+      k3s_api_endpoint:
+        type: str
+        default: |-
+          https://{{ k3s_api_dns_name
+                     if k3s_api_dns_name
+                     else (k3s_kube_vip_address
+                           if (k3s_kube_vip_enabled and k3s_kube_vip_address)
+                           else k3s_first_server_address) }}:6443
+        description: K3s api endpoint.
+      k3s_cluster_token:
+        type: str
+        default: ''
+        description: K3s cluster token.
+        no_log: true
+      k3s_tls_sans:
+        type: list
+        default: []
+        description: K3s tls sans.
+        elements: str
+      k3s_disable_components:
+        type: list
+        default: []
+        description: K3s disable components.
+        elements: str
+      k3s_node_labels:
+        type: list
+        default: []
+        description: K3s node labels.
+        elements: str
+      k3s_reconcile_node_labels:
+        type: bool
+        default: true
+        description: K3s reconcile node labels.
+      k3s_node_taints:
+        type: list
+        default: []
+        description: K3s node taints.
+        elements: str
+      k3s_kubeconfig_mode:
+        type: str
+        default: '0644'
+        description: K3s kubeconfig mode.
+      k3s_kube_vip_enabled:
+        type: bool
+        default: false
+        description: K3s kube vip enabled.
+      k3s_kube_vip_version:
+        type: str
+        default: v0.8.7
+        description: K3s kube vip version.
+      k3s_kube_vip_address:
+        type: str
+        default: ''
+        description: K3s kube vip address.
+      k3s_kube_vip_interface:
+        type: str
+        default: ''
+        description: K3s kube vip interface.
+      k3s_kube_vip_rbac_url:
+        type: str
+        default: https://kube-vip.io/manifests/rbac.yaml
+        description: K3s kube vip rbac url.
+      k3s_kubeconfig_local_path:
+        type: str
+        default: ''
+        description: K3s kubeconfig local path.
+      k3s_cluster_name:
+        type: str
+        default: default
+        description: K3s cluster name.
+      k3s_reset_stale_agents:
+        type: bool
+        default: false
+        description: K3s reset stale agents.
+      k3s_enabled:
+        type: bool
+        default: "{{ k3s_enable | default(true) }}"
+        description: Install/reconcile when true; uninstall in the reconcile phase when false. Falls back to legacy
+          k3s_enable.
+      k3s_phase:
+        type: str
+        default: reconcile
+        description: Component orchestration phase; use site.yml to run the complete lifecycle.
+        choices:
+          - ca_gate
+          - server_init
+          - server_join
+          - agent
+          - reconcile
+      k3s_node_role:
+        type: str
+        default: server
+        description: This node runs either a server (control plane) or an agent.
+        choices:
+          - server
+          - agent
+      k3s_first_server:
+        type: str
+        default: ""
+        description: Stable bootstrap host and label-reconciliation delegate; must not change with --limit.
+      k3s_first_server_address:
+        type: str
+        default: ""
+        description: API address used when neither DNS nor kube-vip is configured.
+      k3s_control_planes:
+        type: list
+        default: "{{ [k3s_first_server] }}"
+        description: Declared server hosts; divergent server CAs must be recovered manually.
+        elements: str
+      k3s_ca_nodes:
+        type: list
+        default: []
+        description: Complete cluster host list to probe, including nodes excluded by --limit.
+        elements: str
+      k3s_snapshot_sync_enabled:
+        type: bool
+        default: false
+        description: Mirror server snapshots to the pre-mounted destination; false removes the sidecar.
+      k3s_snapshot_sync_path:
+        type: str
+        default: /mnt/nas/k3s-snapshots
+        description: Existing mounted directory for off-box snapshots and join token.

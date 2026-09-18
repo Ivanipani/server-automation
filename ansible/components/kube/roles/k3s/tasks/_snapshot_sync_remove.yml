@@ -1,0 +1,33 @@
+---
+- name: Check installed snapshot mirror units
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ item }}"
+  loop:
+    - k3s-snapshot-sync.timer
+    - k3s-snapshot-sync.service
+  register: k3s_snapshot_units
+
+- name: Stop and disable snapshot mirror units
+  ansible.builtin.systemd:
+    name: "{{ item.item }}"
+    state: stopped
+    enabled: false
+  loop: "{{ k3s_snapshot_units.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stat.exists
+
+- name: Remove snapshot mirror units
+  ansible.builtin.file:
+    path: "{{ item.stat.path }}"
+    state: absent
+  loop: "{{ k3s_snapshot_units.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stat.exists
+  register: k3s_snapshot_units_removed
+
+- name: Reload systemd after removing snapshot mirror
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: k3s_snapshot_units_removed.changed

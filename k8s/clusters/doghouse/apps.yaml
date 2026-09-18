@@ -25,7 +25,7 @@ spec:
   ref:
     branch: main
   # Read-only deploy key for github.com/Ivanipani/doghouse, installed into
-  # flux-system by Ansible (40-kube/30-flux.yml) from vault_doghouse_apps_deploy_key.
+  # flux-system by Ansible (40-kube.yml --tags flux) from vault_doghouse_apps_deploy_key.
   secretRef:
     name: doghouse-apps-key
   url: ssh://git@github.com/Ivanipani/doghouse

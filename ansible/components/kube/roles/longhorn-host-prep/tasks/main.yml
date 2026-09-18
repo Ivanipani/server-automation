@@ -1,0 +1,5 @@
+---
+- ansible.builtin.import_tasks: install.yml
+  when: longhorn_host_prep_enabled | bool
+- ansible.builtin.import_tasks: uninstall.yml
+  when: not (longhorn_host_prep_enabled | bool)

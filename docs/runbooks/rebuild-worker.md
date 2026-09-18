@@ -160,7 +160,7 @@ Run the k3s playbook scoped to this host:
 cd ansible
 ansible-playbook --vault-password-file ../secrets/ansible-pass \
   --limit worker-home-02 \
-  playbooks/poochella/infra/40-kube/20-k3s.yml
+  playbooks/poochella/infra/40-kube.yml --tags k3s
 ```
 
 This installs the k3s-agent, sources the join token from the vault, and applies the worker labels: `topology.kubernetes.io/zone=<pve_node>` and `node.longhorn.io/create-default-disk=true` (see `ansible/group_vars/kube_workers.yml`).

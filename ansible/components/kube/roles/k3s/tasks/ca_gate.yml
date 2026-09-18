@@ -1,0 +1,45 @@
+---
+- name: Require explicit cluster topology
+  ansible.builtin.assert:
+    that:
+      - k3s_first_server | length > 0
+      - k3s_first_server in k3s_control_planes
+      - k3s_ca_nodes | length > 0
+      - k3s_first_server in k3s_ca_nodes
+    fail_msg: Supply k3s_first_server, k3s_control_planes, and k3s_ca_nodes through a deployment wrapper.
+
+- name: Initialize CA observations
+  ansible.builtin.set_fact:
+    k3s_ca_records: []
+
+- name: Probe the complete declared cluster, including hosts outside --limit
+  ansible.builtin.include_tasks:
+    file: _ca_state.yml
+    apply:
+      delegate_to: "{{ k3s_probe_host }}"
+  loop: "{{ (k3s_ca_nodes + [k3s_first_server]) | unique }}"
+  loop_control:
+    loop_var: k3s_probe_host
+
+- name: Select canonical server CA
+  ansible.builtin.set_fact:
+    k3s_canonical_ca_fp: >-
+      {{ (k3s_ca_records | selectattr('host', 'equalto', k3s_first_server) | first).server }}
+
+- name: Identify stale nodes
+  ansible.builtin.set_fact:
+    k3s_stale_hosts: >-
+      {{ k3s_ca_records | selectattr('effective')
+         | rejectattr('effective', 'equalto', k3s_canonical_ca_fp)
+         | map(attribute='host') | list }}
+
+- name: Reject divergent CAs before changing the cluster
+  ansible.builtin.assert:
+    that:
+      - k3s_stale_hosts | length == 0 or k3s_reset_stale_agents | bool
+      - k3s_stale_hosts | intersect(k3s_control_planes) | length == 0
+    fail_msg: >-
+      Stale k3s CA on {{ k3s_stale_hosts | join(', ') }} compared with
+      {{ k3s_first_server }}. For agents, explicitly opt in with
+      k3s_reset_stale_agents=true; divergent control planes require manual recovery.
+    quiet: true

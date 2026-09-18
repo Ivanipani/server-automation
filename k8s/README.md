@@ -35,7 +35,7 @@ ansible-vault, not from loose files. One command from the repo root, after the
 k3s cluster is up (`ansible/kubeconfig` current):
 
 ```sh
-just do-flux        # -> ansible/.../40-kube/40-flux.yml
+just kube --tags flux        # -> ansible/.../40-kube.yml --tags flux
 ```
 
 That playbook:
@@ -74,7 +74,7 @@ Kustomization sources the public root, so the cluster works today. The
    `flux-system → doghouse-apps` and `path` `./k8s/apps/doghouse → ./apps/doghouse`
    (and uncomment its `decryption` block if the private apps carry SOPS secrets).
 
-The deploy-key Secret is already installed by `just do-flux`, so no other change
+The deploy-key Secret is already installed by `just kube --tags flux`, so no other change
 is needed. The full procedure is also documented inline at the top of `apps.yaml`.
 
 ## Node scheduling model
@@ -134,7 +134,7 @@ If the workload should *only* run on CP, pair it with a `nodeAffinity` on `node-
 
 Secrets are committed to this PUBLIC repo encrypted with [SOPS](https://github.com/getsops/sops) + [age](https://github.com/FiloSottile/age) — safe to publish, since only the `data` / `stringData` fields are AES-encrypted (config in `.sops.yaml`) and only the age **public** key is exposed. The rest of each manifest stays diff-able. Flux's `kustomize-controller` decrypts them in-cluster using the age private key — wired via `spec.decryption` on the Kustomizations that consume SOPS Secrets (`storage-controllers` and `monitoring-controllers` in `clusters/doghouse/infra.yaml`).
 
-The age **private** key must never be committed (`*.agekey` is git-ignored) and is held in the **ansible-vault** as `vault_sops_age_key`. `just do-flux` installs it into the cluster as the `sops-age` Secret in `flux-system` — there is no manual `kubectl create secret` step anymore. Keep the canonical copy of the key in a password manager: losing it means no committed secret can ever be decrypted again.
+The age **private** key must never be committed (`*.agekey` is git-ignored) and is held in the **ansible-vault** as `vault_sops_age_key`. `just kube --tags flux` installs it into the cluster as the `sops-age` Secret in `flux-system` — there is no manual `kubectl create secret` step anymore. Keep the canonical copy of the key in a password manager: losing it means no committed secret can ever be decrypted again.
 
 > The loose `secrets/age.agekey` file (git-ignored) is only a local convenience for `just edit-secret` below; the cluster gets the key from the vault, not this file. All local key material lives in `<repo-root>/secrets/`.
 

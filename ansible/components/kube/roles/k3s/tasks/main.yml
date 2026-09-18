@@ -1,0 +1,10 @@
+---
+- name: Install or reconcile k3s
+  ansible.builtin.import_tasks: install.yml
+  when: k3s_enabled | bool
+
+- name: Uninstall k3s
+  ansible.builtin.import_tasks: uninstall.yml
+  when:
+    - not (k3s_enabled | bool)
+    - k3s_phase == 'reconcile'

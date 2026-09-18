@@ -59,7 +59,7 @@ so they need no wrapper computation — see inventory.yaml.
 - `ssh-bootstrap-detect`, `firewall-basic`, `motd`, and `nfs-mounts` are
   shared top-level roles (`ansible/roles/`), not owned by this
   component — `firewall-basic`/`motd`/`nfs-mounts` are also used by the
-  `30-guests`/`40-kube` deployment tiers, so they can't live under a
+  archived `30-guests` and the `kube` component deployment tiers, so they can't live under a
   single component's `roles/` without duplicating them elsewhere
   (docs/ansible-layout.md's "shared logic" rule).
 - `firewall_basic_scope` stays `17-host` (the pre-migration tier name)

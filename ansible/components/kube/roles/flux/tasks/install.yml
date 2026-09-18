@@ -1,0 +1,89 @@
+---
+- name: Bootstrap Flux against this repo over SSH (idempotent; commits + pushes gotk-*)
+  block:
+    - name: Stage the bootstrap SSH key to a tempfile
+      ansible.builtin.tempfile:
+        state: file
+        suffix: flux-bootstrap-key
+      register: _boot_key_tmp
+    - name: Write the bootstrap SSH private key (single trailing newline)
+      ansible.builtin.copy:
+        dest: "{{ _boot_key_tmp.path }}"
+        content: |
+          {{ flux_ssh_private_key | trim }}
+        mode: '0600'
+      no_log: true
+    - name: flux bootstrap git over SSH
+      ansible.builtin.command:
+        argv:
+          - flux
+          - bootstrap
+          - git
+          - "--url={{ flux_git_url }}"
+          - "--branch={{ flux_git_branch }}"
+          - "--path={{ flux_path }}"
+          - "--private-key-file={{ _boot_key_tmp.path }}"
+          - --silent
+      register: _flux_bootstrap
+      changed_when: "'no changes' not in (_flux_bootstrap.stdout | default(''))"
+  always:
+    - name: Remove the bootstrap SSH key tempfile
+      ansible.builtin.file:
+        path: "{{ _boot_key_tmp.path }}"
+        state: absent
+      when: _boot_key_tmp.path is defined
+- name: Install the sops-age decryption Secret in flux-system
+  ansible.builtin.shell:
+    cmd: "kubectl create secret generic {{ flux_sops_age_secret_name | quote }} --namespace=flux-system --from-file=age.agekey=/dev/stdin\
+      \ --dry-run=client -o yaml | kubectl apply -f -"
+    stdin: "{{ flux_sops_age_key }}"
+  register: _sops_age
+  changed_when: "'configured' in _sops_age.stdout or 'created' in _sops_age.stdout"
+  no_log: true
+  when:
+    - flux_sops_age_key is defined
+    - flux_sops_age_key | trim | length > 0
+    - "'AGE-SECRET-KEY' in flux_sops_age_key"
+- name: Provision the apps repository deploy-key Secret
+  when:
+    - flux_apps_deploy_key is defined
+    - flux_apps_deploy_key | trim | length > 0
+    - "'PRIVATE KEY' in flux_apps_deploy_key"
+  block:
+    - name: Stage the deploy key to a tempfile
+      ansible.builtin.tempfile:
+        state: file
+        suffix: flux-apps-key
+      register: _apps_key_tmp
+    - name: Write the private key into the tempfile (single trailing newline)
+      ansible.builtin.copy:
+        dest: "{{ _apps_key_tmp.path }}"
+        content: |
+          {{ flux_apps_deploy_key | trim }}
+        mode: '0600'
+      no_log: true
+    - name: Create/update the git deploy-key Secret (+ known_hosts) via flux
+      ansible.builtin.command:
+        argv:
+          - flux
+          - create
+          - secret
+          - git
+          - "{{ flux_apps_secret_name }}"
+          - --namespace=flux-system
+          - "--url={{ flux_apps_repo_url }}"
+          - "--private-key-file={{ _apps_key_tmp.path }}"
+      register: _apps_secret
+      changed_when: true
+  always:
+    - name: Remove the deploy-key tempfile
+      ansible.builtin.file:
+        path: "{{ _apps_key_tmp.path }}"
+        state: absent
+      when: _apps_key_tmp.path is defined
+- name: Show how to verify
+  ansible.builtin.debug:
+    msg:
+      - 'Flux bootstrapped. Verify with:'
+      - "  KUBECONFIG={{ flux_kubeconfig | ansible.builtin.realpath }} flux get kustomizations -A"
+      - "  KUBECONFIG={{ flux_kubeconfig | ansible.builtin.realpath }} flux get sources git -A"

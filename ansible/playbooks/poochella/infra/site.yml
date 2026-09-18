@@ -35,7 +35,8 @@
 #                    Proxmox-coupled: runs on an already-provisioned
 #                    baremetal worker, so it just needs 14-host-base's
 #                    baseline (ansible user, firewall) ahead of it.
-#   40-kube        → VM/container config + k3s
+#   40-kube        → layer-4 kube component via 40-kube.yml:
+#                    Longhorn consumers, k3s, and Flux bootstrap
 #
 # ARCHIVED: 13-foundation, 20-hypervisor, and 30-guests — the Proxmox
 # hypervisor bootstrap tiers and the OpenTofu VM/LXC provisioning barrier
@@ -59,4 +60,4 @@
 - import_playbook: 12-nas.yml
 - import_playbook: 14-host-base.yml
 - import_playbook: 15-bootserv.yml
-- import_playbook: 40-kube/site.yml
+- import_playbook: 40-kube.yml

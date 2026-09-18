@@ -138,10 +138,11 @@ Bottom-up, one component per change, legacy tier deleted as it lands:
    further). `firewall-basic`, `motd`, and `nfs-mounts` (the last
    extracted from the old `17-host/16-nfs-mounts.yml`) stayed/became
    shared top-level roles (`ansible/roles/`) rather than moving in —
-   `30-guests`/`40-kube` consume them too.
+   archived `30-guests` and the `kube` component consume them too.
 4. ~~`nas`~~ ✅ done — `components/nas/`, invoked via the deployment
    wrapper `playbooks/poochella/infra/12-nas.yml`
 5. `hypervisor`
 6. `bootserv` — needs the heavy `infra/tasks/*.yml` bake/publish logic
    pulled into roles first
-7. `kube`
+7. ~~`kube`~~ ✅ done — `components/kube/`, invoked via the deployment
+   wrapper `playbooks/poochella/infra/40-kube.yml`

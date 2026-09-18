@@ -1,0 +1,9 @@
+---
+- name: Check Flux prerequisites
+  ansible.builtin.import_tasks: preflight.yml
+- name: Bootstrap Flux and secrets
+  ansible.builtin.import_tasks: install.yml
+  when: flux_enabled | bool
+- name: Uninstall Flux
+  ansible.builtin.import_tasks: uninstall.yml
+  when: not (flux_enabled | bool)

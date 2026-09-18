@@ -134,3 +134,13 @@ firmware-plan:
 sync-preseed-templates:
     cd ansible && ansible-playbook --vault-password-file {{vault_pass}} playbooks/poochella/infra/15-bootserv.yml --start-at-task "Copy iPXE chainload binaries into TFTP root"
 
+
+# Layer-4 Kubernetes component, configured for poochella.
+kube *options:
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} {{options}} \
+        playbooks/poochella/infra/40-kube.yml
+
+# Read-only Kubernetes component smoke checks.
+kube-verify *options:
+    cd ansible && ansible-playbook --vault-password-file {{vault_pass}} {{options}} \
+        components/kube/tests/verify.yml

@@ -1,0 +1,5 @@
+---
+dependencies: []
+galaxy_info:
+  role_name: longhorn_host_prep
+  description: Configure longhorn-host-prep

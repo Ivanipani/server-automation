@@ -1,0 +1,52 @@
+---
+argument_specs:
+  main:
+    short_description: Configure flux
+    options:
+      flux_enabled:
+        type: bool
+        default: true
+        description: Flux enabled.
+      flux_git_url:
+        type: str
+        default: ''
+        description: Flux git url.
+      flux_git_branch:
+        type: str
+        default: main
+        description: Flux git branch.
+      flux_path:
+        type: str
+        default: ''
+        description: Flux path.
+      flux_ssh_private_key:
+        type: str
+        default: ''
+        description: Flux ssh private key.
+        no_log: true
+      flux_kubeconfig:
+        type: str
+        default: ~/.kube/config
+        description: Flux kubeconfig.
+      flux_apps_repo_url:
+        type: str
+        default: ''
+        description: Flux apps repo url.
+      flux_apps_deploy_key:
+        type: str
+        default: ''
+        description: Flux apps deploy key.
+        no_log: true
+      flux_apps_secret_name:
+        type: str
+        default: apps-key
+        description: Flux apps secret name.
+      flux_sops_age_key:
+        type: str
+        default: ''
+        description: Flux sops age key.
+        no_log: true
+      flux_sops_age_secret_name:
+        type: str
+        default: sops-age
+        description: Flux sops age secret name.

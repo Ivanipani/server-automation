@@ -12,7 +12,7 @@ default:
 # Bootstrap Flux + install the cluster secrets. This is now driven by ANSIBLE
 # (it reads the keys from the vault, not from loose files), not from this
 # justfile. Run it from the repo root:
-#   just do-flux        # -> ansible/.../40-kube/40-flux.yml
+#   just kube --tags flux        # -> ansible/.../40-kube.yml --tags flux
 # (The old `bootstrap-flux` / `install-age-secret` recipes were removed when the
 # bootstrap moved into Ansible. The age private key is vaulted as
 # vault_sops_age_key; the loose secrets/age.agekey is only a local convenience for

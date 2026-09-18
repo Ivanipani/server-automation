@@ -1,0 +1,12 @@
+---
+flux_enabled: true
+flux_git_url: ''
+flux_git_branch: main
+flux_path: ''
+flux_ssh_private_key: ''
+flux_kubeconfig: ~/.kube/config
+flux_apps_repo_url: ''
+flux_apps_deploy_key: ''
+flux_apps_secret_name: apps-key
+flux_sops_age_key: ''
+flux_sops_age_secret_name: sops-age

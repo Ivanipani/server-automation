@@ -1,0 +1,37 @@
+---
+- name: Gather services
+  ansible.builtin.service_facts:
+
+- name: Check iSCSI activation socket
+  ansible.builtin.stat:
+    path: /lib/systemd/system/iscsid.socket
+  register: longhorn_iscsid_socket
+
+- name: Stop and disable iSCSI activation socket
+  ansible.builtin.systemd:
+    name: iscsid.socket
+    state: stopped
+    enabled: false
+  when: longhorn_iscsid_socket.stat.exists
+
+- name: Stop and disable iSCSI units
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - iscsid.service
+    - open-iscsi.service
+  when: item in ansible_facts.services
+
+- name: Remove Longhorn iSCSI module persistence
+  community.general.modprobe:
+    name: iscsi_tcp
+    state: absent
+    persistent: absent
+
+- name: Remove iSCSI package
+  ansible.builtin.apt:
+    name: open-iscsi
+    state: absent
+    purge: true

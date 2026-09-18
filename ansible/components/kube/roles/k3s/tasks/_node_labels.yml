@@ -1,0 +1,59 @@
+---
+# Reconcile k3s_node_labels onto ALREADY-REGISTERED nodes.
+#
+# WHY THIS EXISTS: the `--node-label` flags composed into INSTALL_K3S_EXEC by
+# server_init / server_join / agent are honoured by the kubelet only at FIRST
+# registration. Adding a label to k3s_node_labels therefore did nothing to a
+# node that was already in the cluster — it had to be applied by hand with
+# `kubectl label --overwrite`, which is precisely the drift this repo exists to
+# eliminate (and which bit the KubeVirt poochella.club/virt-host rollout). The
+# registration-time flags stay as-is for greenfield nodes; this file converges
+# every node that is already up, so group_vars is the single source of truth
+# either way.
+#
+# SCOPE — additive/updating only. A label REMOVED from k3s_node_labels is NOT
+# deleted from the node: the role has no record of which labels it owns, and
+# guessing would risk stripping labels set by k3s, the kubelet, or an operator
+# (Longhorn, KubeVirt). Drop one by hand, once:
+#   kubectl label node <n> <key>-
+#
+# Taints are deliberately NOT reconciled here. Same first-registration caveat
+# applies to k3s_node_taints, but silently re-applying a NoSchedule taint on a
+# running node changes scheduling behaviour, which is not something a routine
+# converge run should do unannounced. Retaint by hand (see defaults/main.yml).
+#
+# Delegated to the first control plane — agents have neither kubectl nor a
+# kubeconfig. Each host still resolves its OWN k3s_node_labels through normal
+# group_vars precedence, so this stays per-node, not cluster-wide.
+
+- name: Read current labels on {{ inventory_hostname }}
+  # k3s uses the bare hostname as the node name (the role never passes
+  # --node-name), which is inventory_hostname across this fleet.
+  ansible.builtin.command:
+    cmd: k3s kubectl get node {{ inventory_hostname }} -o jsonpath={.metadata.labels}
+  delegate_to: "{{ k3s_first_server }}"
+  register: k3s_node_labels_raw
+  changed_when: false
+  # Read-only, and the apply task's `when` depends on it — without this a
+  # --check run would skip the read and then fail on an undefined stdout.
+  check_mode: false
+  # A just-joined node can take a moment to appear in the API.
+  retries: 12
+  delay: 5
+  until: k3s_node_labels_raw.rc == 0
+
+- name: Apply drifted labels to {{ inventory_hostname }}
+  # --overwrite is unconditional, but the `when` keeps this task a no-op (and
+  # correctly reports unchanged) unless the live value actually differs.
+  #
+  # NOTE on --check: `command` is not check-mode capable, so a dry run reports
+  # this task as *skipped* whether or not there is drift. Do not read a --check
+  # run as "no labels need applying".
+  ansible.builtin.command:
+    cmd: k3s kubectl label node {{ inventory_hostname }} {{ item }} --overwrite
+  delegate_to: "{{ k3s_first_server }}"
+  loop: "{{ k3s_node_labels }}"
+  when: >-
+    ((k3s_node_labels_raw.stdout | from_json)[item.split('=', 1)[0]] | default(none))
+    != item.split('=', 1)[1]
+  changed_when: true

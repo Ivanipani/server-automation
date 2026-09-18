@@ -1,0 +1,9 @@
+---
+name: kube
+layer: 4
+description: K3s cluster, Longhorn consumer prerequisites, and Flux bootstrap.
+depends_on:
+  - control-node
+  - host-base
+target_default: kubernetes
+target_var: kube_hosts
