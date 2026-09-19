@@ -7,6 +7,24 @@ vault_pass := justfile_directory() / "secrets/ansible-pass"
 default:
     @just --list --unsorted
 
+# Refresh the checked-in Ansible Builder context after dependency changes.
+ee-context:
+    cd ansible && uvx --from ansible-builder==3.1.1 ansible-builder create --file execution-environment.yaml --context context --output-filename Dockerfile
+
+# Build and load the execution environment into local Docker.
+ee-build: ee-context
+    pants package ansible/context:ee
+
+# Run Ansible tools from the project directory inside the execution environment.
+ee *command="ansible --version":
+    docker run --rm -i --user "$(id -u):0" \
+        --env HOME=/tmp --env ANSIBLE_CONFIG=/workspace/ansible/ansible.cfg \
+        --env ANSIBLE_PRIVATE_KEY_FILE=/ssh/ansible \
+        --mount type=bind,src="{{pwd}}",dst=/workspace,readonly \
+        --mount type=bind,src="$HOME/.ssh",dst=/ssh,readonly \
+        --workdir /workspace/ansible \
+        ansible-ee:${ANSIBLE_EE_TAG:-latest} {{command}}
+
 # Needs docker buildx + a GAR login (`gcloud auth configure-docker us-east4-docker.pkg.dev`).
 # Defaults to amd64 (the k3s cluster nodes' arch); override e.g. `just ci-builder arm64`.
 # Build & push the Tekton CI builder image to GAR via Pants (buildx --platform).

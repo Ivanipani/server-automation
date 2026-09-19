@@ -4,6 +4,8 @@ Declarative configuration for the poochella network and homelab cluster.
 
 All configurations are managed using Ansible.
 
+To run Ansible in a container, see the [execution environment instructions](ansible/README.md).
+
 Contains declarative solutions for:
 
 - DNS + DHCP config for LAN using pihole
@@ -35,4 +37,3 @@ just run
 - Proxmox server, VMs, and LXCs are provisioned on LAN network
 - SSH access to those hosts
 - [uv](https://docs.astral.sh/uv/)
-
