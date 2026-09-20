@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: pipelines-as-code-secret
+    namespace: pipelines-as-code
+type: Opaque
+stringData:
+    github-application-id: ENC[AES256_GCM,data:5aJJyZtMpA==,iv:fxn4DQVGVSnlz35XgjvKdhRfjtv2UlCIggNjKgtocNI=,tag:ZHPiz0fGY5zNFCp90w0GAw==,type:str]
+    github-private-key: ENC[AES256_GCM,data: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,iv:dUR2Kyb9quSF4tyR0nU+MR84lqWA6D10kXQBYYAT7y0=,tag:QDNYE6efO8iExbSJ71fOTA==,type:str]
+    webhook.secret: ENC[AES256_GCM,data:8xoRmaF5bhsl1rbVICm7apDnhu4=,iv:ofagqQD83xG20n1MYenCymkEx2HkQXKJAd1X6zsiS40=,tag:hUoXmo+YbZyPIPOdnbsSkw==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBxVkZTMEpmKzVYOFRxcUJX
+            MkJDRUUyMks1WVJpcHEyZitQeGFCaHpZamk0ClYwTmdMaE9wMTZENHAyYWpUQ3BL
+            M2dKbDhmUkNNSTRzaE9TWWhWZTlhWnMKLS0tIFc3cUFRK1V6VnkrWmd5a1lMbC8x
+            ZHBHKy9nUmZ4WTFKaHFPdHQwZytlNmcK9YNowLClcvbykMt/bmiiwhpVXQNM2wu5
+            Otwq0wuA4YN4DzSa3o3JYxB5h+dA5Vi8R9hiRHBpgwdefPAm7x1PBQ==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age12xnm47mqs6rsw6e6fscva7s4pnaxmy2c7cvzfvx6knq497vx4s7qsp2u8g
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-09-20T05:16:54Z"
+    mac: ENC[AES256_GCM,data:f8OIkORpFd4fV6pQUVyb6zxftOsCbegbytJQk6HT3umfTX8GaUHYJWEmm5D34o+S7xHcZumC10HWqMQn/3AfkCw3KCRBNWjQkIOJClY1YlFxzRpFoswOY0n7lHJAnf+sokpdvaq1f74RGZywHiJycch9pwVgJLeE502Btovr8ps=,iv:KSoUyUxwwL5IBOLsAX50CNI6TJTG8L1jURjnHmZaGxY=,tag:piMMHwuD5GsKj+mg112n2w==,type:str]
+    version: 3.13.0

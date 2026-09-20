@@ -122,7 +122,8 @@ tasks:
   disk-plan:
     desc: READ-ONLY — PRESENT/MISSING per declared partition on every physical host
     cmds:
-      - task: play
+   task
+
         vars: {PLAYBOOK: '--tags storage -e host_disks_action=info {{.INFRA}}/14-host-base.yml'}
 
   firmware-plan:
