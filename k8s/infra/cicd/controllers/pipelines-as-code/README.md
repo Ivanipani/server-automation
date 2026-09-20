@@ -109,23 +109,3 @@ Preserve workspace paths and CalVer results when replacing the clone task.
 PaC applies its contributor authorization rules before running PR code. Keep
 default authorization in place and review pipeline changes before authorizing
 outside contributors: doghouse runs can access namespace secrets and BuildKit.
-
-## Cutover
-
-The pre-migration implementation is preserved by the local Jujutsu bookmark
-`legacy-tekton-ci` at `2f24e955`. The bookmark has not been pushed to a remote.
-
-This change removes Tekton Triggers, the EventListener, custom CloudEvent status
-sink, status PAT Secret, explicit status Task and resolver PAT configuration.
-Flux pruning removes their managed resources, including the Triggers CRDs and
-legacy Trigger objects. Existing webhook CI stops at reconciliation until the
-App, tunnel route and private `.tekton/` definitions are ready.
-
-`doghouse-ci` is suspended to prevent the private `./ci` tree from reconciling
-obsolete Trigger resources. Its existing secrets and other resources remain.
-In the private repository, remove legacy Triggers/TriggerTemplates/Bindings and
-migrate event pipelines into `.tekton/`. Keep persistent build secrets and any
-shared tasks under `./ci`. Then remove `spec.suspend` from `doghouse-ci` here.
-Update GitHub branch protection to the new check names after a successful run,
-remove old repository webhooks, and revoke the unused status/resolver PATs.
-The public repo cannot remove secrets still owned by the private Flux source.
