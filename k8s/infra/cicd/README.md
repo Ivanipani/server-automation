@@ -1,162 +1,45 @@
-# cicd — reusable Tekton CI/CD substrate
+# CI/CD — Tekton Pipelines as Code
 
-The **reusable, project-agnostic** half of the on-cluster CI/CD: Tekton itself,
-the build identity, the BuildKit backend, and the generic Tasks. Follows the
-`infra/<category>/{controllers,configs}` split used by `storage`/`database`.
+Projects own their `.tekton/` PipelineRuns. Pipelines as Code receives GitHub
+App events, resolves the pipeline from the triggering revision, executes it
+with Tekton, and reports GitHub checks. Doghouse is the first enrolled repository.
 
-The **app-specific** half (doghouse's lint-realms / verify / publish-auth-svc
-pipelines, the pin-release Task, the on-demand runs, and the CI secrets) is
-private IP and lives in the doghouse repo at `ci/doghouse`, reconciled by the
-`doghouse-ci` Flux Kustomization (`k8s/clusters/doghouse/apps.yaml`). Same
-public/private boundary as the apps tree: pointers + reusable infra are public
-here, doghouse pipelines are private.
+See [activation and project enrollment](controllers/pipelines-as-code/README.md)
+for GitHub App credentials, Cloudflare routing, a smoke pipeline, and cutover.
+The manifests are prepared; activation requires those external steps.
 
-## Layout
+## Platform ownership
 
-```
-cicd/
-  configs/tekton-ci/         # REUSABLE CI layer (Flux: cicd-configs)
-    namespace.yaml  rbac.yaml  buildkit.yaml
-    tasks/      clone-and-version · build-image · just-recipe   (project-agnostic;
-                caller supplies url / target / dockerfile / context / workdir / recipe)
-  images/ci-builder/         # build image (pants + buildx + git + just + uv); bootstrap once
-  controllers/               # Tekton itself (Flux: cicd-controllers)
-    tekton-pipelines/   CDF Helm chart (Pipelines + tekton.dev CRDs)
-    tekton-dashboard/   vendored upstream read-only release.yaml + Traefik Ingress
-    tekton-triggers/    vendored upstream release.yaml + interceptors.yaml (v0.33.0)
-    cloudflared/        Cloudflare Tunnel → EventListener (Flux: cloudflare-controllers)
-```
+- `controllers/tekton-pipelines`: Tekton execution engine via Helm, including
+  PVC workspace co-scheduling.
+- `controllers/pipelines-as-code`: pinned upstream controller, watcher and
+  admission webhook, reconciled after Tekton is Ready.
+- `controllers/tekton-dashboard`: read-only UI at <http://tekton.doghouse.lan>.
+- `controllers/tekton-pruner`: existing Tekton run cleanup.
+- `controllers/cloudflared`: outbound Cloudflare Tunnel; configure its remote
+  ingress to the Pipelines as Code controller service.
+- `configs/pipelines-as-code`: Repository enrollment, reconciled after PaC and
+  the shared build substrate are Ready.
+- `configs/tekton-ci`: build identity, rootless BuildKit, Pants cache, and
+  reusable `clone-and-version`, `build-image` and `just-recipe` Tasks.
 
-## Controllers (Flux-managed)
+Doghouse's application-specific pipelines and secrets remain private. Flux
+owns persistent resources; PaC owns event-driven PipelineRuns. The private
+`doghouse-ci` Flux import is suspended until its old Trigger resources are
+removed and its pipelines are migrated to `.tekton/`.
 
-`cicd/controllers/` installs Tekton itself, reconciled by the `cicd-controllers`
-Flux Kustomization (in `k8s/clusters/doghouse/infra.yaml`):
+## Build substrate
 
-- **`tekton-pipelines/`** — Tekton **Pipelines** via the CDF Helm chart
-  (`tekton-pipeline`, repo <https://cdfoundation.github.io/tekton-helm-chart/>).
-  The HelmRelease installs the `tekton.dev` CRDs (`crds: CreateReplace`) into the
-  `tekton-pipelines` namespace, then marks Ready. `cicd-configs`
-  `dependsOn cicd-controllers`, so the `tekton.dev/v1` Task CRs only apply once
-  those CRDs exist (same controllers→configs gating as `storage`/`database`).
-- **`tekton-dashboard/`** — the **read-only** Dashboard. No Helm chart exists for
-  it, so the pinned upstream `release.yaml` (v0.69.0) is vendored verbatim and
-  exposed at `tekton.doghouse.lan` via a Traefik Ingress (the DNS override lives in
-  the Ansible repo, like the other UIs).
+Builds use Pants and a remote rootless BuildKit daemon because the k3s nodes
+run containerd. `build-image` supports verification and publishing; `just-recipe`
+runs a project-owned recipe. The SSH-based `clone-and-version` task derives
+CalVer from the checked-out commit. See the enrollment guide before switching
+checkout to PaC's HTTPS App token.
 
-- **`tekton-triggers/`** — Tekton **Triggers**, vendored verbatim (pinned
-  v0.33.0 `release.yaml` + `interceptors.yaml`; no chart on the CDF repo). Adds
-  the Triggers controller/webhook, the EventListener/TriggerBinding/Template CRDs,
-  the `github`/`cel` ClusterInterceptors, and the `tekton-triggers-eventlistener-*`
-  ClusterRoles. The shared `github-listener` EventListener + its SA/bindings (the
-  GitHub-webhook entrypoint) are project-agnostic and live in
-  `configs/tekton-ci/github-listener.yaml`; it binds per-project Trigger CRs by
-  label, and those Triggers are doghouse IP in the private repo, next to source.
+The `tekton-ci-bot` account references the private repo's `gar-pull` Secret.
+BuildKit requires the existing privileged namespace policy. The shared Pants
+cache uses a Longhorn RWO PVC; concurrent runs on different nodes can contend.
+Keep runs using this cache on the same worker or migrate the cache to RWX.
 
-- **`cloudflared/`** — the **Cloudflare Tunnel** that gives GitHub a public path
-  to the internal-only cluster: `cloudflared` dials out to Cloudflare's edge and
-  forwards the webhook hostname to the `el-github-listener` Service. Reconciled by
-  its own `cloudflare-controllers` Flux Kustomization — the only one here with
-  SOPS decryption (for the committed tunnel token); `cicd-controllers` never sees
-  it (not listed in the controllers kustomization).
-
-## Reusable configs (Flux-managed)
-
-`cicd/configs/tekton-ci/` is reconciled by `cicd-configs`. It carries no app
-assumptions:
-
-- **`namespace.yaml`** — the `tekton-ci` namespace (privileged PSA for rootless
-  BuildKit's `/dev/fuse` + unconfined seccomp).
-- **`rbac.yaml`** — `tekton-ci-bot`, the identity every PipelineRun runs as. Its
-  only right is the `gar-pull` imagePullSecret (applied by `doghouse-ci`; the SA
-  tolerates it being absent until then).
-- **`buildkit.yaml`** — the long-lived rootless `buildkitd` that pants' buildx
-  `remote` driver targets (k3s nodes are containerd, no docker daemon).
-- **`pants-cache.yaml`** — a shared, long-lived RWO Longhorn PVC holding the pants
-  bootstrap caches (NCE venv, plugin resolve, provisioned interpreters, uv cache).
-  `just-recipe` / `build-image` relocate `HOME` here when the optional
-  `pants-cache` workspace is bound, so runs stop starting cold; the write-heavy
-  lmdb local store stays pinned to the per-run `source` workspace. One cache for
-  every project, not one per project. RWO multi-attaches only same-node (like
-  `buildkit-cache`), so concurrent cross-node TaskRuns contend — pin CI to one
-  node via the PipelineRun `podTemplate` for now, or move to RWX.
-- **`tasks/clone-and-version.yaml`** — clone a repo at a revision and derive the
-  CalVer tag from git (UTC commit timestamp → `YYYY.MM.DD.HHMMSS` + short sha).
-- **`tasks/build-image.yaml`** — build (`push=false`, no-export buildx) or publish
-  (`push=true`, `pants publish`) an image. The caller supplies `target` /
-  `dockerfile` / `context`.
-- **`tasks/just-recipe.yaml`** — run a `just` recipe in a project dir of the
-  checkout (`test` / `build` / `publish`). The project's justfile owns what each
-  verb does (pants + twine); the caller supplies `workdir` / `recipe` (and an
-  optional `version` → `VERSION`, plus a `gar-creds` workspace →
-  `GOOGLE_APPLICATION_CREDENTIALS` for twine publishes). Used by the
-  service-utils pipelines.
-- **`cloudevents-sink.yaml`** — **automatic GitHub PR checks for every
-  pipeline.** Tekton's `config-events` sink (patched onto the Pipelines
-  controller in `controllers/tekton-pipelines/release.yaml`) emits a CloudEvent
-  on every PipelineRun transition cluster-wide; this stdlib-Python sink
-  Deployment translates each into a GitHub commit status. A pipeline reports a PR
-  check **for free** — no `github-set-status` wiring. **Enrollment contract**:
-  the project's TriggerTemplate stamps two annotations on the PipelineRun it
-  creates (both required; sourced from the webhook payload):
-  ```yaml
-  metadata:
-    annotations:
-      ci.doghouse/repo-full-name: Ivanipani/doghouse   # owner/repo
-      ci.doghouse/sha: $(tt.params.sha)                # PR head sha
-      # optional:
-      ci.doghouse/context: doghouse/verify             # default = pipeline name
-      ci.doghouse/target-url: ...                       # default = dashboard run
-  ```
-  Runs missing either required annotation are ignored (manual/on-demand runs pass
-  through). One status `context` per pipeline ⇒ many enrolled projects render as
-  **parallel** checks on the same PR. The sink authenticates with a single org
-  PAT (`Commit statuses: R/W`) from the SOPS-encrypted `github-status` Secret
-  (`github-status.sops.yaml`, decrypted by `cicd-configs`; the mount is optional
-  so the sink no-ops until it lands). The `github-set-status` Task stays for
-  explicit in-pipeline statuses the sink can't express.
-
-## Architecture
-
-```
-PipelineRun (on demand)                       buildkitd (rootless, in-cluster)
-  └─ clone-and-version  git → CalVer + sha            ▲ remote driver (tcp 1234)
-       └─ lint-realms   (doghouse) realm guardrail    │
-            └─ build-image                            │
-                 verify  : buildx build (no push) ────┘
-                 publish : pants publish → GAR (latest + CalVer)
-                      └─ pin-release  (doghouse) tag → git push main → Flux rollout
-```
-
-- **Build engine: pants + BuildKit.** k3s nodes are amd64/containerd (no docker
-  daemon), so a rootless `buildkitd` runs in-cluster and pants' buildx `remote`
-  driver targets it. The publish path stays on `pants publish`; PR verify is a
-  no-export `buildx build` (the remote driver can't `--load` without a daemon).
-- **CalVer from git.** CI re-derives the tag from the git checkout (UTC commit
-  timestamp → `YYYY.MM.DD.HHMMSS`).
-- **Webhooks live (service-utils).** The shared `github-listener` EventListener
-  (`configs/tekton-ci/github-listener.yaml`) fires `verify`/`publish` on GitHub
-  PR/push events by binding per-project Trigger CRs by label; a Cloudflare Tunnel
-  bridges GitHub to the internal-only cluster. service-utils' Triggers + pipelines
-  are doghouse IP, next to the source in the private repo
-  (`src/libraries/service-utils/ci`). On-demand `PipelineRun`s remain for manual
-  kicks; the auth-svc pipelines are still on-demand only.
-
-## Activation
-
-1. **Bootstrap the build image** (one-time; defaults to amd64 for the cluster
-   nodes, `FROM --platform` pins the manifest even from an arm64 host):
-   ```sh
-   just ci-builder          # build + push amd64 to GAR (just ci-builder arm64 for arm64)
-   ```
-2. **Flux is already wired** — `cicd-controllers` + `cicd-configs` (this repo) and
-   `doghouse-ci` (private repo). Commit and reconcile; Flux installs Tekton, then
-   the reusable substrate, then the doghouse pipelines + secrets.
-3. **Author the doghouse CI secrets** — see `ci/doghouse/secrets/README.md` in the
-   doghouse repo.
-4. **Run on demand** — from the doghouse repo:
-   ```sh
-   kubectl create -n tekton-ci -f ci/doghouse/runs/publish-auth-svc.run.yaml
-   kubectl create -n tekton-ci -f ci/doghouse/runs/verify.run.yaml
-   ```
-   Watch in the dashboard at <http://tekton.doghouse.lan> (read-only) or with
-   `tkn -n tekton-ci pipelinerun logs --last -f`.
+The old Triggers and custom GitHub status implementation are removed. Its
+pre-migration revision is retained as local Jujutsu bookmark `legacy-tekton-ci`.

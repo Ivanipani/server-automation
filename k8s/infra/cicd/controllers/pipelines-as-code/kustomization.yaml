@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - release.yaml
+patches:
+  - target:
+      kind: ConfigMap
+      name: pipelines-as-code
+    patch: |
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: pipelines-as-code
+        namespace: pipelines-as-code
+      data:
+        tekton-dashboard-url: http://tekton.doghouse.lan
+        trusted-provider-hostnames: github.com
+        secret-github-app-token-scoped: "true"

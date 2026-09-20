@@ -1,0 +1,9 @@
+apiVersion: pipelinesascode.tekton.dev/v1alpha1
+kind: Repository
+metadata:
+  name: doghouse
+  namespace: tekton-ci
+spec:
+  url: https://github.com/Ivanipani/doghouse
+  settings:
+    pipelinerun_provenance: source

@@ -9,7 +9,7 @@ kind: Kustomization
 # Public Hostname.
 #
 # Public hostnames served by this tunnel:
-#   - <webhook hostname>       -> el-github-listener.tekton-ci.svc.cluster.local:8080
+#   - <webhook hostname>       -> pipelines-as-code-controller.pipelines-as-code.svc.cluster.local:8080
 #                                 (GitHub webhook entrypoint)
 #   - canciones.poochella.club -> http://traefik.kube-system.svc.cluster.local:80
 #                                 (public song-viewer site; Traefik routes by Host

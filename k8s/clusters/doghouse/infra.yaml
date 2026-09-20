@@ -206,6 +206,47 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
+  name: pipelines-as-code-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./k8s/infra/cicd/controllers/pipelines-as-code
+  prune: true
+  wait: true
+  dependsOn:
+    - name: cicd-controllers
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: pipelines-as-code-configs
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./k8s/infra/cicd/configs/pipelines-as-code
+  prune: true
+  wait: true
+  dependsOn:
+    - name: pipelines-as-code-controllers
+    - name: cicd-configs
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
   name: cloudflare-controllers
   namespace: flux-system
 spec:
@@ -246,9 +287,3 @@ spec:
   wait: true
   dependsOn:
     - name: cicd-controllers
-  # The cloudevents sink's GitHub PAT (github-status.sops.yaml) is SOPS-encrypted;
-  # decrypt with the cluster sops-age key (installed in flux-system by Ansible).
-  decryption:
-    provider: sops
-    secretRef:
-      name: sops-age
