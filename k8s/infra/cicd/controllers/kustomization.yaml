@@ -5,3 +5,5 @@ resources:
   - tekton-pipelines
   - tekton-dashboard
   - tekton-pruner
+  - pipelines-as-code
+  - cloudflared
