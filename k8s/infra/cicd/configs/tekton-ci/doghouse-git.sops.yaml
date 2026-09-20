@@ -1,0 +1,23 @@
+apiVersion: v1
+data:
+    id_ed25519: ENC[AES256_GCM,data:59HvBLSnuOIRbMGaCTsC146Ag+8hDUnIwij0bf7l2YAYf+j8dUZBzZYbo/kdMKsRlezOP0k3mVT1BUmYrw4eFf2bM9usjPwLoYpr9zz7uvtCVnudWj0rxEOHh+YXCLg3pC+cTmy5/9lCl9xIP/em0B299voNn2bWlgyvcbnVr78jb8IIzOYyO19MHZW1hjVgAeq+yXzVRqJoq6qmTE/Xtj19aN9OPpEtik8BtyNyqr8mMGX24qvl/YoUMPIswtOsXtyDLkroIU6GIYX1488SxXMYh8CWx1rTEpGHjyXlFac4IFaO93KdKIP4sBukDHKSBzaxkMxaIxSGLdcVxnHY3vq974nQtBXLG5inqytR1Zgdf1MonkLpsAPRooXLejjpli7POMY6sqHWqHPg83o3cHqYes4BvAZNJIDubWM7vmuVyF1ofTOWD8RD3HqxvAmcfxuW673tK6k+0jVWrz/WHplt4FbtHd21vnYEg9s7+fsxw9sMmB1jGTXaFdxH/sEZRot8gSOnt+Sc0oEFUyja1eCi1mtuWtYH0EyrPtRkSpFRRTpIuPZbXxczr3RfX6q5Vd0wN8uCIjw6V1H3qEAG8hzpgRGew0zY0XXsrwsxiDnBafkBPkYzPIP7AIHP5mEMPewAGY+FY9oAS52sJ/diQjHAa4yshSww5Q2ZZ9DoAwzSwkyoOu3L7TuyLCxVPbPWujqtUA==,iv:xCZUSGvKKX1dW0LWQshp9SPsluACLHTAgPFckVTd2ZM=,tag:PtHByXcMbDrj4/SBuRyhnw==,type:str]
+kind: Secret
+metadata:
+    creationTimestamp: null
+    name: doghouse-git
+    namespace: tekton-ci
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBFaUs5N1d0Ui9iT1BoOFFx
+            RzFoVTlMbkdkTGNZM3EwMVgzNCsrNkpWbWxRCkNHSzlpTjFqbTIvOG92UU9hV2li
+            WWJyN1pMYXhOdVNlRUVnbHBRTnA3N1EKLS0tIFpCMkFBR3pPK2hpdEZLNk1rcnE0
+            SGxlNXhHU3F6TmtvMzNLa2RlZUdqVEUKv1cYgL/+i0Xdo/o8GLiTaPHQd9dySyqD
+            JreLp0zjkwMobR04HqFuceZoFDlWT+JukWPvVy39Zl1800gl2H5jXA==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age12xnm47mqs6rsw6e6fscva7s4pnaxmy2c7cvzfvx6knq497vx4s7qsp2u8g
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-06-17T03:55:49Z"
+    mac: ENC[AES256_GCM,data:/hRZu4Dk8SDQy9fx1PagHKQeFSgmnTPnEFJSWQ02YULTa91dPnaz0Qlh7CSUNpy0aloxwBVs9kDPPI7X0tKdG/5bDM2x1fwyiKnQ9BO8b1qYzFY4jc9hjCQZRhhRPekOH+XOjJKh42tEJN0+4EN3TP96Fm4FkWyyp7k9YI2tgzo=,iv:5VOhRdBSXUqV/GCIktLl8w4XMANP3fHrP65OBCuNkKI=,tag:qahG0hGrSdsrTvM14m5hlQ==,type:str]
+    version: 3.13.0

@@ -225,3 +225,8 @@ spec:
   wait: true
   dependsOn:
     - name: cicd-controllers
+  decryption:
+    # tekton-ci gar-pull / doghouse-git / gar-python are SOPS-encrypted.
+    provider: sops
+    secretRef:
+      name: sops-age

@@ -9,3 +9,6 @@ resources:
   - common-tasks/clone-and-version.yaml
   - common-tasks/build-image.yaml
   - common-tasks/just-recipe.yaml
+  - gar-pull.sops.yaml
+  - doghouse-git.sops.yaml
+  - gar-python.sops.yaml
