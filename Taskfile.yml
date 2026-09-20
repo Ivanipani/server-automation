@@ -1,0 +1,207 @@
+version: '3'
+
+# Interactive developer shortcuts. Extra ansible args go after `--`, e.g.
+#   task kube -- --tags flux --check
+# Agents/CI call ansible-playbook, pants, sops etc. directly.
+
+vars:
+  VAULT_PASS: '{{.ROOT_DIR}}/secrets/ansible-pass'
+  INFRA: playbooks/poochella/infra
+
+tasks:
+  default:
+    desc: List tasks
+    silent: true
+    cmds:
+      - task --list
+
+  # --- internal helper -------------------------------------------------
+  play:
+    internal: true
+    dir: '{{.ROOT_DIR}}/ansible'
+    requires:
+      vars: [PLAYBOOK]
+    cmds:
+      - ansible-playbook --vault-password-file {{.VAULT_PASS | shellQuote}} {{.CLI_ARGS}} {{.PLAYBOOK}}
+
+  # --- control node ----------------------------------------------------
+  install:
+    desc: Install ansible and galaxy collections on this workstation
+    dir: '{{.ROOT_DIR}}/ansible'
+    cmds:
+      - uv tool install ansible-core --with passlib --with httpx --force
+      - ansible-galaxy install -r requirements.yml
+
+  check:
+    desc: Read-only check of control-node CLIs, python packages and collections
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: components/control-node/site.yml --tags deps}
+
+  control-node:
+    desc: Layer 0 — stage ansible keypair + inventory symlink on this workstation
+    aliases: [stage-ansible-key]
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: components/control-node/site.yml}
+
+  ping:
+    desc: Ansible ping every host
+    dir: '{{.ROOT_DIR}}/ansible'
+    cmds:
+      - ansible all -m ping
+
+  run:
+    desc: fzf-pick any playbook and run it (extra args after --)
+    deps: [check]
+    dir: '{{.ROOT_DIR}}/ansible'
+    interactive: true
+    cmds:
+      - |
+        selected=$(find playbooks components -name '*.yml' -type f \
+          -not -path '*/roles/*' -not -path '*/vars/*' -not -path '*/tasks/*' \
+          | sort | fzf) || exit 0
+        echo "Running $selected"
+        ansible-playbook --vault-password-file "$VAULT_PASS" {{.CLI_ARGS}} "$selected"
+    env:
+      VAULT_PASS: '{{.VAULT_PASS}}'
+
+  # --- fleet components (apply) ----------------------------------------
+  router:
+    desc: Layer 3 — OPNsense DHCP/DNS/PXE + tailnet router
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: '{{.INFRA}}/10-router.yml'}
+
+  nas:
+    desc: Layer 3 — Synology DSM shares/NFS
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: '{{.INFRA}}/12-nas.yml'}
+
+  host-base:
+    desc: Layer 1 — baremetal baseline (users, ssh, firewall, disks, ...)
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: '{{.INFRA}}/14-host-base.yml'}
+
+  bootserv:
+    desc: Netboot server role on the bootserv group
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: '{{.INFRA}}/15-bootserv.yml'}
+
+  bootserv-sync-templates:
+    desc: Re-sync iPXE/preseed templates only
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: '{{.INFRA}}/15-bootserv.yml --start-at-task "Copy iPXE chainload binaries into TFTP root"'}
+
+  kube:
+    desc: Layer 4 — k3s + Longhorn prep + Flux (e.g. task kube -- --tags flux)
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: '{{.INFRA}}/40-kube.yml'}
+
+  # --- verify / read-only ---------------------------------------------
+  verify:
+    desc: Run every component's assert-only verify.yml
+    cmds:
+      - for: [control-node, router, nas, host-base, kube]
+        task: play
+        vars: {PLAYBOOK: 'components/{{.ITEM}}/tests/verify.yml'}
+
+  verify:*:
+    desc: Assert-only smoke test for one component (control-node|router|nas|host-base|kube)
+    vars:
+      COMPONENT: '{{index .MATCH 0}}'
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: 'components/{{.COMPONENT}}/tests/verify.yml'}
+
+  disk-plan:
+    desc: READ-ONLY — PRESENT/MISSING per declared partition on every physical host
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: '--tags storage -e host_disks_action=info {{.INFRA}}/14-host-base.yml'}
+
+  firmware-plan:
+    desc: READ-ONLY — refresh LVFS metadata, list available firmware updates
+    cmds:
+      - task: play
+        vars: {PLAYBOOK: '{{.INFRA}}/firmware-plan.yml'}
+
+  # --- execution environment -------------------------------------------
+  ee-context:
+    desc: Refresh the checked-in ansible-builder context
+    dir: '{{.ROOT_DIR}}/ansible'
+    cmds:
+      - uvx --from ansible-builder==3.1.1 ansible-builder create --file execution-environment.yaml --context context --output-filename Dockerfile
+
+  ee-build:
+    desc: Build the ansible execution environment image into local Docker
+    cmds:
+      - task: ee-context
+      - pants package ansible/context:ee
+
+  ee:
+    desc: Run a command inside the execution environment (default ansible --version)
+    cmds:
+      - |
+        docker run --rm -i --user "$(id -u):0" \
+          --env HOME=/tmp --env ANSIBLE_CONFIG=/workspace/ansible/ansible.cfg \
+          --env ANSIBLE_PRIVATE_KEY_FILE=/ssh/ansible \
+          --mount type=bind,src="$ROOT",dst=/workspace,readonly \
+          --mount type=bind,src="$HOME/.ssh",dst=/ssh,readonly \
+          --workdir /workspace/ansible \
+          "ansible-ee:${ANSIBLE_EE_TAG:-latest}" ${CLI_ARGS:-ansible --version}
+    env:
+      ROOT: '{{.ROOT_DIR}}'
+      CLI_ARGS: '{{.CLI_ARGS}}'
+
+  ci-builder:
+    desc: Build & push the CI builder image to GAR (ARCH=amd64 TAG=latest)
+    vars:
+      ARCH: '{{.ARCH | default "amd64"}}'
+      TAG: '{{.TAG | default "latest"}}'
+    env:
+      CI_BUILDER_PLATFORM: linux/{{.ARCH}}
+      CI_BUILDER_TAG: '{{.TAG}}'
+    cmds:
+      - pants publish k8s/infra/cicd/images/ci-builder:ci-builder
+
+  # --- secrets (elysium) -----------------------------------------------
+  secret:
+    desc: fzf-pick any ansible-vault or SOPS secret and print it decrypted
+    interactive: true
+    cmds:
+      - elysium get
+
+  secret-set:
+    desc: Encrypt a variable into the vault (task secret-set -- [NAME])
+    interactive: true
+    cmds:
+      - elysium ansible set {{.CLI_ARGS}}
+
+  sops-edit:
+    desc: fzf-pick a *.sops.yaml and edit it decrypted
+    interactive: true
+    cmds:
+      - elysium sops edit {{.CLI_ARGS}}
+
+  sops-encrypt:
+    desc: Encrypt a plaintext *.sops.yaml in place
+    interactive: true
+    cmds:
+      - elysium sops encrypt {{.CLI_ARGS}}
+
+  # --- cluster ---------------------------------------------------------
+  headlamp-token:
+    desc: Print the Headlamp admin token
+    cmds:
+      - kubectl -n headlamp get secret headlamp-token -o jsonpath='{.data.token}' | base64 -d; echo
+
+  reconcile:
+    desc: Force Flux to pull the latest apps source
+    cmds:
+      - flux reconcile source git doghouse-apps
