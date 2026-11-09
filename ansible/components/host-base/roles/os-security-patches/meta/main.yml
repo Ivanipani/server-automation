@@ -1,0 +1,14 @@
+---
+# os-security-patches role
+#
+# Upgrades the packages named in os_security_patches_minimum_versions
+# to the newest version the host's apt sources offer, then asserts each
+# is at or above its floor. Packages that aren't installed are skipped.
+#
+# `os_security_patches_enabled: false` is a no-op: a security upgrade
+# is not reversed by downgrading.
+dependencies: []
+
+galaxy_info:
+  role_name: os-security-patches
+  description: Targeted security package upgrades with minimum-version floors

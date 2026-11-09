@@ -1,0 +1,6 @@
+---
+- import_tasks: install.yml
+  when: os_security_patches_enabled
+
+- import_tasks: check.yml
+  when: os_security_patches_enabled

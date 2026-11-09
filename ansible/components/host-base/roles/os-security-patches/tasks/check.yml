@@ -1,0 +1,28 @@
+---
+- name: Read installed security package versions
+  ansible.builtin.command: "dpkg-query -W -f '${Version}' {{ item }}"
+  loop: "{{ os_security_patches_minimum_versions.keys() | list }}"
+  register: os_security_patches_installed
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Compare against minimum versions
+  ansible.builtin.command: "dpkg --compare-versions {{ item.stdout | quote }} ge {{ os_security_patches_minimum_versions[item.item] | quote }}"
+  loop: "{{ os_security_patches_installed.results | selectattr('rc', 'eq', 0) | list }}"
+  loop_control:
+    label: "{{ item.item }} {{ item.stdout }}"
+  register: os_security_patches_compare
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Every installed security package meets its floor
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+    fail_msg: "{{ item.item.item }} {{ item.item.stdout }} is below {{ os_security_patches_minimum_versions[item.item.item] }}"
+    quiet: true
+  loop: "{{ os_security_patches_compare.results }}"
+  loop_control:
+    label: "{{ item.item.item }}"

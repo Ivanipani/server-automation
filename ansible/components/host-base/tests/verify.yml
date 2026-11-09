@@ -130,3 +130,9 @@
         fail_msg: "node_exporter not active — run `just host-base`."
         quiet: true
       when: node_exporter_enabled | default(true)
+
+    - name: Security patches meet their minimum versions
+      ansible.builtin.include_role:
+        name: os-security-patches
+        tasks_from: check
+      when: os_security_patches_enabled | default(true)

@@ -1,0 +1,6 @@
+---
+os_security_patches_enabled: true
+# Package name -> minimum fixed Debian version. Every key is upgraded
+# in place (never newly installed); the role fails if a host is still
+# below the floor afterwards.
+os_security_patches_minimum_versions: {}

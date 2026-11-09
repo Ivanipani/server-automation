@@ -3,7 +3,7 @@ name: host-base
 layer: 1
 description: >-
   Baseline for every baremetal Linux host: bootstrap the
-  ansible/pani/tourmanager users, lock root, SSH-harden sshd, a
+  ansible/pani/tourmanager users, lock root, SSH-harden sshd, security package floors, a
   default-deny firewall, the dynamic poochella MOTD, node-local disks
   realised into LVM-thin pools (PVE storage or ext4 mounts), NAS NFS
   shares mounted, the e1000e NIC-offload workaround, the fwupd/LVFS

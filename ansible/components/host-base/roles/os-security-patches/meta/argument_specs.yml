@@ -1,0 +1,22 @@
+---
+argument_specs:
+  main:
+    short_description: Targeted security package upgrades with minimum-version floors
+    author:
+      - Ivan Perdomo
+    options:
+      os_security_patches_enabled:
+        type: bool
+        default: true
+        description: "False skips the role. Upgrades are never rolled back."
+      os_security_patches_minimum_versions:
+        type: dict
+        default: {}
+        description: Package name -> minimum fixed Debian version (dpkg --compare-versions ge).
+  check:
+    short_description: Assert installed packages meet their minimum versions
+    options:
+      os_security_patches_minimum_versions:
+        type: dict
+        default: {}
+        description: Package name -> minimum fixed Debian version.

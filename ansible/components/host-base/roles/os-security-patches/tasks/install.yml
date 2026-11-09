@@ -1,0 +1,8 @@
+---
+- name: Upgrade security packages
+  ansible.builtin.apt:
+    name: "{{ os_security_patches_minimum_versions.keys() | list }}"
+    state: latest
+    only_upgrade: true
+    update_cache: true
+  when: os_security_patches_minimum_versions | length > 0

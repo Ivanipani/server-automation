@@ -27,6 +27,7 @@
   register: ansible_ssh
   ignore_errors: true
   changed_when: false
+  check_mode: false
 
 - name: Set bootstrap user
   ansible.builtin.set_fact:

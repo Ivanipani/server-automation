@@ -19,7 +19,9 @@
     fallback_user: root
   roles:
     - role: ssh-bootstrap-detect
-      tags: [bootstrap]
+      # always: the next play's remote_user needs bootstrap_user even on
+      # single-tag runs (e.g. --tags security-patches).
+      tags: [bootstrap, always]
 
 - name: Apply baseline (host-base role)
   hosts: "{{ host_base_hosts | default('physical') }}"
@@ -50,6 +52,13 @@
   roles:
     - role: ssh-hardening
       tags: [ssh-hardening]
+
+- name: Apply security package patches
+  hosts: "{{ host_base_hosts | default('physical') }}"
+  become: true
+  roles:
+    - role: os-security-patches
+      tags: [security-patches]
 
 - name: Configure host firewall
   hosts: "{{ host_base_hosts | default('physical') }}"
